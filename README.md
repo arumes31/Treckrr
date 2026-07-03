@@ -1,162 +1,189 @@
-# Treckrr
+# Treckrr 🚜
 
-Treckrr ist eine mobile‑optimierte **PWA** zur **Abrechnung von Traktor‑ und
-Maschinenkosten** in der bäuerlichen Nachbarschaftshilfe. Die Anwendung ersetzt
-die Excel‑Datei *Noppanschoftshilfe.xlsx*: Kosten werden pro **Nachbar** und
-**Jahr** erfasst, automatisch berechnet und lassen sich als CSV exportieren.
+Treckrr is a mobile-first **Progressive Web App** for billing **tractor and
+machine costs** in agricultural neighbourly help (*Nachbarschaftshilfe*). It
+replaces a hand-maintained spreadsheet: work is booked per **neighbour** and
+**year**, priced automatically from a shared rate basis, and exported to CSV.
 
-Geschrieben in **Go**, Daten in **PostgreSQL**, Auslieferung über **Docker**.
+Written in **Go**, data in **PostgreSQL**, shipped with **Docker**. No CDNs — all
+CSS/JS/icons are served locally. Only two Go dependencies (`pgx`, `x/crypto`).
 
----
+[![CI](https://github.com/d0linger/Treckrr/actions/workflows/ci.yml/badge.svg)](https://github.com/d0linger/Treckrr/actions/workflows/ci.yml)
+[![Security](https://github.com/d0linger/Treckrr/actions/workflows/security.yml/badge.svg)](https://github.com/d0linger/Treckrr/actions/workflows/security.yml)
+![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+![PWA](https://img.shields.io/badge/PWA-installable-5A0FC8)
 
-## Funktionsumfang
-
-- **Kostenberechnung** nach dem Modell der Original‑Excel:
-  - Traktor‑Stundensatz = `PS × Kosten €/PS·h` (Belastungsstufe *leicht/mittel/schwer*)
-  - Maschinen‑Stundensatz = `Arbeitsbreite × Kosten €/AB·h`
-  - Gespann‑Stundensatz = Traktor + Summe der Maschinen
-  - Buchungskosten = `Stunden × Gespann‑Stundensatz`
-- **Abrechnungsjahre** (Abrechnung je Kalenderjahr) – vom Nutzer selbst angelegt:
-  - Jedes Jahr **wählt eine Bemessungsgrundlage** aus (siehe unten) und hat eine
-    **eigene Nachbarn‑Auswahl**.
-  - Schneller Wechsel zwischen Jahren über die **Jahres‑Pills** in der Übersicht.
-  - **Status je Jahr**: *In Bearbeitung* oder *Abgeschlossen*.
-    - Nach dem Abschließen sind **keine neuen Buchungen und keine Löschungen** mehr
-      möglich (Jahr ist gesperrt); bei Bedarf lässt sich das Jahr wieder öffnen.
-    - Nach dem Abschließen steht je Nachbar ein **Zahlungsstatus** zur Verfügung,
-      der **standardmäßig auf *Offen*** steht und per Klick auf *Bezahlt*
-      umgeschaltet wird, inkl. Summen „Bezahlt / Offen".
-  - Nachbarn werden je Jahr **hinzugefügt** (bestehende auswählen oder neu anlegen)
-    oder **granular vom Vorjahr übernommen** (Häkchen je Nachbar bzw. alle).
-- **Zentrale Nachbarn‑Verwaltung** (Menü *Nachbarn*): global anlegen und umbenennen.
-  Nachbarn **mit Buchungen können nicht gelöscht**, sondern nur **deaktiviert**
-  (und später **reaktiviert**) werden – bestehende Buchungen bleiben unverändert.
-- **Bemessungsgrundlagen** (erscheinen nur alle paar Jahre neu):
-  - Werden von **mehreren Abrechnungsjahren gemeinsam genutzt**.
-  - **Name und „gültig ab"-Jahr editierbar**; eine neue Grundlage kann die Werte
-    einer bestehenden **übernehmen**; die Ausgangsgrundlage bleibt **unverändert**.
-  - **Löschbar, solange keine** Abrechnungsjahr sie verwendet; sonst **sperrbar**
-    (schreibgeschützt einfrieren).
-  - **Kosten** und **Gespanne** werden je Grundlage in einem Arbeitsbereich mit
-    **Zurück‑Button** und **Unter‑Tabs** verwaltet.
-- **Globale Verwaltung** von Traktoren, Maschinen und Belastungsstufen je Grundlage;
-  Traktoren und Maschinen sind **deaktivierbar/reaktivierbar** – deaktivierte werden
-  bei neuen Buchungen nicht mehr angeboten, bleiben aber für bestehende Buchungen
-  erhalten (nachvollziehbar, keine Datenverluste).
-- **Stammdaten‑Komfort**: **Reihenfolge** (Sortierung) für Traktoren, Maschinen und
-  Gespanne; **Kategorien/Tags** für Maschinen mit Filter; **Gespann‑Kostenaufschlüsselung**
-  (Traktor + je Maschine + Summe); **Grundlagen‑Vergleich** zeigt die Auswirkung
-  (Diff/%) einer Grundlage gegenüber einer anderen.
-- **Fixe Gespanne** (z. B. *Mähen = 4095 + Heckmähwerk + Frontmähwerk + mittel*)
-  **oder** freie, manuelle Kombination bei der Buchung – mit Live‑Vorschau des
-  Stundensatzes.
-- **Buchungen**: einzeln anlegen, **bearbeiten**, **Schnellerfassung** mehrerer Zeilen,
-  **stornieren** (bleibt sichtbar, zählt nicht mehr; wieder aktivierbar) oder löschen;
-  clientseitige **Pflichtfeld‑Validierung**. In abgeschlossenen Jahren gesperrt.
-- **Nachbar‑Ansicht** wie in der Excel: übersichtliche **Gesamtübersicht** aller
-  Buchungen (Datum, Tätigkeit inkl. Gespann‑Detail, Stunden, Kosten) mit Summenzeile
-  plus **Zusammenfassung nach Tätigkeit**; **Jahres‑Verlauf** je Nachbar mit
-  **Zahlungshistorie**; **CSV‑Export** (Excel‑kompatibel) je Jahr und Nachbar.
-- **Statistik** (`/stats`): Kennzahlen (Umsatz, Stunden, bezahlt/offen), **Balken‑Diagramme**
-  je Nachbar/Tätigkeit/Traktor (lokal gerendert, kein JS‑Framework) und **Jahresvergleich**.
-- **Rollen & Rechte**: *Administrator*, *Erfasser*, *Nur‑Lesen*. **Passwort‑Richtlinie**
-  (min. 8 Zeichen, Buchstaben + Ziffern), erzwungene Passwortänderung, **Zwei‑Faktor (TOTP)**,
-  **Sitzungsverwaltung** (aktive Sitzungen anzeigen/beenden) und **Login‑Rate‑Limit**
-  gegen Brute‑Force. **Admin** wird per Docker‑ENV festgelegt.
-- **Dark Mode** (Hell / Dunkel / Automatisch, im Profil umschaltbar) und **Live‑Suche**
-  in Nachbarn‑Listen.
-- **Logging & Audit‑Trail**: Jeder Zugriff wird als Zeile in den Server‑Logs
-  protokolliert (`docker compose logs app`: Methode, Pfad, Status, Dauer, Benutzer, IP);
-  daten‑ und sicherheitsrelevante Aktionen landen zusätzlich im **Protokoll**
-  (Admin → *Protokoll*, `/admin/audit`) mit **Suche, Aktions‑Filter und CSV‑Export**.
-- **Automatische DB‑Backups** (optionaler Compose‑Dienst): `docker compose --profile backup up -d`
-  legt täglich Dumps in `./backups` ab (Aufbewahrung konfigurierbar). Manuell:
-  `sh scripts/backup.sh`, Wiederherstellung: `sh scripts/restore.sh <dump>`.
-- **PWA**: installierbar, Offline‑Fallback, lokale Assets (kein CDN), moderne CSS‑UI
-  mit **modalen Dialogen** (natives `<dialog>`) für Bestätigungen statt Browser‑Popups.
-  Statische Assets sind **content‑gehasht versioniert** (`?v=…`) und der Service‑Worker
-  aktualisiert seinen Cache automatisch bei neuen Builds.
+> **Note on language:** the user interface is **German** (the app targets a
+> German-speaking farming context). The codebase, docs and configuration are in
+> English so the project is easy to fork and adapt.
 
 ---
 
-## Schnellstart (Docker)
+## The cost model
 
-Voraussetzung: Docker mit Compose.
+The hourly rates come straight from the original spreadsheet:
+
+| Element | Formula |
+|---|---|
+| Tractor rate | `PS × cost-per-PS/h` (load level *light / medium / heavy*) |
+| Machine rate | `working-width × cost-per-width/h` |
+| Rig (*Gespann*) rate | tractor rate + Σ machine rates |
+| Booking cost | `hours × rig rate` |
+
+Two concepts are deliberately separated:
+
+- **Rate basis** (*Bemessungsgrundlage*) — the price list, published only every
+  few years and **shared by several billing years**. Holds tractors, machines,
+  load levels and fixed rigs.
+- **Billing year** (*Abrechnungsjahr*) — a calendar year you create yourself. It
+  **picks one rate basis** and has its **own set of neighbours**.
+
+Bookings store a **frozen price snapshot**, so historical exports never change
+when a basis is edited later.
+
+---
+
+## Features
+
+**Billing years**
+- Create a year, pick its rate basis, add neighbours (existing, new, or carried
+  over from the previous year with per-neighbour checkboxes).
+- Fast year switching via pills; **status** *in progress* / *completed*.
+- Completing a year **locks bookings** (no create/delete) and enables a
+  per-neighbour **payment status** (*open* by default → *paid*), with paid/open
+  totals. Years can be reopened.
+
+**Neighbours**
+- Central management: create/rename globally. Neighbours **with bookings can’t be
+  deleted**, only **deactivated / reactivated** — existing bookings stay intact.
+- Per-neighbour cross-year history incl. payment history.
+
+**Rate bases & master data**
+- Editable name and “valid-from” year; clone values into a new basis (source
+  stays unchanged); delete while unused, or lock (freeze) read-only.
+- Manage costs and rigs per basis in a workspace with back button and sub-tabs.
+- Tractors/machines **deactivatable** (kept for existing bookings), custom
+  **sort order**, machine **categories/tags** with filter, rig **cost breakdown**,
+  and a **basis comparison** showing the rate diff (%) against another basis.
+
+**Bookings**
+- Fixed rig **or** free manual combination, with a live rate preview.
+- Create, **edit**, **quick multi-row entry**, **void** (stays visible but no
+  longer counts; reversible) or delete; client-side validation.
+- Excel-style neighbour overview (date, activity incl. rig detail, hours, cost)
+  with totals and a per-activity summary. CSV export per year and per neighbour.
+
+**Reporting** (`/stats`)
+- KPIs (revenue, hours, paid/open), locally rendered **bar charts** (per
+  neighbour / activity / tractor, no JS framework) and a **year comparison**.
+
+**Security & administration**
+- **Roles**: administrator, editor, read-only.
+- Password policy + forced change, **TOTP two-factor auth**, **session
+  management** (list/revoke active sessions) and login **rate limiting**.
+- **Audit trail** (`/admin/audit`) with search, action filter and CSV export;
+  every request is also logged to stdout.
+- Bootstrap admin is provisioned from environment variables on every start.
+
+**Platform**
+- Installable **PWA** with offline fallback, **dark mode** (light/dark/auto,
+  remembered per device), native `<dialog>` confirmations, content-hashed asset
+  versioning with automatic service-worker cache refresh.
+- **Automatic database backups** via an optional Compose profile.
+
+---
+
+## Quick start (Docker)
+
+Requires Docker with Compose.
 
 ```bash
-# 1. Konfiguration vorbereiten
+# 1. Configure
 cp .env.example .env
-#    In .env mindestens setzen:
-#    SESSION_SECRET, ADMIN_PASSWORD, POSTGRES_PASSWORD, DATABASE_URL
+#    Set at least: SESSION_SECRET, ADMIN_PASSWORD, POSTGRES_PASSWORD, DATABASE_URL
 
-# 2. Starten (baut App-Image und startet PostgreSQL als eigenständigen Container)
+# 2. Start (builds the app image, runs PostgreSQL as a standalone container)
 docker compose up -d --build
 
-# 3. Öffnen
-#    http://localhost:8080  (HOST_PORT aus .env)
+# 3. Open
+#    http://localhost:8080   (HOST_PORT from .env)
 ```
 
-Beim ersten Start werden Schema‑Migrationen ausgeführt, der Admin‑Benutzer aus
-den ENV‑Variablen angelegt sowie eine Beispiel‑**Bemessungsgrundlage 2023**
-(Werte aus der Excel, inkl. Gespanne) und ein **Abrechnungsjahr 2025** mit den
-drei Beispiel‑Nachbarn erzeugt. Weitere Jahre legst du unter **Jahre** an.
+On first start the app runs schema migrations, provisions the admin user, and
+seeds an example **rate basis 2023** (spreadsheet values incl. rigs) plus a
+**billing year 2025** with three sample neighbours. Add further years under
+**Jahre**.
 
-### Wichtige Umgebungsvariablen
+### Environment variables
 
-| Variable | Bedeutung |
+| Variable | Purpose |
 |---|---|
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Bootstrap‑Admin (bei jedem Start abgeglichen) |
-| `SESSION_SECRET` | Zufallswert, min. 16 Zeichen (`openssl rand -hex 32`) |
-| `COOKIE_SECURE` | `true` hinter HTTPS setzen (oder `TRUST_PROXY` nutzen) |
-| `TRUST_PROXY` | `true` hinter einem vertrauenswürdigen Reverse Proxy |
-| `DATABASE_URL` | Postgres‑Verbindung (Standard zeigt auf den `db`‑Container) |
-| `POSTGRES_USER/PASSWORD/DB` | Zugangsdaten des Datenbank‑Containers |
-| `APP_PORT` / `HOST_PORT` | Container‑ bzw. Host‑Port |
-| `BACKUP_INTERVAL` / `BACKUP_KEEP` | Intervall/Anzahl der automatischen Backups |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Bootstrap admin (reconciled on every start) |
+| `SESSION_SECRET` | Random value, ≥ 16 chars (`openssl rand -hex 32`) |
+| `COOKIE_SECURE` | Set `true` behind HTTPS (or use `TRUST_PROXY`) |
+| `TRUST_PROXY` | `true` behind a trusted reverse proxy |
+| `DATABASE_URL` | Postgres connection (default points at the `db` container) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database credentials |
+| `APP_PORT` / `HOST_PORT` | Container / host port |
+| `BACKUP_INTERVAL` / `BACKUP_KEEP` | Interval and retention of automatic backups |
 
-> Der Admin‑Benutzer wird bei **jedem** Start mit dem Passwort aus der ENV
-> abgeglichen – so ist der Zugang immer über die Docker‑Konfiguration wiederherstellbar.
+> The admin password is reconciled from the environment on **every** start, so
+> access is always recoverable via Docker configuration.
 
-### Betrieb hinter einem Reverse Proxy (z. B. Nginx Proxy Manager)
+### Behind a reverse proxy (Nginx Proxy Manager, Traefik, Caddy …)
 
-Die App spricht **einfaches HTTP auf Port 8080** – TLS übernimmt der Proxy.
+The app speaks **plain HTTP on port 8080** — the proxy terminates TLS.
 
-1. In `.env` setzen: `TRUST_PROXY=true` (damit echte Client‑IPs für Audit/Rate‑Limit
-   verwendet werden und Cookies bei HTTPS automatisch das `Secure`‑Flag erhalten).
-   Nur aktivieren, wenn die App **ausschließlich** über den Proxy erreichbar ist.
-2. In **Nginx Proxy Manager** einen *Proxy Host* anlegen:
-   - *Forward Hostname/IP*: `treckrr-app` (bzw. Host‑IP), *Forward Port*: `8080`
-   - *Websockets Support*: nicht erforderlich
-   - Reiter **SSL**: Zertifikat wählen, *Force SSL* aktivieren
-3. Der Proxy sollte `X-Forwarded-For` und `X-Forwarded-Proto` setzen (NPM tut dies
-   standardmäßig). Die App wird unter dem **Domain‑Root** erwartet (kein Unterpfad).
-4. Optional den Host‑Port nicht öffentlich mappen – nur der Proxy braucht Zugriff
-   (im selben Docker‑Netzwerk genügt der Servicename `treckrr-app:8080`).
+1. In `.env` set `TRUST_PROXY=true` so real client IPs (audit/rate-limit) and
+   the `Secure` cookie flag are derived from `X-Forwarded-For` /
+   `X-Forwarded-Proto`. **Only enable when the app is reachable *exclusively*
+   through the proxy** (otherwise clients could spoof these headers).
+2. Point the proxy at `treckrr-app:8080` (same Docker network) or the host IP.
+   Websockets are not required. Serve at the **domain root** (no sub-path).
+3. Prefer **not** exposing `HOST_PORT` publicly — only the proxy needs access.
+
+### Automatic backups
+
+```bash
+docker compose --profile backup up -d      # daily pg_dump into ./backups
+sh scripts/backup.sh                        # manual dump
+sh scripts/restore.sh backups/<file>.dump   # restore
+```
 
 ---
 
-## Architektur
+## Architecture
 
 ```
-cmd/treckrr            Programmeinstieg (HTTP-Server, Graceful Shutdown)
-internal/config        Konfiguration aus ENV
-internal/db            Verbindungspool + eingebettete SQL-Migrationen
-internal/models        Domänentypen
-internal/calc          Kostenmodell (mit Tests gegen die Excel-Werte)
-internal/auth          Passwort-Hashing (bcrypt) + Session-Token
-internal/store         Datenbankzugriff (Users, Grundlagen, Gespanne, Buchungen)
-internal/server        HTTP-Routing, Middleware, Handler
-internal/web           Eingebettete HTML-Templates & lokale Assets (CSS/JS/Icons)
+cmd/treckrr        Entry point (HTTP server, graceful shutdown)
+internal/config    Configuration from environment
+internal/db        Connection pool + embedded SQL migrations
+internal/models    Domain types
+internal/calc      Cost model (unit-tested against the spreadsheet values)
+internal/auth      Password hashing (bcrypt), session tokens, TOTP
+internal/store     Database access
+internal/server    HTTP routing, middleware, handlers
+internal/web       Embedded HTML templates & local assets (CSS/JS/icons)
 ```
 
-Nur zwei externe Go‑Abhängigkeiten (PostgreSQL‑Treiber `pgx`, `x/crypto/bcrypt`);
-alle CSS/JS/Icons werden **lokal** ausgeliefert.
+### Data model (short)
+
+- `price_bases` — rate basis (lockable); `year` = “valid from”.
+- `load_levels`, `tractors`, `machines` — price data per basis.
+- `gespanne` (+ `gespann_machines`) — fixed rigs per basis.
+- `billing_years` — billing year; references **one** `price_bases`.
+- `billing_year_neighbors` — which neighbours participate in a year.
+- `neighbors` — global, reused across years.
+- `entries` (+ `entry_machines`) — bookings per year with **frozen** price
+  snapshots so exports and history stay stable.
+- `audit_log` — security-/data-relevant actions.
 
 ---
 
-## Entwicklung
+## Development
 
-Ohne Docker (lokales Go ≥ 1.23 und eine erreichbare PostgreSQL‑Instanz):
+Without Docker (local Go ≥ 1.23 and a reachable PostgreSQL):
 
 ```bash
 export DATABASE_URL="postgres://treckrr:treckrr@localhost:5432/treckrr?sslmode=disable"
@@ -167,7 +194,7 @@ go mod tidy
 go run ./cmd/treckrr
 ```
 
-Tests & Prüfungen:
+Checks:
 
 ```bash
 go test ./...
@@ -176,35 +203,22 @@ go vet ./...
 
 ---
 
-## CI / Sicherheit
+## CI & security tooling
 
-GitHub‑Workflows unter `.github/workflows/`:
+GitHub workflows under `.github/workflows/`:
 
-- **CI** – `go vet`, Tests (mit Race‑Detector), Build und **GOLint**
-  (golangci‑lint).
-- **Security** – **GOSec** (statische Sicherheitsanalyse) und **GOVul**
-  (`govulncheck`).
-- **GODep** – Dependency‑Review auf Pull Requests.
+- **CI** — `go vet`, tests with the race detector, build, and `golangci-lint`.
+- **Security** — `gosec` (static analysis) and `govulncheck` (known CVEs).
+- **Dependency review** — on pull requests.
 
-**Dependabot** (`.github/dependabot.yml`) hält Go‑Module, GitHub‑Actions und die
-Docker‑Basis‑Images aktuell.
+**Dependabot** keeps Go modules, GitHub Actions and the Docker base image current.
 
----
-
-## Datenmodell (kurz)
-
-- `price_bases` – Bemessungsgrundlage (sperrbar); `year` = „gültig ab".
-- `load_levels`, `tractors`, `machines` – Preisdaten je Grundlage.
-- `gespanne` (+ `gespann_machines`) – fixe Kombinationen je Grundlage.
-- `billing_years` – Abrechnungsjahr; verweist auf **eine** `price_bases`.
-- `billing_year_neighbors` – welche Nachbarn in einem Jahr teilnehmen.
-- `neighbors` – global (über Jahre hinweg wiederverwendbar).
-- `entries` (+ `entry_machines`) – Buchungen je `billing_years` mit
-  **eingefrorenen** Preis‑Snapshots, damit Exporte und Historie stabil bleiben.
+See [SECURITY.md](SECURITY.md) for how to report vulnerabilities and
+[CONTRIBUTING.md](CONTRIBUTING.md) to get involved.
 
 ---
 
-## Lizenz
+## License
 
-Es werden ausschließlich freie, lizenzkostenfreie Werkzeuge und Bibliotheken
-verwendet. Projektcode: siehe [LICENSE](LICENSE) (MIT).
+[MIT](LICENSE) — free to use, modify and distribute. Only free, license-cost-free
+tools and libraries are used.
