@@ -1,0 +1,55 @@
+{{define "content"}}
+<section class="stack">
+	<div class="workspace">
+		<a class="workspace__back" href="/prices?base={{.Base.ID}}">‹ Kosten</a>
+		<div class="workspace__title"><strong>Vergleich: {{.Base.Year}} — {{.Base.Name}}</strong></div>
+	</div>
+
+	<form method="get" action="/prices/compare" class="card form">
+		<input type="hidden" name="base" value="{{.Base.ID}}">
+		<label class="field"><span>Vergleichen mit</span>
+			<select class="select" name="against" data-autosubmit>
+				<option value="">— Grundlage wählen —</option>
+				{{$aid := 0}}{{with .Against}}{{$aid = .ID}}{{end}}
+				{{range .Bases}}{{if ne .ID $.Base.ID}}<option value="{{.ID}}" {{if eq .ID $aid}}selected{{end}}>{{.Year}} — {{.Name}}</option>{{end}}{{end}}
+			</select></label>
+		<button class="btn btn--primary btn--sm" type="submit">Vergleichen</button>
+	</form>
+
+	{{if .Against}}
+	<p class="muted small">Werte: <strong>{{.Base.Year}}</strong> gegenüber {{.Against.Year}} — {{.Against.Name}}.
+		Positive Differenz = teurer als die Vergleichsgrundlage.</p>
+
+	{{template "diff-table" (dict "Title" "Gespanne (€/h)" "Rows" .GespannDiffs "Money" true)}}
+	{{template "diff-table" (dict "Title" "Maschinen (€/h)" "Rows" .MachineDiffs "Money" true)}}
+	{{template "diff-table" (dict "Title" "Belastungsstufen (€/PS·h)" "Rows" .LoadDiffs "Money" false)}}
+	{{else}}
+	<p class="muted card">Bitte eine Vergleichsgrundlage wählen.</p>
+	{{end}}
+</section>
+{{end}}
+
+{{define "diff-table"}}
+<h2 class="section-title">{{.Title}}</h2>
+<div class="card tablewrap">
+	<table class="dtable dtable--zebra">
+		<thead><tr><th>Position</th><th class="num">Neu</th><th class="num">Alt</th><th class="num">Diff</th><th class="num">%</th></tr></thead>
+		<tbody>
+			{{$money := .Money}}
+			{{range .Rows}}
+			<tr>
+				<td>{{.Label}}</td>
+				<td class="num">{{if $money}}{{money .A}}{{else}}{{num .A}}{{end}}</td>
+				<td class="num muted">{{if $money}}{{money .B}}{{else}}{{num .B}}{{end}}</td>
+				<td class="num {{if gt .Diff 0.0}}diff-up{{else if lt .Diff 0.0}}diff-down{{end}}">
+					{{if gt .Diff 0.0}}+{{end}}{{if $money}}{{money .Diff}}{{else}}{{num .Diff}}{{end}}</td>
+				<td class="num {{if gt .Diff 0.0}}diff-up{{else if lt .Diff 0.0}}diff-down{{end}}">
+					{{if gt .Diff 0.0}}+{{end}}{{num .Pct}} %</td>
+			</tr>
+			{{else}}
+			<tr><td colspan="5" class="muted center">Keine vergleichbaren Positionen.</td></tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{end}}

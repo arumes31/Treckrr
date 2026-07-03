@@ -1,0 +1,37 @@
+{{define "content"}}
+<div class="auth">
+	<div class="auth__card card">
+		<div class="auth__brand">
+			<img src="/static/icons/favicon.svg" alt="" width="48" height="48">
+			<h1>Treckrr</h1>
+			<p class="muted">Maschinen- &amp; Traktorkosten-Abrechnung</p>
+		</div>
+
+		{{if .ShowTotp}}
+		<form method="post" action="/login/2fa" class="form">
+			<p class="muted">Zwei‑Faktor‑Bestätigung: Gib den 6‑stelligen Code deiner
+				Authenticator‑App ein.</p>
+			<label class="field">
+				<span>Code</span>
+				<input class="input" type="text" name="totp" inputmode="numeric" pattern="[0-9]*"
+					maxlength="6" autocomplete="one-time-code" placeholder="123456" required autofocus>
+			</label>
+			<button class="btn btn--primary btn--block" type="submit">Bestätigen</button>
+			<p class="center"><a class="link" href="/login?cancel=1">Abbrechen</a></p>
+		</form>
+		{{else}}
+		<form method="post" action="/login" class="form">
+			<label class="field">
+				<span>Benutzername</span>
+				<input class="input" type="text" name="username" autocomplete="username" required autofocus>
+			</label>
+			<label class="field">
+				<span>Passwort</span>
+				<input class="input" type="password" name="password" autocomplete="current-password" required>
+			</label>
+			<button class="btn btn--primary btn--block" type="submit">Anmelden</button>
+		</form>
+		{{end}}
+	</div>
+</div>
+{{end}}

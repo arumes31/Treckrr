@@ -1,0 +1,39 @@
+{{define "content"}}
+<section class="stack">
+	<a class="backlink" href="/neighbors">‹ Nachbarn</a>
+	<div class="summary-card card">
+		<div>
+			<span class="summary-card__label">{{.Neighbor.Name}} · alle Jahre</span>
+			<span class="summary-card__value">{{money .TotalCost}}</span>
+		</div>
+		<div class="summary-card__meta"><span>{{num .TotalHours}} h gesamt</span></div>
+	</div>
+
+	<h2 class="section-title">Jahresverlauf &amp; Zahlungshistorie</h2>
+	<div class="card tablewrap">
+		<table class="dtable dtable--zebra">
+			<thead><tr><th>Jahr</th><th class="num">Stunden</th><th class="num">Kosten</th><th>Zahlung</th><th></th></tr></thead>
+			<tbody>
+				{{range .Rows}}
+				<tr>
+					<td>{{.Year}}</td>
+					<td class="num">{{num .Hours}}</td>
+					<td class="num strong">{{money .Cost}}</td>
+					<td>
+						{{if .Completed}}
+							{{if .Paid}}<span class="tag tag--paid">Bezahlt</span>{{else}}<span class="tag tag--open">Offen</span>{{end}}
+						{{else}}<span class="tag tag--progress">läuft</span>{{end}}
+					</td>
+					<td class="num"><a class="btn btn--ghost btn--sm" href="/neighbors/{{$.Neighbor.ID}}?year={{.YearID}}">Öffnen</a></td>
+				</tr>
+				{{else}}
+				<tr><td colspan="5" class="muted center">Dieser Nachbar ist in keinem Jahr erfasst.</td></tr>
+				{{end}}
+			</tbody>
+			{{if .Rows}}
+			<tfoot><tr><th>Gesamt</th><th class="num">{{num .TotalHours}}</th><th class="num">{{money .TotalCost}}</th><th></th><th></th></tr></tfoot>
+			{{end}}
+		</table>
+	</div>
+</section>
+{{end}}

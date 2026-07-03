@@ -1,0 +1,93 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="de" data-theme="{{if .Theme}}{{.Theme}}{{else}}auto{{end}}">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="theme-color" content="#2f6f4f">
+	<title>{{.Title}} · Treckrr</title>
+	<link rel="manifest" href="/manifest.webmanifest">
+	<link rel="icon" href="/static/icons/favicon.svg?v={{.AssetVersion}}" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+	<link rel="stylesheet" href="/static/css/app.css?v={{.AssetVersion}}">
+</head>
+<body>
+{{if .User}}
+	<div class="topstack">
+		<header class="appbar">
+			<a class="appbar__brand" href="/">
+				<img src="/static/icons/favicon.svg" alt="" width="26" height="26">
+				<span>Treckrr</span>
+			</a>
+			<h1 class="appbar__title">{{.Title}}</h1>
+			<form class="appbar__logout" method="post" action="/logout">
+				<button class="btn btn--ghost btn--icon appbar__logout-btn" type="submit" title="Abmelden" aria-label="Abmelden">
+					<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+						stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+						<polyline points="16 17 21 12 16 7"/>
+						<line x1="21" y1="12" x2="9" y2="12"/>
+					</svg>
+				</button>
+			</form>
+		</header>
+
+		{{if .Years}}
+		<div class="yearbar" role="tablist" aria-label="Abrechnungsjahr wählen">
+			{{$active := .Year}}
+			{{range .Years}}
+				<a class="yearpill {{if and $active (eq .ID $active.ID)}}is-active{{end}}"
+					href="{{$.BasePath}}?year={{.ID}}" role="tab"
+					{{if and $active (eq .ID $active.ID)}}aria-selected="true"{{end}}>{{.Year}}</a>
+			{{end}}
+			<a class="yearpill yearpill--manage" href="/years" title="Abrechnungsjahre verwalten">＋</a>
+		</div>
+		{{end}}
+	</div>
+{{end}}
+
+	<main class="main">
+		{{if .FlashMessage}}
+			<div class="flash flash--{{.FlashKind}}" role="status">{{.FlashMessage}}</div>
+		{{end}}
+		{{block "content" .}}{{end}}
+	</main>
+
+{{if .User}}
+	<nav class="tabbar">
+		<a class="tabbar__item {{if eq .Active "dashboard"}}is-active{{end}}" href="/">
+			<span class="tabbar__icon">🏠</span><span>Übersicht</span>
+		</a>
+		<a class="tabbar__item {{if eq .Active "years"}}is-active{{end}}" href="/years">
+			<span class="tabbar__icon">📅</span><span>Jahre</span>
+		</a>
+		<a class="tabbar__item {{if eq .Active "neighbors"}}is-active{{end}}" href="/neighbors">
+			<span class="tabbar__icon">👤</span><span>Nachbarn</span>
+		</a>
+		<a class="tabbar__item {{if or (eq .Active "bases") (eq .Active "prices") (eq .Active "gespanne")}}is-active{{end}}" href="/bases">
+			<span class="tabbar__icon">🚜</span><span>Grundlagen</span>
+		</a>
+		{{if .User.IsAdmin}}
+		<a class="tabbar__item {{if eq .Active "admin"}}is-active{{end}}" href="/admin/users">
+			<span class="tabbar__icon">👥</span><span>Nutzer</span>
+		</a>
+		{{end}}
+		<a class="tabbar__item {{if eq .Active "profile"}}is-active{{end}}" href="/profile">
+			<span class="tabbar__icon">⚙️</span><span>Profil</span>
+		</a>
+	</nav>
+{{end}}
+
+	<dialog class="modal" id="confirmModal" aria-labelledby="confirmModalMsg">
+		<form method="dialog" class="modal__card">
+			<p class="modal__msg" id="confirmModalMsg" data-modal-msg></p>
+			<div class="modal__actions">
+				<button class="btn btn--ghost" value="cancel" type="submit">Abbrechen</button>
+				<button class="btn btn--primary" value="confirm" type="submit" data-modal-ok autofocus>Bestätigen</button>
+			</div>
+		</form>
+	</dialog>
+
+	<script src="/static/js/app.js?v={{.AssetVersion}}" defer></script>
+	{{block "scripts" .}}{{end}}
+</body>
+</html>{{end}}

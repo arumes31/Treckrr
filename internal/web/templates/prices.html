@@ -1,0 +1,181 @@
+{{define "content"}}
+<section class="stack">
+	{{template "base-workspace" (dict "Base" .Base "Active" "prices")}}
+	{{if .Locked}}
+	<div class="flash flash--info">Diese Bemessungsgrundlage ({{.Base.Year}}) ist gesperrt. Werte sind schreibgeschützt.</div>
+	{{end}}
+
+	<!-- Belastungsstufen --------------------------------------------------->
+	<h2 class="section-title">Belastungsstufen <span class="muted">(€ / PS · h)</span></h2>
+	<div class="list">
+		{{range .Loads}}
+		<details class="card disclosure disclosure--row">
+			<summary>
+				<span class="list__title">{{.Name}}</span>
+				<span class="list__value">{{num .CostPerPS}} €/PS·h</span>
+			</summary>
+			{{if not $.Locked}}
+			<form method="post" action="/prices/loadlevels" class="form">
+				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+				<input type="hidden" name="id" value="{{.ID}}">
+				<div class="form__grid">
+					<label class="field"><span>Name</span><input class="input" name="name" value="{{.Name}}" required></label>
+					<label class="field"><span>€ / PS·h</span><input class="input" name="cost_per_ps" inputmode="decimal" value="{{num .CostPerPS}}" required></label>
+					<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="{{.SortOrder}}"></label>
+				</div>
+				<div class="form__row">
+					<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
+				</div>
+			</form>
+			<form method="post" action="/prices/loadlevels/{{.ID}}/delete" data-confirm="Belastungsstufe löschen?">
+				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+				<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
+			</form>
+			{{end}}
+		</details>
+		{{end}}
+	</div>
+	{{if not .Locked}}
+	<details class="card disclosure">
+		<summary>+ Belastungsstufe hinzufügen</summary>
+		<form method="post" action="/prices/loadlevels" class="form">
+			<input type="hidden" name="base_id" value="{{.Base.ID}}">
+			<div class="form__grid">
+				<label class="field"><span>Name</span><input class="input" name="name" placeholder="leicht" required></label>
+				<label class="field"><span>€ / PS·h</span><input class="input" name="cost_per_ps" inputmode="decimal" placeholder="0,33" required></label>
+				<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="0"></label>
+			</div>
+			<button class="btn btn--primary" type="submit">Hinzufügen</button>
+		</form>
+	</details>
+	{{end}}
+
+	<!-- Traktoren ---------------------------------------------------------->
+	<h2 class="section-title">Traktoren <span class="muted">(Stundensatz = PS × €/PS·h)</span></h2>
+	<div class="list">
+		{{range .TractorViews}}
+		<details class="card disclosure disclosure--row {{if not .Tractor.Active}}is-inactive{{end}}">
+			<summary>
+				<span class="list__title">{{.Tractor.Label}}{{if not .Tractor.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+				<span class="list__value">{{num .Tractor.PS}} PS</span>
+			</summary>
+			<div class="ratechips">
+				{{range .Rates}}<span class="chip">{{.Load.Name}}: {{money .Rate}}/h</span>{{end}}
+			</div>
+			{{if not $.Locked}}
+			<form method="post" action="/prices/tractors" class="form">
+				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+				<input type="hidden" name="id" value="{{.Tractor.ID}}">
+				<div class="form__grid">
+					<label class="field"><span>Bezeichnung</span><input class="input" name="ident" value="{{.Tractor.Ident}}" required></label>
+					<label class="field"><span>Name</span><input class="input" name="name" value="{{.Tractor.Name}}"></label>
+					<label class="field"><span>PS</span><input class="input" name="ps" inputmode="decimal" value="{{num .Tractor.PS}}" required></label>
+					<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="{{.Tractor.SortOrder}}"></label>
+				</div>
+				<div class="btnrow">
+					<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
+				</div>
+			</form>
+			<div class="btnrow">
+				<form method="post" action="/prices/tractors/{{.Tractor.ID}}/toggle">
+					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+					<input type="hidden" name="active" value="{{if .Tractor.Active}}false{{else}}true{{end}}">
+					<button class="btn btn--ghost btn--sm" type="submit">{{if .Tractor.Active}}Deaktivieren{{else}}Aktivieren{{end}}</button>
+				</form>
+				<form method="post" action="/prices/tractors/{{.Tractor.ID}}/delete" data-confirm="Traktor endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
+					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+					<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
+				</form>
+			</div>
+			{{end}}
+		</details>
+		{{end}}
+	</div>
+	{{if not .Locked}}
+	<details class="card disclosure">
+		<summary>+ Traktor hinzufügen</summary>
+		<form method="post" action="/prices/tractors" class="form">
+			<input type="hidden" name="base_id" value="{{.Base.ID}}">
+			<div class="form__grid">
+				<label class="field"><span>Bezeichnung</span><input class="input" name="ident" placeholder="4095" required></label>
+				<label class="field"><span>Name</span><input class="input" name="name" placeholder="optional"></label>
+				<label class="field"><span>PS</span><input class="input" name="ps" inputmode="decimal" placeholder="100" required></label>
+				<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="0"></label>
+			</div>
+			<button class="btn btn--primary" type="submit">Hinzufügen</button>
+		</form>
+	</details>
+	{{end}}
+
+	<!-- Maschinen ---------------------------------------------------------->
+	<h2 class="section-title">Maschinen <span class="muted">(Stundensatz = AB × €/AB·h)</span></h2>
+	<datalist id="machine-cats">
+		{{range .Categories}}<option value="{{.}}"></option>{{end}}
+	</datalist>
+	{{if .Categories}}
+	<label class="field">
+		<span>Filter nach Kategorie</span>
+		<select class="select" data-filter="[data-machine-row]">
+			<option value="">Alle Kategorien</option>
+			{{range .Categories}}<option value="{{.}}">{{.}}</option>{{end}}
+		</select>
+	</label>
+	{{end}}
+	<div class="list">
+		{{range .MachineViews}}
+		<details class="card disclosure disclosure--row {{if not .Machine.Active}}is-inactive{{end}}"
+			data-machine-row data-category="{{.Machine.Category}}">
+			<summary>
+				<span class="list__title">{{.Machine.Name}}
+					{{if .Machine.Category}}<span class="chip">{{.Machine.Category}}</span>{{end}}
+					{{if not .Machine.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+				<span class="list__value">{{money .Rate}}/h</span>
+			</summary>
+			{{if not $.Locked}}
+			<form method="post" action="/prices/machines" class="form">
+				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+				<input type="hidden" name="id" value="{{.Machine.ID}}">
+				<div class="form__grid">
+					<label class="field"><span>Name</span><input class="input" name="name" value="{{.Machine.Name}}" required></label>
+					<label class="field"><span>Arbeitsbreite (m)</span><input class="input" name="working_width" inputmode="decimal" value="{{num .Machine.WorkingWidth}}" required></label>
+					<label class="field"><span>€ / AB·h</span><input class="input" name="cost_per_ab" inputmode="decimal" value="{{num .Machine.CostPerAB}}" required></label>
+					<label class="field"><span>Kategorie</span><input class="input" name="category" value="{{.Machine.Category}}" list="machine-cats" placeholder="z. B. Mähen"></label>
+					<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="{{.Machine.SortOrder}}"></label>
+				</div>
+				<div class="btnrow">
+					<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
+				</div>
+			</form>
+			<div class="btnrow">
+				<form method="post" action="/prices/machines/{{.Machine.ID}}/toggle">
+					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+					<input type="hidden" name="active" value="{{if .Machine.Active}}false{{else}}true{{end}}">
+					<button class="btn btn--ghost btn--sm" type="submit">{{if .Machine.Active}}Deaktivieren{{else}}Aktivieren{{end}}</button>
+				</form>
+				<form method="post" action="/prices/machines/{{.Machine.ID}}/delete" data-confirm="Maschine endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
+					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
+					<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
+				</form>
+			</div>
+			{{end}}
+		</details>
+		{{end}}
+	</div>
+	{{if not .Locked}}
+	<details class="card disclosure">
+		<summary>+ Maschine hinzufügen</summary>
+		<form method="post" action="/prices/machines" class="form">
+			<input type="hidden" name="base_id" value="{{.Base.ID}}">
+			<div class="form__grid">
+				<label class="field"><span>Name</span><input class="input" name="name" placeholder="Schwader" required></label>
+				<label class="field"><span>Arbeitsbreite (m)</span><input class="input" name="working_width" inputmode="decimal" placeholder="3,8" required></label>
+				<label class="field"><span>€ / AB·h</span><input class="input" name="cost_per_ab" inputmode="decimal" placeholder="5" required></label>
+				<label class="field"><span>Kategorie</span><input class="input" name="category" list="machine-cats" placeholder="z. B. Mähen"></label>
+				<label class="field"><span>Reihenfolge</span><input class="input" type="number" name="sort_order" value="0"></label>
+			</div>
+			<button class="btn btn--primary" type="submit">Hinzufügen</button>
+		</form>
+	</details>
+	{{end}}
+</section>
+{{end}}

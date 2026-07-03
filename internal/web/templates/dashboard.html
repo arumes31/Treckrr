@@ -1,0 +1,126 @@
+{{define "content"}}
+<section class="stack">
+	<div class="summary-card card">
+		<div>
+			<span class="summary-card__label">Gesamtkosten {{.Year.Year}}</span>
+			<span class="summary-card__value">{{money .GrandCost}}</span>
+		</div>
+		<div class="summary-card__meta">
+			<span>{{num .GrandHours}} h · Grundlage {{.Year.Base.Year}}</span>
+			<span class="btnrow">
+				<a class="btn btn--ghost btn--sm" href="/stats?year={{.Year.ID}}">Statistik</a>
+				<a class="btn btn--ghost btn--sm" href="/export/year/{{.Year.ID}}">CSV Export</a>
+			</span>
+		</div>
+	</div>
+
+	<div class="card statusrow">
+		<div class="statusrow__info">
+			<span>Status:
+				{{if .Completed}}<span class="tag tag--done">Abgeschlossen</span>
+				{{else}}<span class="tag tag--progress">In Bearbeitung</span>{{end}}
+			</span>
+			{{if .Completed}}
+			<span class="paysummary">
+				<span class="tag tag--paid">Bezahlt {{money .PaidCost}}</span>
+				<span class="tag tag--open">Offen {{money .OpenCost}}</span>
+			</span>
+			{{end}}
+		</div>
+		{{if .Completed}}
+		<form method="post" action="/years/{{.Year.ID}}/status">
+			<input type="hidden" name="status" value="in_progress">
+			<input type="hidden" name="origin" value="dashboard">
+			<button class="btn btn--ghost btn--sm" type="submit">Wieder öffnen</button>
+		</form>
+		{{else}}
+		<form method="post" action="/years/{{.Year.ID}}/status"
+			data-confirm="Abrechnungsjahr {{.Year.Year}} abschließen? Danach kannst du je Nachbar den Zahlungsstatus pflegen.">
+			<input type="hidden" name="status" value="completed">
+			<input type="hidden" name="origin" value="dashboard">
+			<button class="btn btn--primary btn--sm" type="submit">Jahr abschließen</button>
+		</form>
+		{{end}}
+	</div>
+
+	<h2 class="section-title">Nachbarn im Jahr {{.Year.Year}}</h2>
+	{{if .Summaries}}
+	<input class="input" type="search" placeholder="Nachbar suchen …" data-search="[data-nb-item]" aria-label="Nachbar suchen">
+	{{end}}
+	<div class="list">
+		{{range .Summaries}}
+		<div class="list__row card" data-nb-item>
+			<a class="list__main list__main--link" href="/neighbors/{{.Neighbor.ID}}?year={{$.Year.ID}}">
+				<span class="list__title">{{.Neighbor.Name}}</span>
+				<span class="list__sub">{{.Entries}} Buchungen · {{num .Hours}} h</span>
+			</a>
+			<div class="list__value">{{money .Cost}}</div>
+			{{if $.Completed}}
+			<form method="post" action="/years/mark-paid" class="paytoggle">
+				<input type="hidden" name="year_id" value="{{$.Year.ID}}">
+				<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+				<input type="hidden" name="paid" value="{{if .Paid}}false{{else}}true{{end}}">
+				<button class="paychip {{if .Paid}}paychip--paid{{else}}paychip--open{{end}}" type="submit"
+					title="Klicken, um auf {{if .Paid}}offen{{else}}bezahlt{{end}} zu setzen">
+					{{if .Paid}}✓ Bezahlt{{else}}Offen{{end}}
+				</button>
+			</form>
+			{{else if eq .Entries 0}}
+			<form method="post" action="/years/remove-neighbor" class="list__remove"
+				data-confirm="{{.Neighbor.Name}} aus diesem Jahr entfernen?">
+				<input type="hidden" name="year_id" value="{{$.Year.ID}}">
+				<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+				<button class="btn btn--ghost btn--icon" type="submit" title="Aus Jahr entfernen" aria-label="Aus Jahr entfernen">✕</button>
+			</form>
+			{{end}}
+		</div>
+		{{else}}
+		<p class="muted card">Noch keine Nachbarn in diesem Jahr. Füge unten welche hinzu.</p>
+		{{end}}
+	</div>
+
+	{{if .PrevNeighbors}}
+	<details class="card disclosure">
+		<summary>Nachbarn aus {{.PrevYear}} übernehmen</summary>
+		<form method="post" action="/years/carry-over" class="form">
+			<input type="hidden" name="year_id" value="{{.Year.ID}}">
+			<p class="muted small">Alle vorausgewählt – abwählen, was nicht ins Jahr {{.Year.Year}} übernommen werden soll.</p>
+			<div class="checkgroup checkgroup--split">
+				{{range .PrevNeighbors}}
+				<label class="check">
+					<input type="checkbox" name="neighbor_ids" value="{{.ID}}" checked data-carry-check>
+					<span>{{.Name}}</span>
+				</label>
+				{{end}}
+			</div>
+			<div class="btnrow">
+				<button class="btn btn--ghost btn--sm" type="button" data-carry-toggle-all>Alle ab-/anwählen</button>
+				<button class="btn btn--primary btn--sm" type="submit">Übernehmen</button>
+			</div>
+		</form>
+	</details>
+	{{end}}
+
+	{{if .Available}}
+	<details class="card disclosure">
+		<summary>Bestehenden Nachbarn hinzufügen</summary>
+		<form method="post" action="/years/add-neighbor" class="form">
+			<input type="hidden" name="year_id" value="{{.Year.ID}}">
+			<label class="field">
+				<span>Nachbar</span>
+				<select class="select" name="neighbor_id" required>
+					<option value="">— wählen —</option>
+					{{range .Available}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+				</select>
+			</label>
+			<button class="btn btn--primary" type="submit">Zum Jahr hinzufügen</button>
+		</form>
+	</details>
+	{{end}}
+
+	<p class="muted center">
+		Neue Nachbarn werden im Reiter <a class="link" href="/neighbors">Nachbarn</a> angelegt
+		und hier dem Jahr zugeordnet. · <a class="link" href="/years">Abrechnungsjahre verwalten</a>
+	</p>
+</section>
+{{end}}

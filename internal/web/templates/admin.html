@@ -1,0 +1,62 @@
+{{define "content"}}
+<section class="stack">
+	<div class="btnrow">
+		<a class="btn btn--primary btn--sm" href="/admin/users">Benutzer</a>
+		<a class="btn btn--ghost btn--sm" href="/admin/audit">Protokoll</a>
+	</div>
+	<div class="list">
+		{{range .Users}}
+		<details class="card disclosure disclosure--row">
+			<summary>
+				<span class="list__title">{{.Username}}
+					<span class="chip {{if .IsAdmin}}chip--accent{{end}}">{{.RoleLabel}}</span>
+					{{if .TotpEnabled}}<span class="chip">2FA</span>{{end}}
+				</span>
+				<span class="list__sub muted">seit {{date .CreatedAt}}</span>
+			</summary>
+
+			<form method="post" action="/admin/users/{{.ID}}/role" class="form">
+				<label class="field"><span>Rolle</span>
+					<select class="select" name="role">
+						{{$r := .Role}}
+						{{range $.Roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{.}}</option>{{end}}
+					</select></label>
+				<div class="form__row"><button class="btn btn--primary btn--sm" type="submit">Rolle speichern</button></div>
+			</form>
+
+			<form method="post" action="/admin/users/{{.ID}}/password" class="form">
+				<label class="field"><span>Neues Passwort</span>
+					<input class="input" type="password" name="password" minlength="8" autocomplete="new-password" required></label>
+				<label class="check"><input type="checkbox" name="force_change" checked><span>Änderung bei nächster Anmeldung erzwingen</span></label>
+				<div class="form__row"><button class="btn btn--primary btn--sm" type="submit">Passwort setzen</button></div>
+			</form>
+
+			<div class="btnrow">
+				<form method="post" action="/admin/users/{{.ID}}/delete" data-confirm="Benutzer {{.Username}} löschen?">
+					<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
+				</form>
+			</div>
+		</details>
+		{{end}}
+	</div>
+
+	<details class="card disclosure">
+		<summary>+ Benutzer anlegen</summary>
+		<form method="post" action="/admin/users" class="form">
+			<label class="field"><span>Benutzername</span>
+				<input class="input" name="username" autocomplete="off" required></label>
+			<label class="field"><span>Passwort</span>
+				<input class="input" type="password" name="password" minlength="8" autocomplete="new-password" required>
+				<small class="muted">Mind. 8 Zeichen, Buchstaben und Ziffern.</small></label>
+			<label class="field"><span>Rolle</span>
+				<select class="select" name="role">
+					<option value="editor">editor</option>
+					<option value="admin">admin</option>
+					<option value="viewer">viewer</option>
+				</select></label>
+			<label class="check"><input type="checkbox" name="force_change" checked><span>Passwortänderung bei erster Anmeldung erzwingen</span></label>
+			<button class="btn btn--primary" type="submit">Anlegen</button>
+		</form>
+	</details>
+</section>
+{{end}}

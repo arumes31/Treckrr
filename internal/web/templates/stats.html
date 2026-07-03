@@ -1,0 +1,39 @@
+{{define "content"}}
+<section class="stack">
+	<div class="kpigrid">
+		<div class="kpi card"><span class="kpi__label">Umsatz {{.Year.Year}}</span><span class="kpi__value">{{money .TotalCost}}</span></div>
+		<div class="kpi card"><span class="kpi__label">Stunden</span><span class="kpi__value">{{num .TotalHours}} h</span></div>
+		{{if .Completed}}
+		<div class="kpi card"><span class="kpi__label">Bezahlt</span><span class="kpi__value">{{money .PaidCost}}</span></div>
+		<div class="kpi card"><span class="kpi__label">Offen</span><span class="kpi__value">{{money .OpenCost}}</span></div>
+		{{end}}
+	</div>
+
+	{{if .PrevYear}}
+	<div class="card">
+		<h2 class="section-title">Vergleich zu {{.PrevYear}}</h2>
+		<div class="kpigrid">
+			<div class="kpi"><span class="kpi__label">Umsatz {{.PrevYear}}</span><span class="kpi__value">{{money .PrevCost}}</span></div>
+			<div class="kpi"><span class="kpi__label">Differenz</span>
+				<span class="kpi__value {{if gt .DiffCost 0.0}}diff-up{{else if lt .DiffCost 0.0}}diff-down{{end}}">
+					{{if gt .DiffCost 0.0}}+{{end}}{{money .DiffCost}}{{if .DiffPct}} ({{if gt .DiffPct 0.0}}+{{end}}{{num .DiffPct}} %){{end}}</span></div>
+		</div>
+	</div>
+	{{end}}
+
+	<div class="card">
+		<h2 class="section-title">Umsatz je Nachbar</h2>
+		{{template "bar-chart" (dict "Rows" .ByNeighbor "Max" .ByNeighborMax "Money" true)}}
+	</div>
+
+	<div class="card">
+		<h2 class="section-title">Umsatz je Tätigkeit</h2>
+		{{template "bar-chart" (dict "Rows" .ByTask "Max" .ByTaskMax "Money" true)}}
+	</div>
+
+	<div class="card">
+		<h2 class="section-title">Umsatz je Traktor</h2>
+		{{template "bar-chart" (dict "Rows" .ByTractor "Max" .ByTractorMax "Money" true)}}
+	</div>
+</section>
+{{end}}

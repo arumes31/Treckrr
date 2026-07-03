@@ -1,0 +1,71 @@
+{{define "content"}}
+<section class="stack" data-base-id="{{.Base.ID}}">
+	<a class="backlink" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}">‹ Zurück zu {{.Neighbor.Name}}</a>
+	<h2 class="section-title">Buchung bearbeiten · {{date .Entry.Date}}</h2>
+
+	<form method="post" action="/entries/{{.Entry.ID}}/update" class="card form" data-entry-form
+		data-pricing-url="/api/base/{{.Base.ID}}/pricing" data-validate>
+
+		<div class="segmented" role="tablist">
+			<label class="segmented__item">
+				<input type="radio" name="mode" value="gespann" data-mode-toggle>
+				<span>Gespann</span>
+			</label>
+			<label class="segmented__item">
+				<input type="radio" name="mode" value="manual" checked data-mode-toggle>
+				<span>Manuell</span>
+			</label>
+		</div>
+
+		<div data-mode-panel="gespann" hidden>
+			<label class="field"><span>Fixes Gespann</span>
+				<select class="select" name="gespann_id" data-gespann-select>
+					<option value="">— wählen —</option>
+					{{range .Gespanne}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+				</select>
+			</label>
+		</div>
+
+		<div data-mode-panel="manual">
+			<label class="field"><span>Traktor</span>
+				<select class="select" name="tractor_id" data-tractor-select>
+					<option value="">— wählen —</option>
+					{{$sel := .Entry.TractorID}}
+					{{range .Tractors}}<option value="{{.ID}}" {{if and $sel (eq .ID (deref $sel))}}selected{{end}}>{{.Label}}{{if not .Active}} (inaktiv){{end}}</option>{{end}}
+				</select>
+			</label>
+			<label class="field"><span>Belastungsstufe</span>
+				<select class="select" name="load_level_id" data-load-select>
+					<option value="">— wählen —</option>
+					{{$lsel := .Entry.LoadLevelID}}
+					{{range .Loads}}<option value="{{.ID}}" {{if and $lsel (eq .ID (deref $lsel))}}selected{{end}}>{{.Name}} ({{num .CostPerPS}} €/PS·h)</option>{{end}}
+				</select>
+			</label>
+			<fieldset class="fieldset"><legend>Maschinen</legend>
+				{{template "machine-checks" (dict "Machines" .Machines "Selected" .SelectedMachineIDs)}}
+			</fieldset>
+		</div>
+
+		<div class="rate-preview" data-rate-preview>
+			<span>Stundensatz: <strong data-rate>–</strong></span>
+			<span>Kosten: <strong data-cost>–</strong></span>
+		</div>
+
+		<div class="form__grid">
+			<label class="field"><span>Datum</span>
+				<input class="input" type="date" name="entry_date" value="{{dateInput .Entry.Date}}" required></label>
+			<label class="field"><span>Stunden</span>
+				<input class="input" type="number" step="0.001" min="0" name="hours"
+					inputmode="decimal" value="{{num .Entry.Hours}}" data-hours required></label>
+		</div>
+		<label class="field"><span>Tätigkeit (optional)</span>
+			<input class="input" type="text" name="task_label" value="{{.Entry.TaskLabel}}"></label>
+		<label class="field"><span>Notiz (optional)</span>
+			<input class="input" type="text" name="note" value="{{.Entry.Note}}"></label>
+
+		<button class="btn btn--primary btn--block" type="submit">Änderungen speichern</button>
+	</form>
+</section>
+{{end}}
+
+{{define "scripts"}}<script src="/static/js/entry-form.js?v={{.AssetVersion}}" defer></script>{{end}}

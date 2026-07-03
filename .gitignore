@@ -1,0 +1,56 @@
+# Binaries
+/treckrr
+/treckrr.exe
+*.exe
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+/build/
+
+# Test & coverage
+*.test
+*.out
+coverage.*
+*.cover
+
+# Go workspace / vendor
+/vendor/
+go.work
+go.work.sum
+
+# Environment & secrets
+.env
+.env.local
+*.local
+
+# Editor / IDE
+.idea/
+.vscode/
+.claude/
+launch.json
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+/tmp/
+/temp/
+*.tmp
+*.bak
+
+# Docker / data volumes
+/pgdata/
+/data/
+/backups/
+
+# Source spreadsheet (input, not part of app)
+Noppanschoftshilfe.xlsx
+
+# Exports produced at runtime
+/exports/
+*.csv.tmp

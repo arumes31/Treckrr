@@ -1,0 +1,136 @@
+// Treckrr — progressive enhancement. No external dependencies.
+(function () {
+	"use strict";
+
+	// Theme persistence: mirror the server-chosen theme into localStorage and
+	// re-apply it on pages that render without the cookie (login, offline, or a
+	// service-worker-cached shell). The cookie remains the primary mechanism.
+	(function () {
+		var KEY = "treckrr-theme";
+		var html = document.documentElement;
+		try {
+			var stored = localStorage.getItem(KEY);
+			var current = html.getAttribute("data-theme") || "auto";
+			if (stored) {
+				if (current !== stored) html.setAttribute("data-theme", stored);
+			} else if (current !== "auto") {
+				localStorage.setItem(KEY, current);
+			}
+		} catch (e) { /* storage unavailable */ }
+		document.querySelectorAll("[data-theme-set]").forEach(function (a) {
+			a.addEventListener("click", function () {
+				try { localStorage.setItem(KEY, a.getAttribute("data-theme-set")); } catch (e) {}
+			});
+		});
+	})();
+
+	// Live text search: filter items matching [data-search]'s target selector.
+	document.querySelectorAll("[data-search]").forEach(function (input) {
+		var sel = input.getAttribute("data-search");
+		input.addEventListener("input", function () {
+			var q = input.value.toLowerCase();
+			document.querySelectorAll(sel).forEach(function (item) {
+				var hit = item.textContent.toLowerCase().indexOf(q) >= 0;
+				item.style.display = hit ? "" : "none";
+			});
+		});
+	});
+
+	// Auto-submit the enclosing form when a marked select changes.
+	document.querySelectorAll("select[data-autosubmit]").forEach(function (sel) {
+		sel.addEventListener("change", function () {
+			if (sel.form) sel.form.submit();
+		});
+	});
+
+	// Category filter for master-data lists (prices page).
+	document.querySelectorAll("[data-filter]").forEach(function (input) {
+		var targetSel = input.getAttribute("data-filter");
+		input.addEventListener("change", function () {
+			var val = input.value;
+			document.querySelectorAll(targetSel).forEach(function (row) {
+				var cat = row.getAttribute("data-category") || "";
+				row.style.display = (!val || cat === val) ? "" : "none";
+			});
+		});
+	});
+
+	// Carry-over: toggle all neighbour checkboxes at once.
+	document.querySelectorAll("[data-carry-toggle-all]").forEach(function (btn) {
+		btn.addEventListener("click", function () {
+			var form = btn.closest("form");
+			if (!form) return;
+			var boxes = form.querySelectorAll("[data-carry-check]");
+			var anyChecked = Array.prototype.some.call(boxes, function (b) { return b.checked; });
+			boxes.forEach(function (b) { b.checked = !anyChecked; });
+		});
+	});
+
+	// Client-side validation: German messages + highlight invalid fields.
+	document.querySelectorAll("input, select, textarea").forEach(function (el) {
+		el.addEventListener("invalid", function () {
+			el.classList.add("is-invalid");
+			if (el.validity.valueMissing) {
+				el.setCustomValidity("Bitte dieses Feld ausfüllen.");
+			} else if (el.validity.rangeUnderflow || el.validity.badInput) {
+				el.setCustomValidity("Bitte einen gültigen Wert eingeben.");
+			} else if (el.validity.tooShort) {
+				el.setCustomValidity("Eingabe ist zu kurz.");
+			}
+		});
+		el.addEventListener("input", function () {
+			el.classList.remove("is-invalid");
+			el.setCustomValidity("");
+		});
+	});
+
+	// Confirm destructive actions with a modern modal dialog (falls back to
+	// native confirm when <dialog> is unsupported).
+	var modal = document.getElementById("confirmModal");
+	var msgEl = modal ? modal.querySelector("[data-modal-msg]") : null;
+	var pendingForm = null;
+
+	if (modal && typeof modal.showModal === "function") {
+		modal.addEventListener("close", function () {
+			var form = pendingForm;
+			pendingForm = null;
+			if (modal.returnValue === "confirm" && form) {
+				form.dataset.confirmed = "1";
+				form.submit(); // does not re-trigger the submit listener
+			}
+		});
+	}
+
+	document.querySelectorAll("form[data-confirm]").forEach(function (form) {
+		form.addEventListener("submit", function (e) {
+			if (form.dataset.confirmed === "1") return;
+			var message = form.getAttribute("data-confirm");
+			if (!modal || typeof modal.showModal !== "function") {
+				if (!window.confirm(message)) e.preventDefault();
+				return;
+			}
+			e.preventDefault();
+			pendingForm = form;
+			if (msgEl) msgEl.textContent = message;
+			modal.returnValue = "";
+			modal.showModal();
+		});
+	});
+
+	// Auto-hide flash messages after a short delay.
+	var flash = document.querySelector(".flash");
+	if (flash) {
+		setTimeout(function () {
+			flash.style.transition = "opacity .4s";
+			flash.style.opacity = "0";
+			setTimeout(function () { flash.remove(); }, 400);
+		}, 4000);
+	}
+
+	// Register the service worker for offline/PWA support.
+	if ("serviceWorker" in navigator) {
+		window.addEventListener("load", function () {
+			navigator.serviceWorker.register("/sw.js").catch(function () { /* ignore */ });
+		});
+	}
+})();

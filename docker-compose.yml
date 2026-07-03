@@ -1,0 +1,74 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: treckrr-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-treckrr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-treckrr-db-password-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-treckrr}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-treckrr} -d ${POSTGRES_DB:-treckrr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # DB is only reachable from the app on the internal network by default.
+    # Uncomment to expose it on the host for debugging.
+    # ports:
+    #   - "5432:5432"
+
+  app:
+    build: .
+    container_name: treckrr-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_PORT: ${APP_PORT:-8080}
+      DATABASE_URL: ${DATABASE_URL:-postgres://treckrr:treckrr-db-password-change-me@db:5432/treckrr?sslmode=disable}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-please-generate-a-random-value}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-admin-password}
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+
+  # Automatic daily database backups. Enable with:
+  #   docker compose --profile backup up -d
+  # Dumps land in ./backups (custom format, restore with scripts/restore.sh).
+  db-backup:
+    image: postgres:16-alpine
+    container_name: treckrr-backup
+    restart: unless-stopped
+    profiles: ["backup"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-treckrr-db-password-change-me}
+      PGUSER: ${POSTGRES_USER:-treckrr}
+      PGDATABASE: ${POSTGRES_DB:-treckrr}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "backup service started (interval $${BACKUP_INTERVAL}s, keep $${BACKUP_KEEP})";
+        while true; do
+          ts=$$(date +%Y%m%d-%H%M%S);
+          if pg_dump -h db -F c -f /backups/treckrr-$$ts.dump; then
+            echo "backup $$ts ok";
+          else
+            echo "backup $$ts FAILED";
+          fi;
+          ls -1t /backups/treckrr-*.dump 2>/dev/null | tail -n +$$((BACKUP_KEEP+1)) | xargs -r rm -f;
+          sleep "$${BACKUP_INTERVAL}";
+        done
+
+volumes:
+  pgdata:

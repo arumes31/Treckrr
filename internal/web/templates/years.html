@@ -1,0 +1,86 @@
+{{define "content"}}
+<section class="stack">
+	<p class="muted">Ein <strong>Abrechnungsjahr</strong> legst du selbst an und wählst dazu
+		die passende <strong>Bemessungsgrundlage</strong> (erscheint nur alle paar Jahre neu).
+		Danach fügst du in der Übersicht die Nachbarn hinzu und erfasst die Buchungen.</p>
+
+	<div class="list">
+		{{range .Rows}}
+		<div class="card stack stack--tight">
+			<div class="list__row list__row--plain">
+				<div class="list__main">
+					<span class="list__title">{{.Year}}{{if .Label}} — {{.Label}}{{end}}
+						{{if .Completed}}<span class="tag tag--done">Abgeschlossen</span>{{else}}<span class="tag tag--progress">In Bearbeitung</span>{{end}}
+					</span>
+					<span class="list__sub">Grundlage: {{.Base}} · {{.Entries}} Buchungen</span>
+				</div>
+				<a class="btn btn--ghost btn--sm" href="/?year={{.ID}}">Öffnen</a>
+			</div>
+			<div class="btnrow">
+				{{if .Completed}}
+				<form method="post" action="/years/{{.ID}}/status">
+					<input type="hidden" name="status" value="in_progress">
+					<button class="btn btn--ghost btn--sm" type="submit">Wieder öffnen</button>
+				</form>
+				{{else}}
+				<form method="post" action="/years/{{.ID}}/status"
+					data-confirm="Abrechnungsjahr {{.Year}} abschließen? Danach kann je Nachbar der Zahlungsstatus gepflegt werden.">
+					<input type="hidden" name="status" value="completed">
+					<button class="btn btn--primary btn--sm" type="submit">Jahr abschließen</button>
+				</form>
+				{{end}}
+			</div>
+			<details class="disclosure disclosure--plain">
+				<summary>Bearbeiten</summary>
+				<form method="post" action="/years/{{.ID}}/update" class="form">
+					<label class="field"><span>Bezeichnung</span>
+						<input class="input" type="text" name="label" value="{{.Label}}"></label>
+					<label class="field"><span>Bemessungsgrundlage</span>
+						<select class="select" name="base_id" {{if gt .Entries 0}}disabled title="Nicht änderbar – es gibt bereits Buchungen"{{end}}>
+							{{$b := .BaseID}}
+							{{range $.Bases}}<option value="{{.ID}}" {{if eq .ID $b}}selected{{end}}>{{.Year}} — {{.Name}}</option>{{end}}
+						</select>
+						{{if gt .Entries 0}}<input type="hidden" name="base_id" value="{{.BaseID}}">{{end}}
+					</label>
+					<div class="form__row">
+						<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
+					</div>
+				</form>
+				{{if eq .Entries 0}}
+				<form method="post" action="/years/{{.ID}}/delete" data-confirm="Abrechnungsjahr {{.Year}} löschen?">
+					<button class="btn btn--danger btn--sm" type="submit">Jahr löschen</button>
+				</form>
+				{{else}}
+				<p class="muted">Jahr enthält Buchungen und kann nicht gelöscht werden.</p>
+				{{end}}
+			</details>
+		</div>
+		{{else}}
+		<p class="muted card">Noch kein Abrechnungsjahr angelegt.</p>
+		{{end}}
+	</div>
+
+	<details class="card disclosure" {{if not .Rows}}open{{end}}>
+		<summary>+ Neues Abrechnungsjahr</summary>
+		{{if .HasBases}}
+		<form method="post" action="/years" class="form">
+			<div class="form__grid">
+				<label class="field"><span>Jahr</span>
+					<input class="input" type="number" name="year" value="{{if .NextYear}}{{.NextYear}}{{end}}" required></label>
+				<label class="field"><span>Bezeichnung (optional)</span>
+					<input class="input" type="text" name="label" placeholder="Abrechnung"></label>
+			</div>
+			<label class="field"><span>Bemessungsgrundlage</span>
+				<select class="select" name="base_id" required>
+					<option value="">— wählen —</option>
+					{{range .Bases}}<option value="{{.ID}}">{{.Year}} — {{.Name}}</option>{{end}}
+				</select></label>
+			<button class="btn btn--primary" type="submit">Anlegen</button>
+		</form>
+		{{else}}
+		<p class="muted">Es gibt noch keine Bemessungsgrundlage.
+			<a class="link" href="/bases">Zuerst eine Grundlage anlegen →</a></p>
+		{{end}}
+	</details>
+</section>
+{{end}}

@@ -1,0 +1,50 @@
+{{define "content"}}
+<section class="stack">
+	<div class="btnrow">
+		<a class="btn btn--primary btn--sm" href="/admin/users">Benutzer</a>
+		<a class="btn btn--ghost btn--sm" href="/admin/audit">Protokoll</a>
+	</div>
+	<p class="muted">Zusätzlich wird jeder Zugriff in den Server‑Logs
+		(<code>docker compose logs app</code>) protokolliert.</p>
+
+	<form method="get" action="/admin/audit" class="card form">
+		<div class="form__grid">
+			<label class="field"><span>Suche</span>
+				<input class="input" type="search" name="q" value="{{.Q}}" placeholder="Benutzer, Detail, IP …"></label>
+			<label class="field"><span>Aktion</span>
+				<select class="select" name="action">
+					<option value="">Alle Aktionen</option>
+					{{$a := .Action}}
+					{{range .Actions}}<option value="{{.}}" {{if eq . $a}}selected{{end}}>{{.}}</option>{{end}}
+				</select></label>
+		</div>
+		<div class="btnrow">
+			<button class="btn btn--primary btn--sm" type="submit">Filtern</button>
+			<a class="btn btn--ghost btn--sm" href="/admin/audit/export?q={{.Q}}&action={{.Action}}">CSV Export</a>
+		</div>
+	</form>
+	<p class="muted small">{{len .Entries}} Einträge angezeigt.</p>
+
+	<div class="card tablewrap">
+		<table class="dtable dtable--zebra">
+			<thead>
+				<tr><th>Zeitpunkt</th><th>Benutzer</th><th>Aktion</th><th>Objekt</th><th>Detail</th><th>IP</th></tr>
+			</thead>
+			<tbody>
+				{{range .Entries}}
+				<tr>
+					<td class="nowrap small">{{.Created.Format "02.01.2006 15:04:05"}}</td>
+					<td class="small">{{if .Username}}{{.Username}}{{else}}—{{end}}</td>
+					<td class="small"><strong>{{.Action}}</strong></td>
+					<td class="small">{{.Entity}}{{if .EntityID}} #{{.EntityID}}{{end}}</td>
+					<td class="small">{{.Detail}}</td>
+					<td class="small nowrap">{{.IP}}</td>
+				</tr>
+				{{else}}
+				<tr><td colspan="6" class="muted center">Noch keine Einträge.</td></tr>
+				{{end}}
+			</tbody>
+		</table>
+	</div>
+</section>
+{{end}}

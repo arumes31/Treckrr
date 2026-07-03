@@ -1,0 +1,35 @@
+{{define "content"}}
+<section class="stack">
+	<div class="card">
+		<h2 class="section-title">Zwei‑Faktor‑Authentifizierung</h2>
+		{{if .Enabled}}
+		<p>2FA ist <strong>aktiviert</strong>. Zum Anmelden benötigst du zusätzlich den
+			6‑stelligen Code deiner Authenticator‑App.</p>
+		<form method="post" action="/account/2fa/disable" class="form"
+			data-confirm="Zwei‑Faktor wirklich deaktivieren?">
+			<label class="field"><span>Passwort bestätigen</span>
+				<input class="input" type="password" name="password" autocomplete="current-password" required></label>
+			<button class="btn btn--danger btn--sm" type="submit">2FA deaktivieren</button>
+		</form>
+		{{else}}
+		<p class="muted">Richte eine Authenticator‑App (z. B. Aegis, FreeOTP, Google Authenticator)
+			mit folgendem Schlüssel ein und bestätige anschließend mit einem Code.</p>
+		<div class="field">
+			<span>Geheimer Schlüssel (manuell eingeben)</span>
+			<code class="secretkey">{{.Secret}}</code>
+		</div>
+		<details class="disclosure disclosure--plain">
+			<summary>otpauth‑URL anzeigen</summary>
+			<code class="secretkey small">{{.URI}}</code>
+		</details>
+		<form method="post" action="/account/2fa/confirm" class="form">
+			<label class="field"><span>Code aus der App</span>
+				<input class="input" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+					autocomplete="one-time-code" placeholder="123456" required></label>
+			<button class="btn btn--primary" type="submit">2FA aktivieren</button>
+		</form>
+		{{end}}
+	</div>
+	<p class="muted center"><a class="link" href="/profile">Zurück zum Profil</a></p>
+</section>
+{{end}}

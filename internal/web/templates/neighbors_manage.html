@@ -1,0 +1,71 @@
+{{define "content"}}
+<section class="stack">
+	<p class="muted">Zentrale Nachbarn‑Verwaltung. Diese Nachbarn kannst du in jedem
+		Abrechnungsjahr über die Übersicht hinzufügen oder vom Vorjahr übernehmen.</p>
+
+	{{if .Stats}}
+	<input class="input" type="search" placeholder="Nachbar suchen …" data-search="[data-nb-item]" aria-label="Nachbar suchen">
+	{{end}}
+	<div class="list">
+		{{range .Stats}}
+		<div class="card stack stack--tight {{if .Neighbor.Archived}}is-inactive{{end}}" data-nb-item>
+			<div class="list__row list__row--plain">
+				<div class="list__main">
+					<span class="list__title">{{.Neighbor.Name}}{{if .Neighbor.Archived}}<span class="pill-off">inaktiv</span>{{end}}</span>
+					<span class="list__sub">
+						in {{.Years}} {{if eq .Years 1}}Jahr{{else}}Jahren{{end}} · {{.Entries}} Buchungen{{if .Neighbor.Note}} · {{.Neighbor.Note}}{{end}}
+					</span>
+				</div>
+			</div>
+			<details class="disclosure disclosure--plain">
+				<summary>Bearbeiten</summary>
+				<form method="post" action="/neighbors/{{.Neighbor.ID}}/update" class="form">
+					<input type="hidden" name="origin" value="manage">
+					<label class="field"><span>Name</span>
+						<input class="input" name="name" value="{{.Neighbor.Name}}" required></label>
+					<label class="field"><span>Notiz</span>
+						<input class="input" name="note" value="{{.Neighbor.Note}}"></label>
+					<div class="btnrow"><button class="btn btn--primary btn--sm" type="submit">Speichern</button></div>
+				</form>
+				<div class="btnrow">
+					{{if .Neighbor.Archived}}
+					<form method="post" action="/neighbors/{{.Neighbor.ID}}/archive">
+						<input type="hidden" name="archived" value="false">
+						<button class="btn btn--primary btn--sm" type="submit">Reaktivieren</button>
+					</form>
+					{{else}}
+					<form method="post" action="/neighbors/{{.Neighbor.ID}}/archive">
+						<input type="hidden" name="archived" value="true">
+						<button class="btn btn--ghost btn--sm" type="submit">Deaktivieren</button>
+					</form>
+					{{end}}
+					{{if eq .Entries 0}}
+					<form method="post" action="/neighbors/{{.Neighbor.ID}}/delete"
+						data-confirm="{{.Neighbor.Name}} löschen?">
+						<input type="hidden" name="origin" value="manage">
+						<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
+					</form>
+					{{end}}
+				</div>
+				{{if gt .Entries 0}}
+				<p class="muted small">Nachbar hat Buchungen und kann nicht gelöscht werden – zum Ausblenden bitte deaktivieren.</p>
+				{{end}}
+			</details>
+		</div>
+		{{else}}
+		<p class="muted card">Noch keine Nachbarn angelegt.</p>
+		{{end}}
+	</div>
+
+	<details class="card disclosure" {{if not .Stats}}open{{end}}>
+		<summary>+ Neuen Nachbarn anlegen</summary>
+		<form method="post" action="/neighbors/create" class="form">
+			<label class="field"><span>Name</span>
+				<input class="input" name="name" required></label>
+			<label class="field"><span>Notiz (optional)</span>
+				<input class="input" name="note"></label>
+			<button class="btn btn--primary" type="submit">Anlegen</button>
+		</form>
+	</details>
+</section>
+{{end}}

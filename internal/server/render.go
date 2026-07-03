@@ -1,0 +1,147 @@
+package server
+
+import (
+	"bytes"
+	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"treckrr/internal/web"
+)
+
+// pageData is the map passed to templates. Handlers add page-specific keys.
+type pageData map[string]any
+
+// newPage returns page data pre-filled with common fields (user, flash, nav).
+func (s *Server) newPage(w http.ResponseWriter, r *http.Request, title, active string) pageData {
+	p := pageData{
+		"Title":    title,
+		"Active":   active,
+		"User":     userFromCtx(r),
+		"BasePath": r.URL.Path,
+		"Theme":    themeFromCookie(r),
+	}
+	if msg, kind := readFlash(w, r); msg != "" {
+		p["FlashMessage"] = msg
+		p["FlashKind"] = kind
+	}
+	return p
+}
+
+// render executes the named page template's "layout" into the response.
+func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, data pageData) {
+	tpl, ok := s.templates[page]
+	if !ok {
+		log.Printf("unknown template: %s", page)
+		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		return
+	}
+	if _, exists := data["AssetVersion"]; !exists {
+		data["AssetVersion"] = web.AssetVersion()
+	}
+	// Render to a buffer first so a template error does not emit a half page.
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "layout", data); err != nil {
+		log.Printf("render %s: %v", page, err)
+		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = buf.WriteTo(w)
+}
+
+// ---- Flash messages (cookie based) --------------------------------------
+
+func (s *Server) setFlash(w http.ResponseWriter, kind, msg string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     flashCookie,
+		Value:    kind + "|" + url.QueryEscape(msg),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.cfg.CookieSecure,
+		MaxAge:   30,
+	})
+}
+
+// readFlash returns the flash message and kind, clearing the cookie.
+func readFlash(w http.ResponseWriter, r *http.Request) (msg, kind string) {
+	c, err := r.Cookie(flashCookie)
+	if err != nil || c.Value == "" {
+		return "", ""
+	}
+	http.SetCookie(w, &http.Cookie{Name: flashCookie, Value: "", Path: "/", MaxAge: -1})
+	parts := strings.SplitN(c.Value, "|", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	decoded, err := url.QueryUnescape(parts[1])
+	if err != nil {
+		return "", ""
+	}
+	return decoded, parts[0]
+}
+
+// ---- Form helpers -------------------------------------------------------
+
+// pathID parses the {id} path value as int64.
+func pathID(r *http.Request) (int64, error) {
+	return strconv.ParseInt(r.PathValue("id"), 10, 64)
+}
+
+// formInt64 parses a form field as int64 (0 on empty/invalid).
+func formInt64(r *http.Request, name string) int64 {
+	v, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue(name)), 10, 64)
+	return v
+}
+
+// formInt64Ptr returns a pointer to the parsed id, or nil when empty/zero.
+func formInt64Ptr(r *http.Request, name string) *int64 {
+	v := formInt64(r, name)
+	if v == 0 {
+		return nil
+	}
+	return &v
+}
+
+// formFloat parses a form field as float64, accepting both "," and "." as the
+// decimal separator (German users type commas).
+func formFloat(r *http.Request, name string) float64 {
+	return parseGermanFloat(r.FormValue(name))
+}
+
+// parseGermanFloat parses a decimal accepting "," or "." as separator.
+func parseGermanFloat(raw string) float64 {
+	raw = strings.ReplaceAll(strings.TrimSpace(raw), ",", ".")
+	v, _ := strconv.ParseFloat(raw, 64)
+	return v
+}
+
+// formInt64List collects repeated form values under name as int64s.
+func formInt64List(r *http.Request, name string) []int64 {
+	var ids []int64
+	for _, v := range r.Form[name] {
+		if id, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// formMachineIDs collects repeated "machine_ids" checkbox values.
+func formMachineIDs(r *http.Request) []int64 {
+	var ids []int64
+	for _, v := range r.Form["machine_ids"] {
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// redirect issues a see-other redirect (post/redirect/get).
+func redirect(w http.ResponseWriter, r *http.Request, target string) {
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}

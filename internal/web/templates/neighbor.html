@@ -1,0 +1,211 @@
+{{define "content"}}
+<section class="stack" data-base-id="{{.Base.ID}}">
+	<div class="btnrow">
+		<a class="backlink" href="/?year={{.Year.ID}}">‹ Alle Nachbarn {{.Year.Year}}</a>
+		<a class="link" href="/neighbors/{{.Neighbor.ID}}/overview">Verlauf (alle Jahre) ›</a>
+	</div>
+
+	<div class="summary-card card">
+		<div>
+			<span class="summary-card__label">{{.Neighbor.Name}} · {{.Year.Year}}</span>
+			<span class="summary-card__value">{{money .TotalCost}}</span>
+		</div>
+		<div class="summary-card__meta">
+			<span>{{num .TotalHours}} h · {{len .Entries}} Buchungen</span>
+			<a class="btn btn--ghost btn--sm" href="/export/neighbor/{{.Neighbor.ID}}?year={{.Year.ID}}">CSV Export</a>
+		</div>
+	</div>
+
+	{{if .Completed}}
+	<div class="flash flash--info">Dieses Abrechnungsjahr ist <strong>abgeschlossen</strong> – neue Buchungen und Löschungen sind gesperrt.</div>
+	{{else}}
+	<h2 class="section-title">Neue Buchung</h2>
+	<form method="post" action="/entries" class="card form" data-entry-form
+		data-pricing-url="/api/base/{{.Base.ID}}/pricing">
+		<input type="hidden" name="year_id" value="{{.Year.ID}}">
+		<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+
+		<div class="segmented" role="tablist">
+			<label class="segmented__item">
+				<input type="radio" name="mode" value="gespann" checked data-mode-toggle>
+				<span>Gespann</span>
+			</label>
+			<label class="segmented__item">
+				<input type="radio" name="mode" value="manual" data-mode-toggle>
+				<span>Manuell</span>
+			</label>
+		</div>
+
+		<div data-mode-panel="gespann">
+			<label class="field"><span>Fixes Gespann</span>
+				<select class="select" name="gespann_id" data-gespann-select>
+					<option value="">— wählen —</option>
+					{{range .Gespanne}}
+						<option value="{{.ID}}">{{.Name}}</option>
+					{{end}}
+				</select>
+			</label>
+		</div>
+
+		<div data-mode-panel="manual" hidden>
+			<label class="field"><span>Traktor</span>
+				<select class="select" name="tractor_id" data-tractor-select>
+					<option value="">— wählen —</option>
+					{{range .Tractors}}
+						<option value="{{.ID}}">{{.Label}}</option>
+					{{end}}
+				</select>
+			</label>
+			<label class="field"><span>Belastungsstufe</span>
+				<select class="select" name="load_level_id" data-load-select>
+					<option value="">— wählen —</option>
+					{{range .Loads}}
+						<option value="{{.ID}}">{{.Name}} ({{num .CostPerPS}} €/PS·h)</option>
+					{{end}}
+				</select>
+			</label>
+			<fieldset class="fieldset">
+				<legend>Maschinen</legend>
+				<div class="checkgroup">
+					{{range .Machines}}
+						<label class="check">
+							<input type="checkbox" name="machine_ids" value="{{.ID}}" data-machine>
+							<span>{{.Name}} <em>({{num .HourlyRate}} €/h)</em></span>
+						</label>
+					{{else}}
+						<p class="muted">Keine Maschinen in dieser Grundlage.</p>
+					{{end}}
+				</div>
+			</fieldset>
+		</div>
+
+		<div class="rate-preview" data-rate-preview>
+			<span>Stundensatz: <strong data-rate>–</strong></span>
+			<span>Kosten: <strong data-cost>–</strong></span>
+		</div>
+
+		<div class="form__grid">
+			<label class="field"><span>Datum</span>
+				<input class="input" type="date" name="entry_date" value="{{.Today}}" required></label>
+			<label class="field"><span>Stunden</span>
+				<input class="input" type="number" step="0.001" min="0" name="hours"
+					inputmode="decimal" data-hours required></label>
+		</div>
+		<label class="field"><span>Tätigkeit (optional)</span>
+			<input class="input" type="text" name="task_label" placeholder="z. B. Mähen"></label>
+		<label class="field"><span>Notiz (optional)</span>
+			<input class="input" type="text" name="note"></label>
+
+		<button class="btn btn--primary btn--block" type="submit">Buchung speichern</button>
+	</form>
+
+	<details class="card disclosure">
+		<summary>Schnellerfassung (mehrere Zeilen)</summary>
+		<form method="post" action="/entries/quick" class="form">
+			<input type="hidden" name="year_id" value="{{.Year.ID}}">
+			<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+			<p class="muted small">Je Zeile ein festes Gespann und die Stunden. Leere Zeilen werden ignoriert.</p>
+			<div class="tablewrap">
+				<table class="dtable">
+					<thead><tr><th>Datum</th><th>Gespann</th><th class="num">Stunden</th></tr></thead>
+					<tbody>
+						{{range $i := seq 6}}
+						<tr>
+							<td><input class="input" type="date" name="q_date" value="{{$.Today}}"></td>
+							<td>
+								<select class="select" name="q_gespann">
+									<option value="">—</option>
+									{{range $.Gespanne}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+								</select>
+							</td>
+							<td><input class="input" name="q_hours" inputmode="decimal" placeholder="0"></td>
+						</tr>
+						{{end}}
+					</tbody>
+				</table>
+			</div>
+			<button class="btn btn--primary" type="submit">Zeilen speichern</button>
+		</form>
+	</details>
+	{{end}}
+
+	{{if .TaskSummary}}
+	<h2 class="section-title">Zusammenfassung nach Tätigkeit</h2>
+	<div class="card tablewrap">
+		<table class="dtable">
+			<thead><tr><th>Tätigkeit</th><th class="num">Stunden</th><th class="num">Kosten</th></tr></thead>
+			<tbody>
+				{{range .TaskSummary}}
+				<tr><td>{{.Task}}</td><td class="num">{{num .Hours}}</td><td class="num">{{money .Cost}}</td></tr>
+				{{end}}
+			</tbody>
+			<tfoot>
+				<tr><th>Gesamt</th><th class="num">{{num .TotalHours}} h</th><th class="num">{{money .TotalCost}}</th></tr>
+			</tfoot>
+		</table>
+	</div>
+	{{end}}
+
+	<h2 class="section-title">Gesamtübersicht Buchungen</h2>
+	<div class="card tablewrap">
+		<table class="dtable dtable--entries dtable--zebra">
+			<thead>
+				<tr>
+					<th>Datum</th><th>Tätigkeit</th>
+					<th class="num">Std</th><th class="num">Kosten</th><th aria-label="Aktion"></th>
+				</tr>
+			</thead>
+			<tbody>
+				{{range .Entries}}
+				<tr {{if .Voided}}class="is-voided"{{end}}>
+					<td class="nowrap">{{date .Date}}</td>
+					<td>
+						<span class="entry__task">{{if .TaskLabel}}{{.TaskLabel}}{{else}}Sonstige{{end}}{{if .Voided}} <span class="pill-off">storniert</span>{{end}}</span>
+						<span class="entry__detail muted small">{{.TractorLabel}} · {{.LoadLabel}}{{if .MachineLabels}} · {{.MachineLabels}}{{end}}</span>
+						<span class="entry__detail muted small">{{num .Hours}} h × {{money .HourlyRate}}/h{{if .Note}} · {{.Note}}{{end}}{{if .VoidReason}} · Storno: {{.VoidReason}}{{end}}</span>
+					</td>
+					<td class="num">{{num .Hours}}</td>
+					<td class="num strong">{{money .Cost}}</td>
+					<td class="num">
+						{{if not $.Completed}}
+						<div class="rowactions">
+							{{if .Voided}}
+							<form method="post" action="/entries/{{.ID}}/void">
+								<input type="hidden" name="voided" value="false">
+								<button class="btn btn--ghost btn--sm" type="submit" title="Stornierung aufheben">↺</button>
+							</form>
+							{{else}}
+							<a class="btn btn--ghost btn--icon" href="/entries/{{.ID}}/edit" aria-label="Bearbeiten" title="Bearbeiten">✎</a>
+							<form method="post" action="/entries/{{.ID}}/void" data-confirm="Buchung stornieren? (bleibt sichtbar, zählt nicht mehr)">
+								<input type="hidden" name="voided" value="true">
+								<button class="btn btn--ghost btn--icon" type="submit" aria-label="Stornieren" title="Stornieren">⊘</button>
+							</form>
+							<form method="post" action="/entries/{{.ID}}/delete" data-confirm="Buchung endgültig löschen?">
+								<button class="btn btn--ghost btn--icon btn--danger" type="submit" aria-label="Löschen" title="Löschen">🗑</button>
+							</form>
+							{{end}}
+						</div>
+						{{end}}
+					</td>
+				</tr>
+				{{else}}
+				<tr><td colspan="5" class="muted center">Noch keine Buchungen in diesem Jahr.</td></tr>
+				{{end}}
+			</tbody>
+			{{if .Entries}}
+			<tfoot>
+				<tr>
+					<th>Gesamt</th>
+					<th></th>
+					<th class="num">{{num .TotalHours}}</th>
+					<th class="num">{{money .TotalCost}}</th>
+					<th></th>
+				</tr>
+			</tfoot>
+			{{end}}
+		</table>
+	</div>
+</section>
+{{end}}
+
+{{define "scripts"}}<script src="/static/js/entry-form.js?v={{.AssetVersion}}" defer></script>{{end}}
