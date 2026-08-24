@@ -1,15 +1,14 @@
 package server
 
 import (
-	"math"
 	"net/http"
 	"strconv"
 
-	"treckrr/internal/calc"
-	"treckrr/internal/models"
-)
+	"github.com/shopspring/decimal"
 
-func round2(f float64) float64 { return math.Round(f*100) / 100 }
+	"github.com/d0linger/treckrr/internal/calc"
+	"github.com/d0linger/treckrr/internal/models"
+)
 
 func itoa64(n int64) string { return strconv.FormatInt(n, 10) }
 
@@ -18,26 +17,32 @@ func formInt64FromQuery(r *http.Request, name string) int64 {
 	return v
 }
 
-// diffRow is one comparison line between two bases.
+// diffRow is one comparison line between two bases. Up/Down carry the sign of
+// Diff as booleans so templates don't compare a decimal against a float literal
+// (Go's template gt/lt only support basic kinds and error on a struct).
 type diffRow struct {
 	Label string
-	A     float64 // value in the selected basis
-	B     float64 // value in the compared-against basis
-	Diff  float64 // A - B
-	Pct   float64 // percentage change vs B
+	A     decimal.Decimal // value in the selected basis
+	B     decimal.Decimal // value in the compared-against basis
+	Diff  decimal.Decimal // A - B
+	Pct   decimal.Decimal // percentage change vs B
+	Up    bool            // Diff > 0
+	Down  bool            // Diff < 0
 }
 
-func makeDiff(label string, a, b float64) diffRow {
-	d := diffRow{Label: label, A: a, B: b, Diff: round2(a - b)}
-	if b != 0 {
-		d.Pct = round2((a - b) / b * 100)
+func makeDiff(label string, a, b decimal.Decimal) diffRow {
+	d := diffRow{Label: label, A: a, B: b, Diff: a.Sub(b).Round(2)}
+	d.Up = d.Diff.IsPositive()
+	d.Down = d.Diff.IsNegative()
+	if !b.IsZero() {
+		d.Pct = a.Sub(b).Div(b).Mul(decimal.NewFromInt(100)).Round(2)
 	}
 	return d
 }
 
 // gespannRates returns name -> hourly rate for all gespanne of a base.
-func (s *Server) gespannRates(r *http.Request, baseID int64) map[string]float64 {
-	out := map[string]float64{}
+func (s *Server) gespannRates(r *http.Request, baseID int64) map[string]decimal.Decimal {
+	out := map[string]decimal.Decimal{}
 	gespanne, _ := s.store.ListGespanne(r.Context(), baseID)
 	tractors, _ := s.store.ListTractors(r.Context(), baseID)
 	loads, _ := s.store.ListLoadLevels(r.Context(), baseID)
@@ -83,7 +88,7 @@ func (s *Server) handlePriceCompare(w http.ResponseWriter, r *http.Request) {
 	}
 	bases, err := s.store.ListBases(r.Context())
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 
@@ -99,7 +104,7 @@ func (s *Server) handlePriceCompare(w http.ResponseWriter, r *http.Request) {
 	}
 	against, err := s.store.GetBase(r.Context(), againstID)
 	if err != nil {
-		s.setFlash(w, "error", "Vergleichsgrundlage nicht gefunden.")
+		s.setFlash(w, r, "error", "Vergleichsgrundlage nicht gefunden.")
 		redirect(w, r, "/prices/compare?base="+itoa64(base.ID))
 		return
 	}
@@ -107,7 +112,7 @@ func (s *Server) handlePriceCompare(w http.ResponseWriter, r *http.Request) {
 
 	// Load levels (cost per PS).
 	loadsA, _ := s.store.ListLoadLevels(r.Context(), base.ID)
-	loadsB := map[string]float64{}
+	loadsB := map[string]decimal.Decimal{}
 	if lb, err := s.store.ListLoadLevels(r.Context(), against.ID); err == nil {
 		for _, l := range lb {
 			loadsB[l.Name] = l.CostPerPS
@@ -121,7 +126,7 @@ func (s *Server) handlePriceCompare(w http.ResponseWriter, r *http.Request) {
 
 	// Machines (hourly rate), matched by name.
 	machA, _ := s.store.ListMachines(r.Context(), base.ID)
-	machB := map[string]float64{}
+	machB := map[string]decimal.Decimal{}
 	if mb, err := s.store.ListMachines(r.Context(), against.ID); err == nil {
 		for _, m := range mb {
 			machB[m.Name] = calc.MachineRate(m)

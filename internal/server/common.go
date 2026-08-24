@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"treckrr/internal/models"
-	"treckrr/internal/store"
+	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/store"
 )
 
 // resolveYear returns the billing year (Abrechnungsjahr) selected via the
@@ -22,12 +22,12 @@ func (s *Server) resolveYear(w http.ResponseWriter, r *http.Request) (*models.Bi
 	}
 	year, err := s.store.LatestBillingYear(r.Context())
 	if errors.Is(err, store.ErrNotFound) {
-		s.setFlash(w, "info", "Bitte zuerst ein Abrechnungsjahr anlegen.")
+		s.setFlash(w, r, "info", "Bitte zuerst ein Abrechnungsjahr anlegen.")
 		redirect(w, r, "/years")
 		return nil, false
 	}
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return nil, false
 	}
 	return year, true
@@ -63,7 +63,7 @@ func (s *Server) resolveBase(w http.ResponseWriter, r *http.Request) (*models.Pr
 		return nil, false
 	}
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return nil, false
 	}
 	return base, true

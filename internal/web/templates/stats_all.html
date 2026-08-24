@@ -1,0 +1,62 @@
+{{define "content"}}
+<section class="stack">
+	<a class="backlink" href="/">‹ Übersicht</a>
+
+	<div class="kpigrid">
+		<div class="kpi card kpi--rev"><span class="kpi__label">Leistungen gesamt</span><span class="kpi__value">{{money .GrandCost}}</span></div>
+		<div class="kpi card kpi--hours"><span class="kpi__label">Stunden gesamt</span><span class="kpi__value">{{num .GrandHours}} h</span></div>
+		{{if .HasLedger}}
+		<div class="kpi card kpi--{{if .GrandLedger.IsNegative}}owe{{else}}pay{{end}}"><span class="kpi__label">Verrechnung gesamt</span><span class="kpi__value">{{money .GrandLedger}}</span></div>
+		<div class="kpi card kpi--{{if .GrandNet.IsNegative}}owe{{else}}net{{end}}"><span class="kpi__label">Netto-Ergebnis</span><span class="kpi__value">{{money .GrandNet}}</span></div>
+		{{end}}
+		<div class="kpi card kpi--paid"><span class="kpi__label">Bezahlt gesamt</span><span class="kpi__value">{{money .GrandPaid}}</span></div>
+		<div class="kpi card kpi--open"><span class="kpi__label">Offen gesamt</span><span class="kpi__value">{{money .GrandOpen}}</span></div>
+		{{if .GrandCredit.IsPositive}}<div class="kpi card"><span class="kpi__label">Guthaben gesamt</span><span class="kpi__value">{{money .GrandCredit}}</span></div>{{end}}
+	</div>
+
+	<div class="card">
+		<h2 class="section-title">Leistungen je Jahr</h2>
+		{{template "bar-chart" (dict "Rows" .Revenue "Max" .RevenueMax "Money" true)}}
+	</div>
+
+	<div>
+		<h2 class="section-title">Jahresübersicht</h2>
+		<div class="yearstats">
+			{{range .Stats}}
+			<div class="yearstat yearstat--{{if .Completed}}done{{else}}open{{end}}">
+				<div class="yearstat__head">
+					<a class="link yearstat__yr" href="/stats?year={{.YearID}}">{{.Year}}</a>
+					{{if .Completed}}<span class="chip2 chip2--paid">abgeschlossen</span>{{else}}<span class="chip2 chip2--prog">offen</span>{{end}}
+					<span class="yearstat__net">{{money .Net}}</span>
+				</div>
+				<div class="yearstat__sub">
+					<span>Leistungen <b>{{money .Cost}}</b></span>
+					<span>Stunden <b>{{num .Hours}} h</b></span>
+					{{if not .Ledger.IsZero}}<span>Verrechnung <b>{{money .Ledger}}</b></span>{{end}}
+				</div>
+				<div class="yearstat__pay">
+					<svg class="paybar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="paybar__track" x="0" y="0" width="100%" height="8" rx="4"></rect><rect class="paybar__paid" x="0" y="0" width="{{.PaidPct}}" height="8" rx="4"></rect></svg>
+					<div class="paybar__l"><span>Bezahlt <b>{{money .PaidCost}}</b></span><span class="paybar__open">Offen <b>{{money .OpenCost}}</b></span></div>
+				</div>
+			</div>
+			{{else}}
+			<p class="muted center">Noch keine Abrechnungsjahre.</p>
+			{{end}}
+			{{if .Stats}}
+			<div class="yearstat yearstat--sum">
+				<div class="yearstat__head"><span class="yearstat__yr">Summe</span><span class="yearstat__net">{{money .GrandNet}}</span></div>
+				<div class="yearstat__sub">
+					<span>Leistungen <b>{{money .GrandCost}}</b></span>
+					<span>Stunden <b>{{num .GrandHours}} h</b></span>
+					{{if .HasLedger}}<span>Verrechnung <b>{{money .GrandLedger}}</b></span>{{end}}
+				</div>
+				<div class="yearstat__pay">
+					<svg class="paybar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="paybar__track" x="0" y="0" width="100%" height="8" rx="4"></rect><rect class="paybar__paid" x="0" y="0" width="{{.GrandPaidPct}}" height="8" rx="4"></rect></svg>
+					<div class="paybar__l"><span>Bezahlt <b>{{money .GrandPaid}}</b></span><span class="paybar__open">Offen <b>{{money .GrandOpen}}</b></span></div>
+				</div>
+			</div>
+			{{end}}
+		</div>
+	</div>
+</section>
+{{end}}

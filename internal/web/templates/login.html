@@ -1,26 +1,48 @@
 {{define "content"}}
+{{/* Decorative worksheet backdrop, painted by login-bg.js: the machine set
+     scattered as a favicon-like field, one of two sheets chosen at random per
+     load. Purely cosmetic — aria-hidden, pointer-inert, pinned behind the card.
+     Absent gracefully without JS (stays transparent, page background shows). */}}
+<canvas id="login-bg" class="login-bg" aria-hidden="true"></canvas>
 <div class="auth">
-	<div class="auth__card card">
-		<div class="auth__brand">
-			<img src="/static/icons/favicon.svg" alt="" width="48" height="48">
-			<h1>Treckrr</h1>
-			<p class="muted">Maschinen- &amp; Traktorkosten-Abrechnung</p>
-		</div>
+	<div class="auth__brand">
+		<span class="auth__logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#m-traktor"/></svg></span>
+		<h1>Treckrr</h1>
+		<p class="auth__kick">Maschinen · Abrechnung</p>
+	</div>
 
+	<div class="auth__card card">
 		{{if .ShowTotp}}
+		{{/* One field for both factors (the server accepts either). A link toggles
+		     the input between authenticator code (numeric, 6 digits) and backup
+		     code (alphanumeric). Progressive: without JS it stays a plain field
+		     that still accepts both. */}}
+		<div class="auth__head">
+			<h2>Zwei‑Faktor</h2>
+			<p class="muted">Bestätige die Anmeldung mit deinem zweiten Faktor.</p>
+		</div>
 		<form method="post" action="/login/2fa" class="form">
-			<p class="muted">Zwei‑Faktor‑Bestätigung: Gib den 6‑stelligen Code deiner
-				Authenticator‑App ein.</p>
 			<label class="field">
-				<span>Code</span>
-				<input class="input" type="text" name="totp" inputmode="numeric" pattern="[0-9]*"
-					maxlength="6" autocomplete="one-time-code" placeholder="123456" required autofocus>
+				<span data-2fa-label>Zwei‑Faktor‑Code</span>
+				<input class="otp" type="text" name="totp" inputmode="numeric"
+					autocomplete="one-time-code" placeholder="––––––" required autofocus
+					data-2fa-input data-app-placeholder="––––––" data-recovery-placeholder="XXXX-XXXX-XXXX-XXXX">
 			</label>
-			<button class="btn btn--primary btn--block" type="submit">Bestätigen</button>
+			<p class="twofa-alt"><button type="button" class="linkbtn" data-2fa-toggle
+				data-to-recovery="Backup‑Code verwenden" data-to-app="Stattdessen App‑Code">Backup‑Code verwenden</button></p>
+			<p class="muted small" data-2fa-hint
+				data-app-hint="6‑stelliger Code aus der App – oder ein Backup‑Code, falls kein Handy zur Hand."
+				data-recovery-hint="Einmal‑Code aus deiner Backup‑Liste (vier Blöcke, z. B. N6YD-DBNN-UPXT-PB67).">6‑stelliger Code aus der App – oder ein Backup‑Code, falls kein Handy zur Hand.</p>
+			<button class="btn btn--primary btn--block" type="submit">Anmelden</button>
 			<p class="center"><a class="link" href="/login?cancel=1">Abbrechen</a></p>
 		</form>
 		{{else}}
+		<div class="auth__head">
+			<h2>Anmelden</h2>
+			<p class="muted">Melde dich an, um Buchungen und Abrechnungen zu verwalten.</p>
+		</div>
 		<form method="post" action="/login" class="form">
+			<input type="hidden" name="csrf_token" value="{{.CSRF}}">
 			<label class="field">
 				<span>Benutzername</span>
 				<input class="input" type="text" name="username" autocomplete="username" required autofocus>
@@ -31,7 +53,12 @@
 			</label>
 			<button class="btn btn--primary btn--block" type="submit">Anmelden</button>
 		</form>
+		<div class="auth__or">oder</div>
+		<div class="auth__alt">
+			<button id="passkey-login" type="button" class="btn btn--ghost btn--block">{{template "ic-key"}} Mit Passkey anmelden</button>
+		</div>
 		{{end}}
 	</div>
 </div>
 {{end}}
+{{define "scripts"}}<script src="/static/js/login-bg.js?v={{.AssetVersion}}" defer></script>{{end}}

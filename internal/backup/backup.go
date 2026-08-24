@@ -1,0 +1,1176 @@
+// Package backup creates encrypted PostgreSQL dumps (on demand and on a timer),
+// and restores/verifies them. Every dump is AES-256-GCM encrypted at rest with a
+// key held separately from the app's session/data secrets.
+package backup
+
+import (
+	"bytes"
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/robfig/cron/v3"
+	"golang.org/x/crypto/argon2"
+)
+
+// parseCron parses a standard 5-field cron; empty/invalid yields ok=false.
+func parseCron(expr string) (cron.Schedule, bool) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return nil, false
+	}
+	s, err := cron.ParseStandard(expr)
+	if err != nil {
+		return nil, false
+	}
+	return s, true
+}
+
+// ValidCron reports whether expr is empty (= off) or a valid cron.
+func ValidCron(expr string) bool {
+	if strings.TrimSpace(expr) == "" {
+		return true
+	}
+	_, ok := parseCron(expr)
+	return ok
+}
+
+// cronDue reports whether a run scheduled by expr is due now, given the last run.
+func cronDue(expr string, last, now time.Time) bool {
+	s, ok := parseCron(expr)
+	if !ok {
+		return false
+	}
+	return !now.Before(s.Next(last))
+}
+
+// cronNext returns the next scheduled time after from (zero if off/invalid).
+func cronNext(expr string, from time.Time) time.Time {
+	s, ok := parseCron(expr)
+	if !ok {
+		return time.Time{}
+	}
+	return s.Next(from)
+}
+
+var cronDOW = []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
+
+// DescribeCron renders a standard 5-field cron in plain German for the panel.
+// Unknown-but-valid expressions fall back to showing the raw expression.
+func DescribeCron(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return "Ausgeschaltet (kein Zeitplan)."
+	}
+	p := strings.Fields(expr)
+	if len(p) != 5 {
+		return "Ungültig: erwartet 5 Felder (Minute Stunde Tag Monat Wochentag)."
+	}
+	if _, ok := parseCron(expr); !ok {
+		return "Ungültiger Cron-Ausdruck."
+	}
+	mi, ho, dom, mon, dow := p[0], p[1], p[2], p[3], p[4]
+	num := func(s string) (int, bool) { n, err := strconv.Atoi(s); return n, err == nil }
+	star := func(a, b, c string) bool { return a == "*" && b == "*" && c == "*" }
+	if n, ok := everyN(mi); ok && ho == "*" && star(dom, mon, dow) {
+		return fmt.Sprintf("Alle %d Minuten.", n)
+	}
+	if mi == "*" && ho == "*" && star(dom, mon, dow) {
+		return "Jede Minute."
+	}
+	if mi == "0" && ho == "*" && star(dom, mon, dow) {
+		return "Stündlich (zur vollen Stunde)."
+	}
+	if _, ok := num(mi); ok && ho == "*" && star(dom, mon, dow) {
+		return "Stündlich um Minute " + mi + "."
+	}
+	if n, ok := everyN(ho); ok {
+		if _, ok2 := num(mi); ok2 && star(dom, mon, dow) {
+			return fmt.Sprintf("Alle %d Stunden (um Minute %s).", n, mi)
+		}
+	}
+	if m, ok := num(mi); ok {
+		if h, ok2 := num(ho); ok2 && mon == "*" {
+			t := fmt.Sprintf("%02d:%02d Uhr", h, m)
+			switch {
+			case dom == "*" && dow == "*":
+				return "Täglich um " + t + "."
+			case dom == "*" && dow != "*":
+				if d, ok3 := num(dow); ok3 {
+					return "Jeden " + cronDOW[d%7] + " um " + t + "."
+				}
+			case dom != "*" && dow == "*":
+				return "Monatlich am " + dom + ". um " + t + "."
+			}
+		}
+	}
+	return "Cron: " + expr + " (Standardausdruck)."
+}
+
+func everyN(field string) (int, bool) {
+	if !strings.HasPrefix(field, "*/") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(field[2:])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// A magic header prefixes every encrypted dump so a wrong/plain file is rejected
+// early. TRKBK1 derived the AES key as a bare sha256(secret); TRKBK2 uses
+// Argon2id over a per-file random salt (memory-hard, salted) and stores that
+// salt after the magic. Both are still decryptable; new dumps are always TRKBK2.
+const (
+	magicV1  = "TRKBK1"
+	magicV2  = "TRKBK2"
+	magicLen = 6 // both magics are 6 bytes
+	saltLen  = 16
+	// Argon2id parameters (moderate): 64 MiB, 1 pass, 4 lanes → 32-byte AES key.
+	argonTime    = 1
+	argonMemory  = 64 * 1024 // KiB
+	argonThreads = 4
+	argonKeyLen  = 32
+)
+
+// deriveKey turns the raw backup secret into a 32-byte AES-256 key using Argon2id
+// over the given salt.
+func deriveKey(secret, salt []byte) []byte {
+	return argon2.IDKey(secret, salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+}
+
+// Status is the on-disk shape written after each scheduled backup and read by the
+// admin panel. Timestamps are zero when the event never happened.
+type Status struct {
+	LastBackup    time.Time `json:"last_backup"`
+	OK            bool      `json:"ok"`
+	SizeBytes     int64     `json:"size_bytes"`
+	OffhostOK     *bool     `json:"offhost_ok,omitempty"`
+	S3OK          *bool     `json:"s3_ok,omitempty"`
+	LastS3        time.Time `json:"last_s3,omitempty"`
+	Encrypted     bool      `json:"encrypted"`
+	SchemaVersion string    `json:"schema_version,omitempty"`
+	RestoreTested time.Time `json:"restore_tested,omitempty"`
+}
+
+// Settings is the runtime backup schedule, editable in the GUI. An empty cron
+// disables that destination.
+type Settings struct {
+	VolumeCron string
+	VolumeKeep int
+	S3Cron     string
+	S3Keep     int
+}
+
+// S3Options configures an optional S3-compatible off-box destination.
+type S3Options struct {
+	Endpoint  string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+	Prefix    string
+	UseSSL    bool
+}
+
+func (o S3Options) enabled() bool { return o.Endpoint != "" && o.Bucket != "" }
+
+// Options configures a Service. EncKey empty means backups are disabled.
+type Options struct {
+	DatabaseURL string
+	EncKey      string
+	Dir         string
+	StatusFile  string
+	Keep        int
+	S3          S3Options
+	// SettingsFn returns the current GUI-editable schedule. When nil the service
+	// falls back to a fixed default cron and Keep. Called each scheduler tick so
+	// GUI edits apply without a restart.
+	SettingsFn func(context.Context) Settings
+}
+
+// BackupFile describes one stored encrypted dump for the admin panel list.
+type BackupFile struct {
+	Name    string
+	Size    int64
+	ModTime time.Time
+}
+
+// Service runs and restores encrypted backups.
+type Service struct {
+	opt    Options
+	db     *sql.DB
+	secret []byte // raw backup-key secret; the AES key is derived per file, nil when disabled
+
+	mu         sync.Mutex    // serializes status.json read-modify-write
+	opSem      chan struct{} // size-1 semaphore serializing DB dump/restore, ctx-aware (T-05)
+	volRetryAt time.Time     // earliest next volume attempt after a failure (tick goroutine only)
+	s3RetryAt  time.Time     // earliest next S3 attempt after a failure (tick goroutine only)
+}
+
+// statusRetryBackoff is how long the scheduler waits before retrying a failed
+// destination, so a persistent failure (DB down, disk full) doesn't turn into a
+// heavy pg_dump loop every minute.
+const statusRetryBackoff = 15 * time.Minute
+
+// updateStatus applies mutate to status.json under the lock, re-reading first so
+// a concurrent run's fields (e.g. the other destination's timestamps) are
+// preserved instead of clobbered by a stale read-modify-write.
+func (s *Service) updateStatus(mutate func(*Status)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.readStatus()
+	mutate(&st)
+	s.writeStatus(st)
+}
+
+// New builds a Service. When opt.EncKey is empty the service is disabled and all
+// operations return ErrDisabled.
+func New(opt Options, db *sql.DB) *Service {
+	s := &Service{opt: opt, db: db, opSem: make(chan struct{}, 1)}
+	if opt.EncKey != "" {
+		s.secret = []byte(opt.EncKey)
+	}
+	return s
+}
+
+// acquireOp serializes DB dump/restore operations, honoring ctx cancellation and
+// deadlines (T-05). Pair a nil-error return with a deferred releaseOp.
+func (s *Service) acquireOp(ctx context.Context) error {
+	select {
+	case s.opSem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Service) releaseOp() { <-s.opSem }
+
+// Enabled reports whether a backup key is configured.
+func (s *Service) Enabled() bool { return s.secret != nil }
+
+// ErrDisabled is returned when no BACKUP_ENCRYPTION_KEY is configured.
+var ErrDisabled = fmt.Errorf("backups are not configured (set BACKUP_ENCRYPTION_KEY)")
+
+// Filename is the name of a dump taken at t, e.g. treckrr-2026-08-01-030000.dump.enc.
+func Filename(t time.Time) string {
+	return "treckrr-" + t.Format("2006-01-02-150405") + ".dump.enc"
+}
+
+// encrypt seals plaintext with AES-256-GCM into the TRKBK2 layout:
+// magicV2 || salt(16) || nonce || ciphertext(+tag). The AES key is derived from
+// the raw secret via Argon2id over the per-file random salt. One-shot (the dump
+// fits comfortably in memory); the GCM tag covers the whole message, so any
+// truncation or tampering fails on decrypt.
+func encrypt(plaintext, secret []byte) ([]byte, error) {
+	salt := make([]byte, saltLen)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(deriveKey(secret, salt))
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	out := append([]byte(magicV2), salt...)
+	out = append(out, nonce...)
+	return gcm.Seal(out, nonce, plaintext, nil), nil
+}
+
+// decrypt reverses encrypt for both formats, choosing the key derivation from
+// the magic header: TRKBK2 → Argon2id over the stored salt; TRKBK1 (legacy) →
+// bare sha256(secret). A wrong/plain file is rejected on the header.
+func decrypt(enc, secret []byte) ([]byte, error) {
+	var key []byte
+	switch {
+	case len(enc) >= magicLen+saltLen && string(enc[:magicLen]) == magicV2:
+		salt := enc[magicLen : magicLen+saltLen]
+		key = deriveKey(secret, salt)
+		enc = enc[magicLen+saltLen:]
+	case len(enc) >= magicLen && string(enc[:magicLen]) == magicV1:
+		k := sha256.Sum256(secret)
+		key = k[:]
+		enc = enc[magicLen:]
+	default:
+		return nil, fmt.Errorf("not a Treckrr backup (bad header)")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	ns := gcm.NonceSize()
+	if len(enc) < ns {
+		return nil, fmt.Errorf("backup truncated")
+	}
+	nonce, ct := enc[:ns], enc[ns:]
+	pt, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed (wrong key or corrupt backup): %w", err)
+	}
+	return pt, nil
+}
+
+// dbURLEnv splits a postgres connection URL into a password-free URL plus a
+// child-process environment that carries the password via PGPASSWORD, so the
+// password never appears in the process argv (visible via ps / /proc/<pid>/cmdline
+// to any co-located process). A URL without an embedded password is returned
+// unchanged. libpq reads PGPASSWORD when the URL omits the password.
+func dbURLEnv(rawURL string) (cleanURL string, env []string) {
+	env = os.Environ()
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return rawURL, env
+	}
+	pw, ok := u.User.Password()
+	if !ok {
+		return rawURL, env
+	}
+	u.User = url.User(u.User.Username()) // strip the password from the argv URL
+	return u.String(), append(env, "PGPASSWORD="+pw)
+}
+
+// dump runs pg_dump in PostgreSQL's custom format (compressed, restorable with
+// pg_restore) against the configured database and returns the raw archive bytes.
+func (s *Service) dump(ctx context.Context) ([]byte, error) {
+	// Serialize against any restore (and other dumps): a dump taken while a restore
+	// is mid-flight would capture an inconsistent, partially-restored schema (T-05).
+	if err := s.acquireOp(ctx); err != nil {
+		return nil, err
+	}
+	defer s.releaseOp()
+	// DATABASE_URL is trusted deployment config, not user input; the password is
+	// passed via PGPASSWORD (see dbURLEnv), not on the command line.
+	dbURL, env := dbURLEnv(s.opt.DatabaseURL)
+	cmd := exec.CommandContext(ctx, "pg_dump", // #nosec G204
+		"--format=custom", "--no-owner", "--no-privileges", dbURL)
+	cmd.Env = env
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("pg_dump: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return out.Bytes(), nil
+}
+
+// SchemaVersion returns the latest applied migration name, embedded in backups so
+// a restore can be checked against the running binary's schema.
+func (s *Service) SchemaVersion(ctx context.Context) string {
+	var name string
+	if s.db == nil {
+		return ""
+	}
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT name FROM schema_migrations ORDER BY name DESC LIMIT 1`).Scan(&name)
+	return name
+}
+
+// CreateEncrypted produces one encrypted dump in memory and its filename — the
+// path shared by the on-demand download and the scheduled writer.
+func (s *Service) CreateEncrypted(ctx context.Context) (data []byte, filename string, err error) {
+	if !s.Enabled() {
+		return nil, "", ErrDisabled
+	}
+	raw, err := s.dump(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	enc, err := encrypt(raw, s.secret)
+	if err != nil {
+		return nil, "", err
+	}
+	return enc, Filename(time.Now()), nil
+}
+
+// currentSettings returns the live GUI schedule, or the Options fallback.
+func (s *Service) currentSettings(ctx context.Context) Settings {
+	if s.opt.SettingsFn != nil {
+		return s.opt.SettingsFn(ctx)
+	}
+	return Settings{VolumeCron: "0 3 * * *", VolumeKeep: s.opt.Keep, S3Cron: "0 4 * * *"}
+}
+
+// readStatus loads status.json (best-effort) so a run can update its own fields
+// without clobbering the other destination's timestamps.
+func (s *Service) readStatus() Status {
+	var st Status
+	if s.opt.StatusFile == "" {
+		return st
+	}
+	// StatusFile is operator-configured deployment config, not user input.
+	b, err := os.ReadFile(s.opt.StatusFile) // #nosec G304
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(b, &st)
+	return st
+}
+
+// RunScheduled makes a volume backup and (if configured) mirrors it to S3 — the
+// CLI `treckrr backup`. The scheduler uses runVolume/runS3Mirror independently.
+func (s *Service) RunScheduled(ctx context.Context) error {
+	if !s.Enabled() {
+		return ErrDisabled
+	}
+	set := s.currentSettings(ctx)
+	if err := s.runVolume(ctx, set.VolumeKeep); err != nil {
+		return err
+	}
+	if s.S3Enabled() {
+		// Surface the S3 result: the volume dump already succeeded above, but a
+		// failed off-box copy must not be reported as overall success (3-2-1), so
+		// the CLI `treckrr backup` exits non-zero and cron can alert.
+		return s.runS3Mirror(ctx, set.S3Keep)
+	}
+	return nil
+}
+
+// runVolume writes one encrypted dump to the volume, prunes to keep, verifies it
+// restores, and updates status — without touching S3.
+func (s *Service) runVolume(ctx context.Context, keep int) error {
+	enc, name, err := s.CreateEncrypted(ctx)
+	if err != nil {
+		s.updateStatus(func(st *Status) { st.OK = false })
+		return err
+	}
+	if err := os.MkdirAll(s.opt.Dir, 0o750); err != nil {
+		s.updateStatus(func(st *Status) { st.OK = false })
+		return err
+	}
+	// Write to a staging name first. List() only returns *.dump.enc, so the staging
+	// file (…​.dump.enc.staging) is never listed or S3-mirrored until it has been
+	// verified and renamed into place — an unverified dump is never visible.
+	finalPath := filepath.Join(s.opt.Dir, name)
+	stagingPath := finalPath + ".staging"
+	if err := writeFileAtomic(stagingPath, enc); err != nil {
+		s.updateStatus(func(st *Status) { st.OK = false })
+		return err
+	}
+	// Verify BEFORE the dump becomes visible and before pruning — a backup you have
+	// never restored is not a backup. On failure delete the staging artifact, keep
+	// every prior backup (do NOT prune), record OK=false and return the error (T-04,
+	// fail closed): a corrupt new dump must never replace the last good recovery point.
+	if err := s.verifyRestorable(ctx, enc); err != nil {
+		_ = os.Remove(stagingPath)
+		s.updateStatus(func(st *Status) { st.OK = false })
+		return fmt.Errorf("backup verification failed, prior backups kept: %w", err)
+	}
+	// Verified — atomically promote it to the listable/mirrorable final name.
+	if err := os.Rename(stagingPath, finalPath); err != nil {
+		_ = os.Remove(stagingPath)
+		s.updateStatus(func(st *Status) { st.OK = false })
+		return err
+	}
+	// Now it is safe to prune older backups to `keep`.
+	s.prune(keep)
+	schema := s.SchemaVersion(ctx)
+	now := time.Now()
+	s.updateStatus(func(st *Status) {
+		st.Encrypted = true
+		st.SchemaVersion = schema
+		st.LastBackup = now
+		st.OK = true
+		st.SizeBytes = int64(len(enc))
+		st.RestoreTested = now
+	})
+	return nil
+}
+
+// runS3Mirror uploads the newest volume dump not already in the bucket, prunes S3
+// to s3keep, and records the S3 status/time.
+func (s *Service) runS3Mirror(ctx context.Context, s3keep int) error {
+	if !s.S3Enabled() {
+		return nil
+	}
+	files, err := s.List()
+	if err != nil {
+		return err
+	}
+	var name string
+	var data []byte
+	if len(files) > 0 {
+		newest := files[0].Name
+		remote, _ := s.S3List(ctx)
+		for _, r := range remote {
+			if r.Name == newest { // already mirrored — verify the stored copy before trusting it
+				// A prior run may have uploaded this object but failed verification and
+				// left it un-pruned; blindly reporting S3OK here would mask a corrupt
+				// off-box copy forever. Re-verify the stored bytes (also catches at-rest
+				// bit-rot); if it's bad but we still hold a good local dump, self-heal by
+				// overwriting it rather than staying failed until the next volume cycle.
+				err := s.verifyS3Object(ctx, newest, r.Size)
+				if err != nil {
+					if rerr := s.repairS3Mirror(ctx, newest); rerr != nil {
+						err = fmt.Errorf("s3 copy failed verification (%v) and repair failed: %w", err, rerr)
+					} else {
+						err = nil // repaired: the overwritten object re-verified
+					}
+				}
+				ok := err == nil
+				now := time.Now()
+				s.updateStatus(func(st *Status) { st.S3OK, st.LastS3 = &ok, now })
+				return err
+			}
+		}
+		name = newest
+		if data, err = s.Open(newest); err != nil {
+			return err
+		}
+	} else {
+		// No local volume dump (e.g. the volume schedule is off) — create a fresh
+		// one just for S3 so the off-box copy still happens rather than silently
+		// never running.
+		if data, name, err = s.CreateEncrypted(ctx); err != nil {
+			return err
+		}
+		// Verify it restores before it becomes the ONLY off-box copy — an unverified
+		// backup is not a backup. runVolume verifies before promoting a local dump;
+		// this fresh S3-only dump gets the same drill. On failure, don't upload.
+		if err := s.verifyRestorable(ctx, data); err != nil {
+			return err
+		}
+	}
+	uerr := s.uploadS3(ctx, name, data)
+	if uerr == nil {
+		// A PUT returning nil is not proof the bytes landed complete and readable
+		// off-box — re-read and verify the stored object before trusting it.
+		uerr = s.verifyS3Object(ctx, name, int64(len(data)))
+	}
+	ok := uerr == nil
+	now := time.Now()
+	s.updateStatus(func(st *Status) { st.S3OK, st.LastS3 = &ok, now })
+	if ok {
+		s.pruneS3(ctx, s3keep)
+	}
+	return uerr
+}
+
+// repairS3Mirror re-pushes the local dump `name` to overwrite a remote copy that
+// failed verification, then re-verifies the replacement. The local archive is
+// verified first, so a bad local dump is never pushed over the (differently) bad
+// remote — repair only ever replaces a bad off-box copy with a known-good one.
+func (s *Service) repairS3Mirror(ctx context.Context, name string) error {
+	data, err := s.Open(name)
+	if err != nil {
+		return err
+	}
+	if err := s.verifyRestorable(ctx, data); err != nil {
+		return fmt.Errorf("local dump not restorable: %w", err)
+	}
+	if err := s.uploadS3(ctx, name, data); err != nil {
+		return err
+	}
+	return s.verifyS3Object(ctx, name, int64(len(data)))
+}
+
+// prune keeps only the newest keep dumps in the volume backup dir.
+func (s *Service) prune(keep int) {
+	if keep <= 0 {
+		return
+	}
+	entries, err := filepath.Glob(filepath.Join(s.opt.Dir, "treckrr-*.dump.enc"))
+	if err != nil || len(entries) <= keep {
+		return
+	}
+	sort.Strings(entries) // timestamped names sort chronologically
+	for _, old := range entries[:len(entries)-keep] {
+		_ = os.Remove(old)
+	}
+}
+
+// listArchive lists the archive's table of contents via pg_restore --list — proving
+// it is a well-formed archive — and returns the object count plus the raw TOC text
+// (for content-sanity checks). A corrupt/truncated dump fails here.
+func (s *Service) listArchive(ctx context.Context, raw []byte) (int, string, error) {
+	tmp, cleanup, err := writeTemp(raw)
+	if err != nil {
+		return 0, "", err
+	}
+	defer cleanup()
+	// tmp is an internal temp file we just wrote, not user input.
+	cmd := exec.CommandContext(ctx, "pg_restore", "--list", tmp) // #nosec G204
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return 0, "", fmt.Errorf("not a valid archive: %s", strings.TrimSpace(errBuf.String()))
+	}
+	toc := out.String()
+	n := 0
+	for _, line := range strings.Split(toc, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, ";") {
+			n++
+		}
+	}
+	return n, toc, nil
+}
+
+// ValidateArchive proves the decrypted bytes are a well-formed archive AND that its
+// contents look like a real Treckrr database, returning the object count. Shared by
+// the backup-time drill (verifyRestorable) and the restore path (before RestoreRaw),
+// so an empty/truncated/foreign archive is rejected before it can overwrite the DB.
+func (s *Service) ValidateArchive(ctx context.Context, raw []byte) (int, error) {
+	n, toc, err := s.listArchive(ctx, raw)
+	if err != nil {
+		return 0, err
+	}
+	if err := contentSanity(toc, n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// Content-sanity floor for a verified dump: a well-formed archive can still be a dump
+// of the wrong or an empty database. A real Treckrr dump carries the full migrated
+// schema (~188 TOC objects even with no business rows) plus these core tables, so a
+// generous floor + their presence rejects a truncated/foreign/empty archive without
+// risking a false reject of a legitimate backup. The required tables are all from the
+// first migration, so this holds even when RESTORING a very old backup (later tables
+// like invoices are deliberately NOT required, so pre-invoice dumps still restore).
+const minArchiveObjects = 40
+
+var requiredRelations = []string{"users", "neighbors", "entries"}
+
+// contentSanity rejects a structurally-valid archive whose contents don't look like a
+// real Treckrr database. Runs on the decrypted TOC as the last verify-before-promote
+// step, so a corrupt new dump can never replace the last good recovery point.
+func contentSanity(toc string, objects int) error {
+	if objects < minArchiveObjects {
+		return fmt.Errorf("archive holds only %d objects (< %d) — dump looks truncated or empty", objects, minArchiveObjects)
+	}
+	for _, rel := range requiredRelations {
+		// pg_restore --list line: "231; 1259 16519 TABLE public neighbors treckrr".
+		// The trailing space anchors the full name (so "entries" ≠ "entry_photos").
+		if !strings.Contains(toc, "TABLE public "+rel+" ") {
+			return fmt.Errorf("core table %q missing from archive TOC — wrong or incomplete dump", rel)
+		}
+	}
+	return nil
+}
+
+// RestoreRaw restores decrypted dump bytes into targetURL, dropping and
+// recreating objects (--clean). Destructive — callers must confirm.
+func (s *Service) RestoreRaw(ctx context.Context, raw []byte, targetURL string) error {
+	// Serialize every dump/restore so a restore never overlaps a scheduled backup
+	// or another restore (T-05).
+	if err := s.acquireOp(ctx); err != nil {
+		return err
+	}
+	defer s.releaseOp()
+	// [T-05] Server-level maintenance mode (a flag + gate middleware that 503s normal
+	// traffic so in-flight requests can't observe the mid-restore schema) is wired at
+	// the HTTP layer: the server's handleBackupRestore sets it around this call and
+	// ReconcileAfterRestore. This package stays HTTP-agnostic and only serializes the
+	// op + resets the pool afterwards.
+	tmp, cleanup, err := writeTemp(raw)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	// targetURL is trusted deployment config; its password is passed via
+	// PGPASSWORD (see dbURLEnv), not on the command line.
+	dbURL, env := dbURLEnv(targetURL)
+	// --single-transaction wraps the whole clean+recreate+load in one transaction
+	// (implies --exit-on-error): on any failure it rolls back, so a timeout or tool
+	// error can no longer leave a partially restored database (T-05).
+	cmd := exec.CommandContext(ctx, "pg_restore", // #nosec G204
+		"--clean", "--if-exists", "--no-owner", "--single-transaction", "--dbname="+dbURL, tmp)
+	cmd.Env = env
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pg_restore: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
+
+// verifyRestorable is the automatic post-write drill: decrypt with the service key,
+// then prove the archive is well-formed and its contents look like a real Treckrr DB.
+func (s *Service) verifyRestorable(ctx context.Context, enc []byte) error {
+	raw, err := decrypt(enc, s.secret)
+	if err != nil {
+		return err
+	}
+	_, err = s.ValidateArchive(ctx, raw)
+	return err
+}
+
+// DecryptWith decrypts using an operator-supplied key string — used by the GUI
+// restore, where the key is re-entered rather than taken from the environment.
+func DecryptWith(enc []byte, keySecret string) ([]byte, error) {
+	return decrypt(enc, []byte(keySecret))
+}
+
+// Restore decrypts a backup file (with the service key) and restores it. CLI use.
+func (s *Service) Restore(ctx context.Context, encFile, targetURL string) error {
+	if !s.Enabled() {
+		return ErrDisabled
+	}
+	// encFile is an operator-supplied path from the restore CLI, not user input.
+	enc, err := os.ReadFile(encFile) // #nosec G304
+	if err != nil {
+		return err
+	}
+	raw, err := decrypt(enc, s.secret)
+	if err != nil {
+		return err
+	}
+	return s.RestoreRaw(ctx, raw, targetURL)
+}
+
+// TestReport summarizes a test-restore.
+type TestReport struct {
+	Objects       int
+	SchemaVersion string
+}
+
+// TestRestore validates a backup file without touching the live DB. CLI use.
+func (s *Service) TestRestore(ctx context.Context, encFile string) (TestReport, error) {
+	var rep TestReport
+	if !s.Enabled() {
+		return rep, ErrDisabled
+	}
+	// encFile is an operator-supplied path from the restore CLI, not user input.
+	enc, err := os.ReadFile(encFile) // #nosec G304
+	if err != nil {
+		return rep, err
+	}
+	raw, err := decrypt(enc, s.secret)
+	if err != nil {
+		return rep, err
+	}
+	n, err := s.ValidateArchive(ctx, raw)
+	if err != nil {
+		return rep, err
+	}
+	rep.Objects = n
+	rep.SchemaVersion = s.SchemaVersion(ctx)
+	return rep, nil
+}
+
+// List returns the stored encrypted dumps, newest first.
+func (s *Service) List() ([]BackupFile, error) {
+	paths, err := filepath.Glob(filepath.Join(s.opt.Dir, "treckrr-*.dump.enc"))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BackupFile, 0, len(paths))
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, BackupFile{Name: filepath.Base(p), Size: fi.Size(), ModTime: fi.ModTime()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
+	return out, nil
+}
+
+// validName guards a requested filename against traversal and enforces the
+// backup naming scheme.
+func validName(name string) bool {
+	return name == filepath.Base(name) &&
+		strings.HasPrefix(name, "treckrr-") && strings.HasSuffix(name, ".dump.enc")
+}
+
+// Open returns the bytes of a stored encrypted dump for download.
+func (s *Service) Open(name string) ([]byte, error) {
+	if !validName(name) {
+		return nil, fmt.Errorf("invalid backup name")
+	}
+	root, err := os.OpenRoot(s.opt.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// Loop polls once a minute and runs the volume and S3 backups independently when
+// each is due (overdue on boot). Reading the schedule from the DB each tick means
+// GUI edits apply without a restart, and a mere restart no longer forces a backup.
+func (s *Service) Loop(ctx context.Context, logger *slog.Logger) {
+	if !s.Enabled() {
+		return
+	}
+	s.tick(ctx, logger)
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.tick(ctx, logger)
+		}
+	}
+}
+
+func (s *Service) tick(ctx context.Context, logger *slog.Logger) {
+	set := s.currentSettings(ctx)
+	st := s.readStatus()
+	now := time.Now()
+	// The `now.After(retryAt)` guard bounds a persistently failing destination to
+	// one attempt per statusRetryBackoff instead of a heavy pg_dump every minute
+	// (LastBackup/LastS3 only advance on success, so cronDue stays true meanwhile).
+	if cronDue(set.VolumeCron, st.LastBackup, now) && now.After(s.volRetryAt) {
+		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+		if err := s.runVolume(c, set.VolumeKeep); err != nil {
+			s.volRetryAt = now.Add(statusRetryBackoff)
+			logger.Error("volume backup failed", "err", err)
+		} else {
+			s.volRetryAt = time.Time{}
+			logger.Info("volume backup written", "dir", s.opt.Dir)
+		}
+		cancel()
+	}
+	if s.S3Enabled() {
+		st = s.readStatus()
+		if cronDue(set.S3Cron, st.LastS3, now) && now.After(s.s3RetryAt) {
+			c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+			if err := s.runS3Mirror(c, set.S3Keep); err != nil {
+				s.s3RetryAt = now.Add(statusRetryBackoff)
+				logger.Error("s3 mirror failed", "err", err)
+			} else {
+				s.s3RetryAt = time.Time{}
+				logger.Info("s3 mirror updated")
+			}
+			cancel()
+		}
+	}
+}
+
+// ManualVolume runs a volume backup now (the panel's scheduled-backup trigger).
+func (s *Service) ManualVolume(ctx context.Context) error {
+	if !s.Enabled() {
+		return ErrDisabled
+	}
+	return s.runVolume(ctx, s.currentSettings(ctx).VolumeKeep)
+}
+
+// ManualS3 creates a fresh encrypted dump and uploads it straight to S3 now —
+// the panel's "Jetzt in S3 sichern". Independent of the volume backups (works
+// even when the volume schedule is off and no local dump exists) and never
+// prunes. Dumps in-memory, so it is safe under a read-only root filesystem.
+func (s *Service) ManualS3(ctx context.Context) (string, error) {
+	if !s.Enabled() {
+		return "", ErrDisabled
+	}
+	if !s.S3Enabled() {
+		return "", fmt.Errorf("S3 ist nicht konfiguriert")
+	}
+	enc, name, err := s.CreateEncrypted(ctx)
+	if err != nil {
+		return "", err
+	}
+	// Same drill as the scheduled S3-only path: verify the dump restores before it
+	// becomes an off-box copy, then re-verify the STORED object — a PUT returning nil
+	// is not proof the bytes landed complete and readable off-box.
+	if err := s.verifyRestorable(ctx, enc); err != nil {
+		return "", err
+	}
+	uerr := s.uploadS3(ctx, name, enc)
+	if uerr == nil {
+		uerr = s.verifyS3Object(ctx, name, int64(len(enc)))
+	}
+	ok := uerr == nil
+	now := time.Now()
+	s.updateStatus(func(st *Status) { st.S3OK, st.LastS3 = &ok, now })
+	if uerr != nil {
+		return "", uerr
+	}
+	return name, nil
+}
+
+// NextRuns returns when the next volume and S3 backups are due (zero = unknown or
+// disabled), for the panel.
+func (s *Service) NextRuns(ctx context.Context) (nextVolume, nextS3 time.Time) {
+	set := s.currentSettings(ctx)
+	now := time.Now()
+	nextVolume = cronNext(set.VolumeCron, now)
+	if s.S3Enabled() {
+		nextS3 = cronNext(set.S3Cron, now)
+	}
+	return
+}
+
+// S3Enabled reports whether an off-box S3 destination is configured.
+func (s *Service) S3Enabled() bool { return s.opt.S3.enabled() }
+
+func (s *Service) s3Client() (*minio.Client, error) {
+	o := s.opt.S3
+	return minio.New(o.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(o.AccessKey, o.SecretKey, ""),
+		Secure: o.UseSSL,
+	})
+}
+
+// pruneS3 keeps only the newest keep objects in the bucket (0 = keep all).
+func (s *Service) pruneS3(ctx context.Context, keep int) {
+	if keep <= 0 {
+		return
+	}
+	files, err := s.S3List(ctx)
+	if err != nil || len(files) <= keep {
+		return
+	}
+	cl, err := s.s3Client()
+	if err != nil {
+		return
+	}
+	for _, f := range files[keep:] { // S3List is newest-first
+		_ = cl.RemoveObject(ctx, s.opt.S3.Bucket, s.opt.S3.Prefix+f.Name, minio.RemoveObjectOptions{})
+	}
+}
+
+// uploadS3 puts one encrypted dump into the configured S3-compatible bucket, for
+// the 3-2-1 rule (a copy that does not sit next to the DB it protects).
+func (s *Service) uploadS3(ctx context.Context, name string, data []byte) error {
+	cl, err := s.s3Client()
+	if err != nil {
+		return err
+	}
+	_, err = cl.PutObject(ctx, s.opt.S3.Bucket, s.opt.S3.Prefix+name, bytes.NewReader(data), int64(len(data)),
+		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	return err
+}
+
+// verifyS3Object re-reads a just-uploaded object and runs the full local verify on
+// the STORED bytes — proving the off-box copy is actually intact, not merely that
+// PutObject returned. StatObject size catches an incomplete/truncated upload; the
+// GCM auth tag in decrypt catches corruption; contentSanity catches an empty archive.
+// Do NOT compare the ETag to an md5 — a multipart upload's ETag is not the object md5.
+func (s *Service) verifyS3Object(ctx context.Context, name string, wantSize int64) error {
+	cl, err := s.s3Client()
+	if err != nil {
+		return err
+	}
+	key := s.opt.S3.Prefix + name
+	info, err := cl.StatObject(ctx, s.opt.S3.Bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("s3 head: %w", err)
+	}
+	if info.Size != wantSize {
+		return fmt.Errorf("s3 stored %d bytes, expected %d (incomplete upload?)", info.Size, wantSize)
+	}
+	obj, err := cl.GetObject(ctx, s.opt.S3.Bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("s3 read-back: %w", err)
+	}
+	defer obj.Close()
+	// Read exactly the size we uploaded (+1 guards against an over-long object). We
+	// know wantSize from our own upload, so this bounds memory by the expected size
+	// WITHOUT the generic 1 GiB S3Get ceiling, which would false-fail a legitimately
+	// large dump (a copy that IS stored and complete).
+	enc, err := io.ReadAll(io.LimitReader(obj, wantSize+1))
+	if err != nil {
+		return fmt.Errorf("s3 read-back: %w", err)
+	}
+	if int64(len(enc)) != wantSize {
+		return fmt.Errorf("s3 read-back size %d != expected %d", len(enc), wantSize)
+	}
+	return s.verifyRestorable(ctx, enc)
+}
+
+// S3Test checks that the configured bucket is reachable — the panel's
+// "Verbindung testen".
+func (s *Service) S3Test(ctx context.Context) error {
+	if !s.S3Enabled() {
+		return fmt.Errorf("S3 ist nicht konfiguriert")
+	}
+	cl, err := s.s3Client()
+	if err != nil {
+		return err
+	}
+	ok, err := cl.BucketExists(ctx, s.opt.S3.Bucket)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("bucket %q nicht gefunden", s.opt.S3.Bucket)
+	}
+	return nil
+}
+
+// Bounds so a bucket writer or a compromised S3 endpoint can't exhaust app memory
+// (SH-06): a cap on how many objects a listing accumulates, and a byte ceiling on
+// a single downloaded object (well above any realistic encrypted dump).
+const (
+	maxS3Listing     = 10_000
+	maxS3ObjectBytes = 1 << 30 // 1 GiB
+)
+
+// S3List returns the encrypted dumps stored in the bucket (the bucket explorer).
+func (s *Service) S3List(ctx context.Context) ([]BackupFile, error) {
+	if !s.S3Enabled() {
+		return nil, fmt.Errorf("S3 ist nicht konfiguriert")
+	}
+	cl, err := s.s3Client()
+	if err != nil {
+		return nil, err
+	}
+	// Bound the listing by TOTAL objects seen (not just matches), so a bucket full
+	// of non-matching keys can't drive unbounded iteration. Over the cap we refuse
+	// with an error rather than return a partial list; canceling the context stops
+	// the lister.
+	lctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var out []BackupFile
+	seen := 0
+	for obj := range cl.ListObjects(lctx, s.opt.S3.Bucket,
+		minio.ListObjectsOptions{Prefix: s.opt.S3.Prefix, Recursive: true}) {
+		if obj.Err != nil {
+			return nil, obj.Err
+		}
+		if seen++; seen > maxS3Listing {
+			return nil, fmt.Errorf("S3 listing exceeds %d objects; refusing to enumerate unbounded", maxS3Listing)
+		}
+		name := strings.TrimPrefix(obj.Key, s.opt.S3.Prefix)
+		if !strings.HasSuffix(name, ".dump.enc") {
+			continue
+		}
+		out = append(out, BackupFile{Name: name, Size: obj.Size, ModTime: obj.LastModified})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
+	return out, nil
+}
+
+// S3Get downloads one object from the bucket (still encrypted).
+func (s *Service) S3Get(ctx context.Context, name string) ([]byte, error) {
+	if !s.S3Enabled() {
+		return nil, fmt.Errorf("S3 ist nicht konfiguriert")
+	}
+	if !validName(name) {
+		return nil, fmt.Errorf("invalid backup name")
+	}
+	cl, err := s.s3Client()
+	if err != nil {
+		return nil, err
+	}
+	key := s.opt.S3.Prefix + name
+	// Reject an oversized object up front (SH-06) so a compromised endpoint can't
+	// exhaust memory before the read.
+	if info, err := cl.StatObject(ctx, s.opt.S3.Bucket, key, minio.StatObjectOptions{}); err != nil {
+		return nil, err
+	} else if info.Size > maxS3ObjectBytes {
+		return nil, fmt.Errorf("backup object too large: %d bytes", info.Size)
+	}
+	obj, err := cl.GetObject(ctx, s.opt.S3.Bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Close()
+	// Belt-and-suspenders: cap the read even if the reported size lied.
+	data, err := io.ReadAll(io.LimitReader(obj, maxS3ObjectBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxS3ObjectBytes {
+		return nil, fmt.Errorf("backup object exceeds %d bytes", int64(maxS3ObjectBytes))
+	}
+	return data, nil
+}
+
+func (s *Service) writeStatus(st Status) {
+	if s.opt.StatusFile == "" {
+		return
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		slog.Error("backup: marshal status failed", "err", err)
+		return
+	}
+	if err := writeFileAtomic(s.opt.StatusFile, b); err != nil {
+		// Surface a status-write failure (T-04) instead of silently dropping it —
+		// a stale status.json otherwise misreports backup health to operators.
+		slog.Error("backup: status write failed", "err", err)
+	}
+}
+
+// writeFileAtomic writes via a per-call unique temp file + rename so readers
+// never see a partial file and two concurrent writers can't interleave into a
+// shared temp (which previously corrupted status.json). os.CreateTemp yields
+// 0600 perms.
+func writeFileAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil { // flush to disk before the rename
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// writeTemp writes raw dump bytes to a temp file for pg_restore (which needs a
+// seekable archive) and returns a cleanup func.
+func writeTemp(raw []byte) (path string, cleanup func(), err error) {
+	f, err := os.CreateTemp("", "treckrr-restore-*.dump")
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", nil, err
+	}
+	// Surface a failed Close: it can mean the archive was not fully flushed,
+	// which would make pg_restore read a truncated file.
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", nil, err
+	}
+	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
+}

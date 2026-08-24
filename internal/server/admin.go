@@ -1,10 +1,23 @@
 package server
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
+	"net/mail"
 	"strings"
+	"unicode/utf8"
 
-	"treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/store"
+)
+
+// Input-length ceilings on the admin user endpoints (defense against oversized-
+// payload abuse). Username is bounded by code points to match the "Zeichen"
+// wording; e-mail by octets, the natural unit for RFC 5321's 254-char limit.
+const (
+	maxUsernameLen = 100
+	maxEmailLen    = 254
 )
 
 // validRole reports whether the given role string is one of the known roles.
@@ -22,6 +35,12 @@ func validRole(role string) bool {
 func passwordPolicyError(pw string) string {
 	if len(pw) < 8 {
 		return "Passwort muss mindestens 8 Zeichen haben."
+	}
+	// bcrypt silently truncates input beyond 72 bytes, so anything longer would
+	// have unused tail bytes (and, with GenerateFromPassword, error out). Reject
+	// it explicitly instead of hashing a silently-shortened password.
+	if len(pw) > 72 {
+		return "Passwort darf höchstens 72 Zeichen lang sein."
 	}
 	var hasLetter, hasDigit bool
 	for _, c := range pw {
@@ -41,7 +60,7 @@ func passwordPolicyError(pw string) string {
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.store.ListUsers(r.Context())
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	data := s.newPage(w, r, "Benutzerverwaltung", "admin")
@@ -52,7 +71,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -62,26 +81,35 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		role = models.RoleEditor
 	}
 	if username == "" {
-		s.setFlash(w, "error", "Benutzername ist erforderlich.")
+		s.setFlash(w, r, "error", "Benutzername ist erforderlich.")
+		redirect(w, r, "/admin/users")
+		return
+	}
+	if utf8.RuneCountInString(username) > maxUsernameLen {
+		s.setFlash(w, r, "error", "Benutzername darf höchstens 100 Zeichen lang sein.")
 		redirect(w, r, "/admin/users")
 		return
 	}
 	if msg := passwordPolicyError(password); msg != "" {
-		s.setFlash(w, "error", msg)
+		s.setFlash(w, r, "error", msg)
 		redirect(w, r, "/admin/users")
 		return
 	}
 	newID, err := s.store.CreateUser(r.Context(), username, password, role)
 	if err != nil {
-		s.setFlash(w, "error", "Anlegen fehlgeschlagen (Benutzername bereits vergeben?).")
+		s.setFlash(w, r, "error", "Anlegen fehlgeschlagen (Benutzername bereits vergeben?).")
 		redirect(w, r, "/admin/users")
 		return
 	}
 	if r.FormValue("force_change") == "on" {
-		_ = s.store.SetMustChangePassword(r.Context(), newID, true)
+		// Log a failure: the admin asked for a forced change and a silent miss means it
+		// won't be enforced. Non-fatal — the user account was still created.
+		if err := s.store.SetMustChangePassword(r.Context(), newID, true); err != nil {
+			slog.Error("create user: set must-change-password failed", "user", newID, "err", sanitizeLog(err.Error()))
+		}
 	}
 	s.audit(r, "create", "user", newID, username+" ("+role+")")
-	s.setFlash(w, "success", "Benutzer angelegt.")
+	s.setFlash(w, r, "success", "Benutzer angelegt.")
 	redirect(w, r, "/admin/users")
 }
 
@@ -92,24 +120,35 @@ func (s *Server) handleUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	password := r.FormValue("password")
 	if msg := passwordPolicyError(password); msg != "" {
-		s.setFlash(w, "error", msg)
+		s.setFlash(w, r, "error", msg)
 		redirect(w, r, "/admin/users")
 		return
 	}
 	if err := s.store.UpdatePassword(r.Context(), id, password); err != nil {
-		s.setFlash(w, "error", "Änderung fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Änderung fehlgeschlagen.")
 		redirect(w, r, "/admin/users")
 		return
 	}
-	// Force the user to change this admin-set password at next login.
-	_ = s.store.SetMustChangePassword(r.Context(), id, r.FormValue("force_change") == "on")
-	s.audit(r, "password_reset", "user", id, "durch Admin")
-	s.setFlash(w, "success", "Passwort gesetzt.")
+	// Force the user to change this admin-set password at next login. Log a failure —
+	// a silent miss means the forced change isn't enforced (the session revoke below
+	// is the load-bearing part and IS checked).
+	if err := s.store.SetMustChangePassword(r.Context(), id, r.FormValue("force_change") == "on"); err != nil {
+		slog.Error("password reset: set must-change-password failed", "user", id, "err", sanitizeLog(err.Error()))
+	}
+	// Terminate the target user's sessions so the reset takes effect immediately.
+	// Auth is by session token, not password, so this is load-bearing: a failure
+	// must surface rather than be reported to the admin as success.
+	if err := s.store.DeleteUserSessionsExcept(r.Context(), id, ""); err != nil {
+		s.serverError(w, "password reset: revoke sessions", err)
+		return
+	}
+	s.audit(r, "password_reset", "user", id, "durch Admin; Sitzungen beendet")
+	s.setFlash(w, r, "success", "Passwort gesetzt. Bestehende Sitzungen wurden beendet.")
 	redirect(w, r, "/admin/users")
 }
 
@@ -122,26 +161,128 @@ func (s *Server) handleUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	role := r.FormValue("role")
 	if !validRole(role) {
-		s.setFlash(w, "error", "Unbekannte Rolle.")
+		s.setFlash(w, r, "error", "Unbekannte Rolle.")
 		redirect(w, r, "/admin/users")
 		return
 	}
-	// Prevent demoting the last remaining admin.
-	if role != models.RoleAdmin {
-		if target, err := s.store.GetUser(r.Context(), id); err == nil && target.IsAdmin {
-			if n, err := s.store.CountAdmins(r.Context()); err == nil && n <= 1 {
-				s.setFlash(w, "error", "Der letzte Administrator kann nicht herabgestuft werden.")
-				redirect(w, r, "/admin/users")
-				return
-			}
+	// Change the role and protect the last admin atomically (SH-04): the check and
+	// the update run in one transaction, failing closed on any error.
+	switch err := s.store.SetRoleSafe(r.Context(), id, role); {
+	case errors.Is(err, store.ErrLastAdmin):
+		s.setFlash(w, r, "error", "Der letzte Administrator kann nicht herabgestuft werden.")
+	case errors.Is(err, store.ErrNotFound):
+		s.setFlash(w, r, "error", "Benutzer nicht gefunden.")
+	case err != nil:
+		slog.Error("set role failed", "user", id, "err", sanitizeLog(err.Error()))
+		s.setFlash(w, r, "error", "Änderung fehlgeschlagen.")
+	default:
+		// Rotate privileges: end the user's sessions so the new role takes effect on
+		// their next (re-authenticated) session. This is load-bearing — a stale session
+		// keeps the OLD (possibly higher) privileges — so a revoke failure must surface
+		// rather than be reported as "Sitzungen beendet". Same as the password-reset path.
+		if err := s.store.DeleteUserSessionsExcept(r.Context(), id, ""); err != nil {
+			s.serverError(w, "set role: revoke sessions", err)
+			return
+		}
+		s.audit(r, "set_role", "user", id, role+"; Sitzungen beendet")
+		s.setFlash(w, r, "success", "Rolle aktualisiert. Sitzungen des Benutzers wurden beendet.")
+	}
+	redirect(w, r, "/admin/users")
+}
+
+// handleUserUpdate changes a user's username and e-mail. The username is unique,
+// so a clash is reported rather than swallowed.
+func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	target, err := s.store.GetUser(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	username := trimmed(r, "username")
+	email := trimmed(r, "email")
+	if username == "" {
+		s.setFlash(w, r, "error", "Benutzername darf nicht leer sein.")
+		redirect(w, r, "/admin/users")
+		return
+	}
+	// Bound input size on this admin endpoint (defense against oversized-payload
+	// abuse); the username column and RFC 5321's 254-char address limit are the
+	// natural ceilings.
+	if utf8.RuneCountInString(username) > maxUsernameLen {
+		s.setFlash(w, r, "error", "Benutzername darf höchstens 100 Zeichen lang sein.")
+		redirect(w, r, "/admin/users")
+		return
+	}
+	if len(email) > maxEmailLen {
+		s.setFlash(w, r, "error", "E‑Mail‑Adresse darf höchstens 254 Zeichen lang sein.")
+		redirect(w, r, "/admin/users")
+		return
+	}
+	// E-mail is optional, but if present it must be a valid address (the client
+	// type="email" is bypassable, so validate server-side too).
+	if email != "" {
+		if _, err := mail.ParseAddress(email); err != nil {
+			s.setFlash(w, r, "error", "Ungültige E‑Mail‑Adresse.")
+			redirect(w, r, "/admin/users")
+			return
 		}
 	}
-	if err := s.store.SetRole(r.Context(), id, role); err != nil {
-		s.setFlash(w, "error", "Änderung fehlgeschlagen.")
-	} else {
-		s.audit(r, "set_role", "user", id, role)
-		s.setFlash(w, "success", "Rolle aktualisiert.")
+	if err := s.store.UpdateUserAccount(r.Context(), id, username, email); err != nil {
+		s.setFlash(w, r, "error", "Speichern fehlgeschlagen (Benutzername bereits vergeben?).")
+		redirect(w, r, "/admin/users")
+		return
 	}
+	disp := func(v string) string {
+		if v == "" {
+			return "(leer)"
+		}
+		return v
+	}
+	var parts []string
+	if username != target.Username {
+		parts = append(parts, "Benutzername: "+target.Username+" → "+username)
+	}
+	if email != target.Email {
+		parts = append(parts, "E‑Mail: "+disp(target.Email)+" → "+disp(email))
+	}
+	// Prefix the (pre-change) username so the entry names WHICH user changed, even
+	// when only the e-mail was edited.
+	detail := target.Username + " · Zugangsdaten aktualisiert"
+	if len(parts) > 0 {
+		detail = target.Username + " · " + strings.Join(parts, "; ")
+	}
+	s.audit(r, "update", "user", id, detail)
+	s.setFlash(w, r, "success", "Zugangsdaten aktualisiert.")
+	redirect(w, r, "/admin/users")
+}
+
+// handleUserResetTotp lets an admin disable & clear a user's 2FA (e.g. when the
+// user lost their authenticator device and their recovery codes).
+func (s *Server) handleUserResetTotp(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	target, err := s.store.GetUser(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.store.SetTotp(r.Context(), id, false, ""); err != nil {
+		s.setFlash(w, r, "error", "Zurücksetzen fehlgeschlagen.")
+		redirect(w, r, "/admin/users")
+		return
+	}
+	// Best-effort: with the user's TOTP now reset, leftover recovery codes are inert.
+	_ = s.store.ClearRecoveryCodes(r.Context(), id)
+	s.audit(r, "2fa_reset", "user", id, "durch Admin ("+target.Username+")")
+	s.setFlash(w, r, "success", "2FA für "+target.Username+" zurückgesetzt. Der Benutzer kann es neu einrichten.")
 	redirect(w, r, "/admin/users")
 }
 
@@ -153,27 +294,27 @@ func (s *Server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	current := userFromCtx(r)
 	if current.ID == id {
-		s.setFlash(w, "error", "Sie können sich nicht selbst löschen.")
+		s.setFlash(w, r, "error", "Sie können sich nicht selbst löschen.")
 		redirect(w, r, "/admin/users")
 		return
 	}
-	target, err := s.store.GetUser(r.Context(), id)
-	if err == nil && target.IsAdmin {
-		if n, err := s.store.CountAdmins(r.Context()); err == nil && n <= 1 {
-			s.setFlash(w, "error", "Der letzte Administrator kann nicht gelöscht werden.")
-			redirect(w, r, "/admin/users")
-			return
-		}
-	}
-	if err := s.store.DeleteUser(r.Context(), id); err != nil {
-		s.setFlash(w, "error", "Löschen fehlgeschlagen.")
-	} else {
+	target, _ := s.store.GetUser(r.Context(), id) // best-effort, for the audit label
+	// Delete and protect the last admin atomically (SH-04), failing closed.
+	switch err := s.store.DeleteUserSafe(r.Context(), id); {
+	case errors.Is(err, store.ErrLastAdmin):
+		s.setFlash(w, r, "error", "Der letzte Administrator kann nicht gelöscht werden.")
+	case errors.Is(err, store.ErrNotFound):
+		s.setFlash(w, r, "error", "Benutzer nicht gefunden.")
+	case err != nil:
+		slog.Error("delete user failed", "user", id, "err", sanitizeLog(err.Error()))
+		s.setFlash(w, r, "error", "Löschen fehlgeschlagen.")
+	default:
 		detail := ""
 		if target != nil {
 			detail = target.Username
 		}
 		s.audit(r, "delete", "user", id, detail)
-		s.setFlash(w, "success", "Benutzer gelöscht.")
+		s.setFlash(w, r, "success", "Benutzer gelöscht.")
 	}
 	redirect(w, r, "/admin/users")
 }

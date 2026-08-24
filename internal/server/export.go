@@ -4,12 +4,37 @@ import (
 	"encoding/csv"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
+	"unicode"
 
-	"treckrr/internal/models"
-	"treckrr/internal/web"
+	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/web"
 )
+
+// sanitizeFilename reduces a user-supplied name to characters safe inside a
+// quoted Content-Disposition filename: Unicode letters/digits and . - _ are
+// kept, everything else (spaces, quotes, backslashes, path separators, control
+// chars, header-param punctuation) becomes an underscore. Prevents a name like
+// `a"; …` from breaking the header's quoting. Empty/stripped input falls back
+// to "export".
+func sanitizeFilename(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r), r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	out := strings.Trim(b.String(), "._")
+	if out == "" {
+		return "export"
+	}
+	return out
+}
 
 // handleExportYear exports all entries of a billing year as CSV.
 func (s *Server) handleExportYear(w http.ResponseWriter, r *http.Request) {
@@ -25,12 +50,12 @@ func (s *Server) handleExportYear(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := s.store.ListEntriesByYear(r.Context(), year.ID)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	names, err := s.neighborNames(r)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	filename := fmt.Sprintf("treckrr_%d.csv", year.Year)
@@ -55,12 +80,11 @@ func (s *Server) handleExportNeighbor(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := s.store.ListEntries(r.Context(), neighbor.ID, year.ID)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	names := map[int64]string{neighbor.ID: neighbor.Name}
-	safeName := strings.ReplaceAll(neighbor.Name, " ", "_")
-	filename := fmt.Sprintf("treckrr_%s_%d.csv", safeName, year.Year)
+	filename := fmt.Sprintf("treckrr_%s_%d.csv", sanitizeFilename(neighbor.Name), year.Year)
 	s.writeCSV(w, filename, entries, names)
 }
 
@@ -91,29 +115,58 @@ func (s *Server) writeCSV(w http.ResponseWriter, filename string, entries []mode
 
 	_ = cw.Write([]string{
 		"Nachbar", "Datum", "Tätigkeit", "Traktor", "Belastung",
-		"Maschinen", "Stunden", "Stundensatz (€)", "Kosten (€)", "Notiz",
+		"Maschinen", "Einheit", "Menge", "Satz/Einheit (€)", "Kosten (€)", "Notiz",
 	})
 
-	var total float64
+	var total decimal.Decimal
 	for _, e := range entries {
+		// Skip voided (stornierte) bookings so the export matches every other
+		// total in the app, which all sum with `AND NOT voided`.
+		if e.Voided {
+			continue
+		}
 		_ = cw.Write([]string{
-			names[e.NeighborID],
+			csvSafe(names[e.NeighborID]),
 			web.Date(e.Date),
-			e.TaskLabel,
-			e.TractorLabel,
-			e.LoadLabel,
-			e.MachineLabels,
-			deDecimal(e.Hours),
-			deDecimal(e.HourlyRate),
+			csvSafe(e.TaskLabel),
+			csvSafe(e.TractorLabel),
+			csvSafe(e.LoadLabel),
+			csvSafe(e.MachineLabels),
+			csvSafe(e.Unit),
+			deDecimal(e.Quantity),
+			deDecimal(e.UnitPrice),
 			deDecimal(e.Cost),
-			e.Note,
+			csvSafe(e.Note),
 		})
-		total += e.Cost
+		total = total.Add(e.Cost)
 	}
-	_ = cw.Write([]string{"", "", "", "", "", "", "", "Gesamt", deDecimal(total), ""})
+	_ = cw.Write([]string{"", "", "", "", "", "", "", "", "Gesamt", deDecimal(total), ""})
 }
 
-// deDecimal formats with a comma decimal separator for German spreadsheets.
-func deDecimal(v float64) string {
-	return strings.Replace(strconv.FormatFloat(v, 'f', 2, 64), ".", ",", 1)
+// deDecimal formats an exact decimal with a comma separator for German
+// spreadsheets, e.g. 1234.5 -> "1234,50".
+func deDecimal(v decimal.Decimal) string {
+	return strings.Replace(v.StringFixed(2), ".", ",", 1)
+}
+
+// csvSafe neutralizes spreadsheet formula injection: a cell whose first
+// non-whitespace character is one of = + - @ is prefixed with a single quote so
+// Excel/LibreOffice treat it as literal text instead of a formula. All leading
+// Unicode whitespace is skipped first (space, tab, CR/LF, vertical tab, form
+// feed, NBSP, …), because several importers strip it before evaluating a formula
+// (so " =X" or " =X" are dangerous too). Applied to user-entered text
+// columns only, never to the numeric columns.
+func csvSafe(v string) string {
+	if v == "" {
+		return v
+	}
+	t := strings.TrimLeftFunc(v, unicode.IsSpace)
+	if t == "" {
+		return v
+	}
+	switch t[0] {
+	case '=', '+', '-', '@':
+		return "'" + v
+	}
+	return v
 }

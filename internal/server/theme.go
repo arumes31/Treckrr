@@ -27,12 +27,10 @@ func (s *Server) handleTheme(w http.ResponseWriter, r *http.Request) {
 	default:
 		value = "auto"
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     themeCookie,
-		Value:    value,
-		Path:     "/",
-		MaxAge:   365 * 24 * 3600,
-		SameSite: http.SameSiteLaxMode,
+	s.setCookie(w, r, &http.Cookie{
+		Name:   themeCookie,
+		Value:  value,
+		MaxAge: 365 * 24 * 3600,
 	})
 	http.Redirect(w, r, safeReturnPath(r, "/profile"), http.StatusSeeOther)
 }
@@ -50,7 +48,8 @@ func safeReturnPath(r *http.Request, fallback string) string {
 		return fallback
 	}
 	// Only a local absolute path ("/...", but not "//host" or a scheme).
-	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") {
+	// Reject backslashes in path to prevent potential open redirects via browser normalization (e.g. /\attacker.com).
+	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "\\") {
 		return fallback
 	}
 	target := u.Path

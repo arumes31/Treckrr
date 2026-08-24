@@ -1,71 +1,99 @@
 package server
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/csv"
-	"log"
+	"encoding/hex"
+	"log/slog"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"treckrr/internal/models"
 )
 
-// filterAudit applies a text query and action filter, and returns the sorted
-// set of all actions seen (for the filter dropdown).
-func filterAudit(all []models.AuditEntry, q, action string) (filtered []models.AuditEntry, actions []string) {
-	q = strings.ToLower(strings.TrimSpace(q))
-	seen := map[string]bool{}
-	for _, e := range all {
-		if !seen[e.Action] {
-			seen[e.Action] = true
-			actions = append(actions, e.Action)
-		}
-		if action != "" && e.Action != action {
-			continue
-		}
-		if q != "" {
-			hay := strings.ToLower(e.Username + " " + e.Action + " " + e.Entity + " " +
-				e.EntityID + " " + e.Detail + " " + e.IP)
-			if !strings.Contains(hay, q) {
-				continue
-			}
-		}
-		filtered = append(filtered, e)
+// newReqID returns a short random id used to correlate a request's access-log
+// line with any error it logs.
+func newReqID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "-"
 	}
-	sort.Strings(actions)
-	return filtered, actions
+	return hex.EncodeToString(b)
 }
 
-// handleAudit renders the admin audit-trail view with search & action filter.
+// auditPageSize is how many audit rows are shown per page (keeps the trail from
+// becoming one endless scroll while staying searchable/filterable).
+const auditPageSize = 50
+
+// handleAudit renders the admin audit-trail view with search, action filter and
+// pagination. Filtering, counting and paging all run in SQL so they cover the
+// full audit history, not just a fixed recent batch.
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
-	all, err := s.store.ListAudit(r.Context(), 1000)
+	q := sanitizeQueryParam(r.URL.Query().Get("q"), maxNameLen)
+	action := sanitizeQueryParam(r.URL.Query().Get("action"), maxNameLen)
+
+	total, err := s.store.CountAudit(r.Context(), q, action)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	q := r.URL.Query().Get("q")
-	action := r.URL.Query().Get("action")
-	filtered, actions := filterAudit(all, q, action)
+	totalPages := (total + auditPageSize - 1) / auditPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 1 {
+		page = p
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * auditPageSize
+
+	entries, err := s.store.ListAuditFiltered(r.Context(), q, action, auditPageSize, offset)
+	if err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return
+	}
+	actions, err := s.store.AuditActions(r.Context())
+	if err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return
+	}
 
 	data := s.newPage(w, r, "Protokoll", "admin")
-	data["Entries"] = filtered
+	data["Entries"] = entries
 	data["Actions"] = actions
 	data["Q"] = q
 	data["Action"] = action
+	data["Total"] = total
+	data["Page"] = page
+	data["TotalPages"] = totalPages
+	data["HasPrev"] = page > 1
+	data["HasNext"] = page < totalPages
+	data["PrevPage"] = page - 1
+	data["NextPage"] = page + 1
+	rangeFrom := offset + 1
+	if len(entries) == 0 {
+		rangeFrom = 0 // empty result: read "0 von 0", not "1 von 0"
+	}
+	data["RangeFrom"] = rangeFrom
+	data["RangeTo"] = offset + len(entries)
 	s.render(w, r, "audit", data)
 }
 
 // handleAuditExport streams the (optionally filtered) audit trail as CSV.
 func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
-	all, err := s.store.ListAudit(r.Context(), 5000)
+	q := sanitizeQueryParam(r.URL.Query().Get("q"), maxNameLen)
+	action := sanitizeQueryParam(r.URL.Query().Get("action"), maxNameLen)
+
+	filtered, err := s.store.ListAuditFiltered(r.Context(), q, action, 0, 0)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	filtered, _ := filterAudit(all, r.URL.Query().Get("q"), r.URL.Query().Get("action"))
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename=\"treckrr_audit.csv\"")
@@ -77,7 +105,12 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 	for _, e := range filtered {
 		_ = cw.Write([]string{
 			e.Created.Format("2006-01-02 15:04:05"),
-			e.Username, e.Action, e.Entity, e.EntityID, e.Detail, e.IP,
+			csvSafe(e.Username),
+			csvSafe(e.Action),
+			csvSafe(e.Entity),
+			csvSafe(e.EntityID),
+			csvSafe(e.Detail),
+			csvSafe(e.IP),
 		})
 	}
 }
@@ -99,35 +132,138 @@ func (s *Server) audit(r *http.Request, action, entity string, entityID int64, d
 		idStr = strconv.FormatInt(entityID, 10)
 	}
 	if err := s.store.AddAudit(r.Context(), uid, uname, action, entity, idStr, detail, s.clientIP(r)); err != nil {
-		log.Printf("audit write failed (%s %s): %v", action, entity, err)
+		slog.Error("audit write failed", "action", action, "entity", entity, "err", err)
 	}
+}
+
+// fieldChange is one before/after pair for building old→new audit details.
+type fieldChange struct {
+	Label, Old, New string
+}
+
+// diffFields renders only the changed fields as "Label: old → new", joined with
+// " · ". Empty values render as an em dash so a cleared field is visible.
+func diffFields(changes ...fieldChange) string {
+	parts := make([]string, 0, len(changes))
+	for _, c := range changes {
+		if c.Old != c.New {
+			parts = append(parts, c.Label+": "+orDash(c.Old)+" → "+orDash(c.New))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func orDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "—"
+	}
+	return s
+}
+
+// maskIBAN reduces a bank account number to a change-marker for the audit trail:
+// the last 4 characters are kept (enough to see WHICH account a change refers to)
+// and the rest is replaced with an ellipsis, so the full IBAN never lands in the
+// log. A blank value stays blank (so a cleared field still renders as an em dash),
+// and a value too short to mask meaningfully is dropped to a bare marker.
+func maskIBAN(s string) string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return ""
+	}
+	if len(t) <= 4 {
+		return "••••"
+	}
+	return "…" + t[len(t)-4:]
+}
+
+// ibanChangeMarker returns a masked audit fragment for an IBAN change, or "" if the
+// account did not change (compared on the RAW values, so a swap to a different
+// account with the same last four digits still registers). When the two masked
+// tails happen to match, it emits an explicit "geändert" marker so the change is
+// never silently dropped by a value-equality diff.
+func ibanChangeMarker(oldIBAN, newIBAN string) string {
+	if strings.TrimSpace(oldIBAN) == strings.TrimSpace(newIBAN) {
+		return ""
+	}
+	mo, mn := maskIBAN(oldIBAN), maskIBAN(newIBAN)
+	if mo == mn {
+		return "IBAN: geändert (" + mn + ")"
+	}
+	return "IBAN: " + orDash(mo) + " → " + orDash(mn)
+}
+
+// baseName resolves a rate-basis id to its name for audit detail; falls back to
+// "#id" if the basis can't be loaded (mirrors neighborName / yearLabel).
+func (s *Server) baseName(r *http.Request, id int64) string {
+	if b, err := s.store.GetBase(r.Context(), id); err == nil && b != nil {
+		return b.Name
+	}
+	return "#" + strconv.FormatInt(id, 10)
+}
+
+// yearLabel resolves a billing-year id to its human year (e.g. "2025") for
+// audit detail; falls back to "#id" if the year can't be loaded.
+func (s *Server) yearLabel(r *http.Request, id int64) string {
+	if y, err := s.store.GetBillingYear(r.Context(), id); err == nil {
+		return strconv.Itoa(y.Year)
+	}
+	return "#" + strconv.FormatInt(id, 10)
 }
 
 // auditLogin records a login attempt where no ctx user is set yet.
 func (s *Server) auditLogin(r *http.Request, username, action, detail string) {
 	if err := s.store.AddAudit(r.Context(), nil, username, action, "auth", "", detail, s.clientIP(r)); err != nil {
-		log.Printf("audit write failed (%s): %v", action, err)
+		slog.Error("audit write failed", "action", action, "err", err)
 	}
 }
 
 // clientIP returns the best-effort client IP. Behind a trusted reverse proxy
-// (TRUST_PROXY=true) the left-most X-Forwarded-For entry is used; otherwise the
-// direct connection address is used (so a directly-exposed app cannot be
-// spoofed via a forged header).
+// (TRUST_PROXY=true) the *right-most* X-Forwarded-For entry is used: a proxy
+// appends the address it actually observed, so earlier entries are supplied by
+// the client and must not be trusted (using the left-most one lets an attacker
+// forge the IP to rotate past IP-keyed rate limits and to poison audit logs).
+// This assumes exactly one trusted proxy hop; for N chained proxies take the
+// entry N positions from the right. When not behind a trusted proxy the direct
+// connection address is used so a forged header is ignored entirely.
 func (s *Server) clientIP(r *http.Request) string {
-	if s.cfg.TrustProxy {
+	host := hostOf(r.RemoteAddr)
+	if s.cfg.TrustProxy && s.proxyTrusted(host) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i >= 0 {
-				return strings.TrimSpace(xff[:i])
+			if i := strings.LastIndexByte(xff, ','); i >= 0 {
+				return strings.TrimSpace(xff[i+1:])
 			}
 			return strings.TrimSpace(xff)
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
 	return host
+}
+
+// hostOf strips the port from a RemoteAddr, tolerating an address without one.
+func hostOf(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
+}
+
+// proxyTrusted reports whether the direct peer may be trusted to have set the
+// forwarded headers. With TRUSTED_PROXIES configured, only peers inside those
+// CIDRs qualify (SH-05); without it, the TRUST_PROXY boolean alone decides
+// (legacy behavior, so existing single-proxy deployments keep working).
+func (s *Server) proxyTrusted(host string) bool {
+	if len(s.cfg.TrustedProxies) == 0 {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range s.cfg.TrustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // cookieSecure decides whether auth cookies get the Secure flag: either forced
@@ -137,7 +273,8 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 	if s.cfg.CookieSecure {
 		return true
 	}
-	return s.cfg.TrustProxy && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return s.cfg.TrustProxy && s.proxyTrusted(hostOf(r.RemoteAddr)) &&
+		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // statusRecorder captures the response status code for access logging.
@@ -155,7 +292,7 @@ func (sr *statusRecorder) WriteHeader(code int) {
 // (static assets, PWA plumbing, health checks, browser probes).
 func noisyPath(p string) bool {
 	switch p {
-	case "/healthz", "/manifest.webmanifest", "/sw.js", "/favicon.ico":
+	case "/healthz", "/readyz", "/livez", "/csp-report", "/manifest.webmanifest", "/sw.js", "/favicon.ico":
 		return true
 	}
 	return strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/.well-known/")
@@ -167,6 +304,9 @@ func noisyPath(p string) bool {
 func (s *Server) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		id := newReqID()
+		w.Header().Set("X-Request-Id", id)
+		r = r.WithContext(context.WithValue(r.Context(), reqIDKey, id))
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		if noisyPath(r.URL.Path) && rec.status < 400 {
@@ -176,14 +316,13 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		if u := s.currentUser(r); u != nil {
 			user = u.Username
 		}
-		log.Printf("%s %s %d %s user=%s ip=%s",
-			sanitizeLog(r.Method), sanitizeLog(r.URL.Path), rec.status,
-			time.Since(start).Round(time.Millisecond), sanitizeLog(user), sanitizeLog(s.clientIP(r)))
+		slog.Info("request",
+			"req_id", id,
+			"method", sanitizeLog(r.Method),
+			"path", sanitizeLog(r.URL.Path),
+			"status", rec.status,
+			"dur", time.Since(start).Round(time.Millisecond).String(),
+			"user", sanitizeLog(user),
+			"ip", sanitizeLog(s.clientIP(r)))
 	})
-}
-
-// sanitizeLog strips CR/LF from request-derived values so they cannot forge
-// additional log lines (log injection).
-func sanitizeLog(s string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ").Replace(s)
 }

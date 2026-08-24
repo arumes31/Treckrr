@@ -1,0 +1,306 @@
+{{define "content"}}
+<section class="stack beleg-page">
+	{{if not .Shared}}<a class="backlink no-print" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}">‹ {{.Neighbor.Name}} · {{.Year.Year}}</a>{{end}}
+
+	<div class="beleg{{if .ShowGrund}} beleg--grund{{end}}{{if .Bundle}} beleg--bundle{{end}}{{if .Rechnung}} beleg--rechnung{{end}}" id="beleg" data-beleg-name="Beleg_{{.Neighbor.Name}}_{{.Year.Year}}">
+		{{if .HasInvoice}}
+		<div class="beleg__invoice">
+			<div class="beleg__inv-top">
+				<span class="beleg__inv-no">RECHNUNG Nr. {{.Invoice.Number}} <span class="beleg__inv-lock no-print">🔒 festgeschrieben</span></span>
+				<span>Datum {{date .Invoice.IssuedOn}}</span>
+			</div>
+			{{if .DueOn}}
+			<div class="beleg__inv-due{{if lt .DueDays 0}} beleg__inv-due--over{{end}}">
+				Fällig am {{date .DueOn}} ·
+				{{if gt .DueDays 0}}<span>in {{.DueDays}} Tag{{if ne .DueDays 1}}en{{end}}</span>
+				{{else if eq .DueDays 0}}<strong>heute fällig</strong>
+				{{else}}<strong>{{.OverdueDays}} Tag{{if ne .OverdueDays 1}}e{{end}} überfällig</strong>{{end}}
+			</div>
+			{{end}}
+			<div class="beleg__inv-pp">
+				<div><div class="beleg__inv-k">Von</div><span class="beleg__inv-addr">{{.InvIssuer.Name}}{{with .InvIssuer.Address}}
+{{.}}{{end}}{{with .InvIssuer.TaxID}}
+{{.}}{{end}}</span></div>
+				<div><div class="beleg__inv-k">An</div><span class="beleg__inv-addr">{{.InvRecipient.Name}}{{with .InvRecipient.Address}}
+{{.}}{{end}}{{with .InvRecipient.TaxID}}
+{{.}}{{end}}</span></div>
+			</div>
+			{{if .InvNeedRecipientVATID}}
+			<div class="beleg__inv-warn">UID/Steuernummer des Empfängers erforderlich (Rechnungsbetrag über 10.000 € brutto). Beim Nachbarn ergänzen.</div>
+			{{end}}
+		</div>
+		{{end}}
+		<div class="beleg__hero">
+			<div class="beleg__hero-top">
+				<span class="beleg__who">{{.Neighbor.Name}}</span>
+				<span class="beleg__yr">Abrechnung {{.Year.Year}}</span>
+			</div>
+			{{if .HasInvoice}}
+			<div class="beleg__hl beleg__sum-invoice">Restbetrag zu zahlen</div>
+			<div class="beleg__hv beleg__sum-invoice">{{money .InvRest}}</div>
+			{{end}}
+			<div class="beleg__hl beleg__sum-informal">{{if .HasPayments}}Offener Rest{{else}}Saldo{{if .Completed}} · {{if .Paid}}bezahlt{{else}}offen{{end}}{{end}}{{end}}</div>
+			<div class="beleg__hv beleg__sum-informal">{{if .HasPayments}}{{money .Remaining}}{{else}}{{money .Saldo}}{{end}}</div>
+			<div class="beleg__hb">
+				<span>Leistungen {{money .TotalCost}}</span>
+				{{if .Ledger}}<span>Verrechnung {{money .LedgerSum}}</span>{{end}}
+				{{if .HasPayments}}<span>Bezahlt {{money .PaidSum}}</span>{{end}}
+				<span>{{num .TotalHours}} h · {{.Bookings}} Buchung{{if ne .Bookings 1}}en{{end}}</span>
+			</div>
+		</div>
+
+		<div class="beleg__sec">Leistungen</div>
+		<div class="beleg__items" id="beleg-items">
+			<div class="beleg__lhead"><span>Datum</span><span>Leistung</span><span class="beleg__r">h</span><span class="beleg__r">Betrag</span></div>
+			{{range .Days}}{{$day := .}}
+			{{range $i, $e := .Entries}}
+			<div class="beleg__lrow{{if $i}} beleg__lrow--daycont{{else}} beleg__lrow--dayfirst{{end}}{{if $e.Voided}} beleg__lrow--void{{end}}">
+				<span class="beleg__d">{{if eq $i 0}}{{$day.Date}}{{end}}</span>
+				<span class="beleg__t">{{if $e.TaskLabel}}{{$e.TaskLabel}}{{else if $e.Note}}{{$e.Note}}{{else}}Sonstige{{end}}{{if $e.Voided}} · storniert{{end}}{{if ne $e.Unit "h"}}<small>{{num $e.Quantity}} {{$e.Unit}} × {{money $e.UnitPrice}}</small>{{end}}</span>
+				<span class="beleg__h beleg__r">{{if $e.Voided}}—{{else if eq $e.Unit "h"}}{{num $e.Hours}}{{else}}—{{end}}</span>
+				<span class="beleg__b beleg__r">{{money $e.Cost}}</span>
+			</div>
+			{{end}}
+			{{else}}
+			<div class="beleg__empty">Keine Buchungen in diesem Jahr.</div>
+			{{end}}
+		</div>
+		{{if .CanBundle}}
+		<div class="beleg__bundle" id="beleg-bundle">
+			<div class="beleg__lhead beleg__lhead--bundle"><span>Leistung</span><span class="beleg__r">h</span><span class="beleg__r">Betrag</span></div>
+			{{range .Groups}}
+			<div class="beleg__brow">
+				<span class="beleg__t">{{.Label}} <span class="beleg__bx">×{{.Count}}</span></span>
+				<span class="beleg__h beleg__r">{{num .Hours}}</span>
+				<span class="beleg__b beleg__r">{{money .Cost}}</span>
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+		<div class="beleg__lsub"><span></span><span>Leistungen</span><span class="beleg__r beleg__lsub-h">{{num .TotalHours}} h</span><span class="beleg__r">{{money .TotalCost}}</span></div>
+
+		{{if .Ledger}}
+		<div class="beleg__sec">Verrechnung</div>
+		{{range .Ledger}}
+		<div class="beleg__lrow beleg__lrow--ver{{if .Voided}} beleg__lrow--void{{end}}">
+			<span class="beleg__d">{{.Date.Format "02.01."}}</span>
+			<span class="beleg__t">{{if .Amount.IsNegative}}Ich schulde{{else}}Zusatzforderung{{end}}{{if .Description}} · {{.Description}}{{end}}{{if .Voided}} · storniert{{end}}</span>
+			<span class="beleg__h beleg__r"></span>
+			<span class="beleg__b beleg__r{{if .Amount.IsNegative}} beleg__b--neg{{end}}">{{money .Amount}}</span>
+		</div>
+		{{end}}
+		<div class="beleg__lsub beleg__lsub--muted beleg__ver-sum"><span></span><span>Verrechnung</span><span class="beleg__r"></span><span class="beleg__r">{{money .LedgerSum}}</span></div>
+		{{end}}
+
+		{{if .HasPayments}}
+		<div class="beleg__sec beleg__pay">Zahlungen</div>
+		{{range .Payments}}
+		<div class="beleg__lrow beleg__lrow--ver beleg__pay">
+			<span class="beleg__d">{{.PaidOn.Format "02.01."}}</span>
+			<span class="beleg__t">Zahlung{{if .Note}} · {{.Note}}{{end}}</span>
+			<span class="beleg__h beleg__r"></span>
+			<span class="beleg__b beleg__r beleg__b--neg">−{{money .Amount}}</span>
+		</div>
+		{{end}}
+		<div class="beleg__lsub beleg__pay"><span></span><span>Offener Rest</span><span class="beleg__r"></span><span class="beleg__r">{{money .Remaining}}</span></div>
+		{{end}}
+
+		{{if .HasGrund}}
+		<div class="beleg__grund" id="beleg-grund">
+			<div class="beleg__grund-h"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>Kostengrundlage{{with .Year.Base}} · {{.Name}} ({{.Year}}){{end}}</div>
+			<div class="beleg__grund-sub">Nur die {{.Year.Year}} verwendeten Sätze.</div>
+
+			{{if .GrundTractors}}
+			<div class="beleg__gt beleg__gt--head"><span class="beleg__ghcap">Traktor</span><span>Belastung</span><span class="beleg__r">€/PS·h</span><span class="beleg__r">€/h</span></div>
+			{{range .GrundTractors}}{{$t := .}}
+			{{range $i, $l := .Loads}}
+			<div class="beleg__gt{{if $i}} beleg__gt--cont{{else}} beleg__gt--first{{end}}">
+				<span class="beleg__gt-id">{{if eq $i 0}}{{$t.Ident}}<small>{{$t.PS}} PS</small>{{end}}</span>
+				<span class="beleg__gt-bl">{{$l.Load}}{{if $l.Machines}}<small>{{range $j, $m := $l.Machines}}{{if $j}}, {{end}}{{$m}}{{end}}</small>{{end}}</span>
+				<span class="beleg__r beleg__gt-ps">{{$l.CostPS}}</span>
+				<span class="beleg__r beleg__gt-rt">{{money $l.Rate}}</span>
+			</div>
+			{{end}}
+			{{end}}
+			{{end}}
+
+			{{if .GrundMachines}}
+			<div class="beleg__gm beleg__gm--head"><span class="beleg__ghcap">Maschine</span><span class="beleg__r">AB</span><span class="beleg__r">€/AB·h</span><span class="beleg__r">€/h</span></div>
+			{{range .GrundMachines}}
+			<div class="beleg__gm"><span>{{.Name}}</span><span class="beleg__r">{{.Width}}</span><span class="beleg__r">{{.CostAB}}</span><span class="beleg__r">{{money .Rate}}</span></div>
+			{{end}}
+			{{end}}
+		</div>
+		{{end}}
+
+		{{if .HasInvoice}}
+		<div class="beleg__invtax">
+			{{if .InvShowVAT}}
+			<div class="beleg__lsub"><span></span><span>Rechnungsbetrag netto</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvNet}}</span></div>
+			<div class="beleg__lsub beleg__lsub--muted"><span></span><span>zzgl. USt {{num .InvRate}} %</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvUSt}}</span></div>
+			<div class="beleg__lsub"><span></span><span>Rechnungsbetrag brutto</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvBrutto}}</span></div>
+			{{else}}
+			<div class="beleg__lsub"><span></span><span>Rechnungsbetrag</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvBrutto}}</span></div>
+			{{end}}
+			{{if .Ledger}}
+			<div class="beleg__lsub beleg__lsub--muted"><span></span><span>Verrechnung</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvLedger}}</span></div>
+			{{end}}
+			{{if .HasCredits}}
+			<div class="beleg__lsub beleg__lsub--muted"><span></span><span>abzüglich Gutschrift (§ 16 UStG)</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvCredits}}</span></div>
+			{{end}}
+			{{if .HasPayments}}
+			<div class="beleg__lsub beleg__lsub--muted"><span></span><span>abzüglich bereits bezahlt{{if .InvShowVAT}} (davon USt {{money .InvPaidUSt}}){{end}}</span><span class="beleg__r"></span><span class="beleg__r">−{{money .PaidSum}}</span></div>
+			{{end}}
+			{{if or .Ledger .HasPayments .HasCredits}}
+			<div class="beleg__lsub"><span></span><span>Restbetrag zu zahlen</span><span class="beleg__r"></span><span class="beleg__r">{{money .InvRest}}</span></div>
+			{{end}}
+			{{with .InvTaxNote}}<div class="beleg__inv-note">{{.}}</div>{{end}}
+			{{with .InvHash}}<div class="beleg__inv-hash">Integrität · sha256 {{.}}</div>{{end}}
+			<div class="beleg__payinfo">
+				<div class="beleg__payinfo-txt">
+					<span class="beleg__payinfo-k">Zahlung</span>
+					<span class="beleg__payinfo-v">Bitte {{money .InvRest}} unter Angabe der Referenz <strong>{{with .Invoice.PaymentReference}}{{.}}{{else}}{{$.Invoice.Number}}{{end}}</strong> überweisen.{{with .InvIBAN}} IBAN <strong>{{.}}</strong>.{{end}}</span>
+				</div>
+				{{if .HasEpcQR}}
+				<img class="beleg__epcqr" src="/neighbors/{{.Neighbor.ID}}/invoice/epc-qr.png?year={{.Year.ID}}" width="118" height="118" alt="EPC-QR-Code zum Bezahlen (GiroCode)" loading="lazy">
+				{{end}}
+			</div>
+		</div>
+		{{end}}
+
+		<div class="beleg__foot">Stand {{.Today}} · Treckrr</div>
+	</div>
+
+	{{/* Werkblatt F1: print/export/share are equal-rank secondary plates — the ONE
+	     signal action of the page stays the business action (ausstellen/Gutschrift). */}}
+	<div class="beleg__actions no-print">
+		<div class="beleg__actrow">
+			<button type="button" class="btn btn--ghost" data-beleg-print>
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="1.6"/><path d="M7 17h10v4H7z"/></svg>
+				Drucken / PDF
+			</button>
+			<button type="button" class="btn btn--ghost" data-beleg-copy>{{template "ic-copy"}} Text kopieren</button>
+			<button type="button" class="btn btn--ghost" data-beleg-image>
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 17 5-5 4 4 3-3 4 4"/></svg>Bild
+			</button>
+			<button type="button" class="btn btn--ghost" data-beleg-share>
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Teilen
+			</button>
+			{{if .HasInvoice}}
+			{{if not .Shared}}
+			<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}" target="_blank" rel="noopener">{{template "ic-copy"}} Rechnung als PDF</a>
+			{{end}}
+			{{if and (not .Shared) .MailEnabled .NeighborEmail}}
+			<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/email?year={{.Year.ID}}" class="beleg__markform"
+				data-confirm="Rechnung als PDF an {{.NeighborEmail}} senden?">
+				<button type="submit" class="btn btn--ghost">✉ Per E-Mail senden</button>
+			</form>
+			{{end}}
+			{{end}}
+			{{if not .Shared}}
+			<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}" class="beleg__markform"
+				data-confirm="Beleg als versendet markieren? Das ist nur ein interner Vermerk — es wird nichts an den Nachbarn geschickt.">
+				{{if .LastSend}}
+				<button type="submit" class="btn btn--ghost is-sent" title="Zuletzt versendet am {{.LastSend.SentAt.Format "02.01.2006, 15:04"}} Uhr ({{.LastSend.Channel}}) · erneut markieren">{{template "ic-check"}} Versendet am {{.LastSend.SentAt.Format "02.01."}}</button>
+				{{else}}
+				<button type="submit" class="btn btn--ghost">{{template "ic-check"}} Versendet</button>
+				{{end}}
+			</form>
+			{{end}}
+			{{if .CanBundle}}
+			<button type="button" class="btn btn--ghost" data-beleg-bundle aria-controls="beleg-items beleg-bundle" aria-pressed="{{if .Bundle}}true{{else}}false{{end}}">
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 4.5-9 4.5-9-4.5 9-4.5Z"/><path d="m3 16.5 9 4.5 9-4.5"/><path d="m3 12 9 4.5 9-4.5"/></svg>Bündeln
+			</button>
+			{{end}}
+			{{if .HasGrund}}
+			<button type="button" class="btn btn--ghost" data-beleg-grund aria-controls="beleg-grund" aria-pressed="{{if .ShowGrund}}true{{else}}false{{end}}">
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>Grundlage
+			</button>
+			{{end}}
+			{{if .HasInvoice}}
+			<button type="button" class="btn btn--ghost" data-beleg-rechnung aria-pressed="{{if .Rechnung}}true{{else}}false{{end}}">
+				<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Rechnung
+			</button>
+			{{end}}
+			{{/* Self-service public links (Parkrr portal-link pattern) live in a
+			     popup behind ONE compact button, so the page stays lean. Opens
+			     automatically when a fresh link was just minted (ShareToken). */}}
+			{{if and .HasInvoice (not .Shared)}}
+			<details class="sharemenu" {{if .ShareToken}}open{{end}} data-popmenu>
+				<summary class="btn btn--ghost sharemenu__btn">
+					<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>Link
+				</summary>
+				<div class="sharemenu__pop">
+					<p class="sharemenu__h">Öffentlicher Link — zeigt nur diesen festgeschriebenen Beleg</p>
+					{{if .ShareToken}}
+					<div class="sharemenu__row">
+						<input class="input" type="text" readonly value="{{.ShareURL}}" data-copy-src aria-label="Öffentlicher Beleg-Link">
+						<button type="button" class="btn btn--ghost btn--sm" data-copy-src-btn>Kopieren</button>
+					</div>
+					<p class="sharemenu__once">Link jetzt kopieren — er wird aus Sicherheitsgründen nur einmal angezeigt.</p>
+					{{end}}
+					{{range .Shares}}
+					<div class="sharemenu__item">
+						<span class="sharemenu__meta">Gültig bis <b>{{date .ExpiresAt}}</b>{{if .LastUsedAt}} · zuletzt geöffnet {{pdate .LastUsedAt}}{{end}}{{if .CreatedBy}} · von {{.CreatedBy}}{{end}}</span>
+						<form method="post" action="/neighbors/{{$.Neighbor.ID}}/beleg/share/revoke?year={{$.Year.ID}}" class="sharemenu__del"
+							data-confirm-danger data-confirm="Diesen öffentlichen Link löschen? Er wird sofort ungültig.">
+							<input type="hidden" name="share_id" value="{{.ID}}">
+							<button type="submit" class="btn btn--danger btn--sm">Löschen</button>
+						</form>
+					</div>
+					{{end}}
+					<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/share?year={{.Year.ID}}" class="sharemenu__item sharemenu__item--create">
+						<label class="field sharemenu__days"><span>Linkdauer</span>
+							<select class="select" name="days">
+								{{range .ShareDayOptions}}
+								<option value="{{.}}" {{if eq . $.ShareDefaultDays}}selected{{end}}>{{.}} Tage</option>
+								{{end}}
+							</select>
+						</label>
+						<button type="submit" class="btn btn--ghost">{{template "ic-copy"}} Link erzeugen</button>
+					</form>
+				</div>
+			</details>
+			{{end}}
+		</div>
+		{{with .LastSend}}
+		<p class="beleg__sent muted small">{{template "ic-check"}} Zuletzt versendet am {{.SentAt.Format "02.01.2006, 15:04"}} Uhr ({{.Channel}})</p>
+		{{end}}
+		{{if and (not .HasInvoice) (not .Shared)}}
+		<a class="btn btn--primary btn--block" href="/neighbors/{{.Neighbor.ID}}/invoice/confirm?year={{.Year.ID}}">Rechnung ausstellen &amp; festschreiben</a>
+		{{end}}
+		{{if .HasDocuments}}
+		<div class="beleg__doclist">
+			<div class="beleg__doclist-h">Belegverlauf</div>
+			{{range .Documents}}
+			<div class="beleg__docrow">
+				<span class="beleg__docno">{{.Number}}</span>
+				<span class="beleg__dockind">{{if eq .Kind "invoice"}}Rechnung{{if eq .Status "canceled"}} · storniert{{end}}{{else if eq .Kind "storno"}}Storno{{else}}Gutschrift{{if eq .Status "canceled"}} · storniert{{end}}{{end}}</span>
+				{{if .Content}}<span class="beleg__r">{{money .Content.Gross}}</span>{{end}}
+			</div>
+			{{end}}
+		</div>
+		{{end}}
+		{{/* Corrections are OWNER actions — never rendered on the public (Shared)
+		     read-only view, which must stay a pure document. */}}
+		{{if and .HasInvoice (not .Shared)}}
+		<div class="beleg__invacts stack">
+			<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice/gutschrift" class="beleg__gform">
+				<input type="hidden" name="year_id" value="{{.Year.ID}}">
+				<div class="beleg__gform-h">Gutschrift <span>· § 16 UStG</span></div>
+				<input class="input" type="text" inputmode="decimal" name="amount" placeholder="Betrag brutto (€)" aria-label="Gutschrift-Betrag brutto" required>
+				<input class="input" type="text" name="note" maxlength="200" placeholder="Grund (z. B. Nachlass)" aria-label="Grund der Gutschrift">
+				<button type="submit" class="btn btn--primary">Gutschrift erstellen</button>
+			</form>
+			<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice/storno"
+				data-confirm-danger data-confirm="Rechnung {{.Invoice.Number}} stornieren? Es wird ein Storno-Beleg erstellt und die Buchungen werden wieder freigegeben."
+				data-confirm-reason="Storno-Grund (optional, protokolliert)">
+				<input type="hidden" name="year_id" value="{{.Year.ID}}">
+				<input type="hidden" name="reason" value="">
+				<button type="submit" class="btn btn--danger btn--block">Rechnung stornieren</button>
+			</form>
+		</div>
+		{{end}}
+	</div>
+</section>
+{{end}}

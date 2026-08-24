@@ -1,5 +1,18 @@
 {{define "content"}}
 <section class="stack">
+	{{with .Onboarding}}
+	<div class="card onboard">
+		<div class="onboard__h">Erste Schritte</div>
+		<ol class="onboard__list">
+			{{range .}}
+			<li class="onboard__item {{if .Done}}is-done{{end}}">
+				<span class="onboard__mark" aria-hidden="true">{{if .Done}}{{template "ic-check"}}{{end}}</span>
+				{{if .Done}}<span>{{.Text}}</span>{{else}}<a href="{{.Href}}">{{.Text}}</a>{{end}}
+			</li>
+			{{end}}
+		</ol>
+	</div>
+	{{end}}
 	<div class="summary-card card">
 		<div>
 			<span class="summary-card__label">Gesamtkosten {{.Year.Year}}</span>
@@ -9,10 +22,34 @@
 			<span>{{num .GrandHours}} h · Grundlage {{.Year.Base.Year}}</span>
 			<span class="btnrow">
 				<a class="btn btn--ghost btn--sm" href="/stats?year={{.Year.ID}}">Statistik</a>
+				<a class="btn btn--ghost btn--sm" href="/stats/all">Alle Jahre</a>
 				<a class="btn btn--ghost btn--sm" href="/export/year/{{.Year.ID}}">CSV Export</a>
+				{{if not .Completed}}<a class="btn btn--ghost btn--sm" href="/entries/import?year={{.Year.ID}}">Import</a>{{end}}
 			</span>
 		</div>
 	</div>
+
+	{{if or (and (not .Completed) .StaleCount) (and .Completed .OpenCount)}}
+	<div>
+		<h2 class="section-title">Zu erledigen</h2>
+		<div class="attn">
+			{{if and (not .Completed) .StaleCount}}
+			<a class="attn__row attn__row--warn" href="/years/{{.Year.ID}}/recalc">
+				<span class="attn__ic attn__ic--warn">{{template "ic-warn"}}</span>
+				<span class="attn__txt"><strong>{{.StaleCount}} Buchung(en)</strong> nach Grundlagen-Änderung neu zu berechnen</span>
+				<span class="attn__go">›</span>
+			</a>
+			{{end}}
+			{{if and .Completed .OpenCount}}
+			<a class="attn__row attn__row--owe" href="#nachbarn">
+				<span class="attn__ic attn__ic--owe">€</span>
+				<span class="attn__txt"><strong>{{.OpenCount}} Nachbar(n)</strong> mit offener Zahlung · {{money .OpenCost}}</span>
+				<span class="attn__go">›</span>
+			</a>
+			{{end}}
+		</div>
+	</div>
+	{{end}}
 
 	<div class="card statusrow">
 		<div class="statusrow__info">
@@ -41,41 +78,66 @@
 			<button class="btn btn--primary btn--sm" type="submit">Jahr abschließen</button>
 		</form>
 		{{end}}
+		<a class="btn btn--ghost btn--sm" href="/years/{{.Year.ID}}/issue-all" title="Alle offenen Nachbarn auf einmal abrechnen">Sammel-Festschreibung</a>
 	</div>
 
-	<h2 class="section-title">Nachbarn im Jahr {{.Year.Year}}</h2>
+	<h2 class="section-title" id="nachbarn">Nachbarn im Jahr {{.Year.Year}}</h2>
 	{{if .Summaries}}
-	<input class="input" type="search" placeholder="Nachbar suchen …" data-search="[data-nb-item]" aria-label="Nachbar suchen">
+	<div class="listtools">
+		<input class="input" type="search" placeholder="Nachbar suchen …" data-search="[data-nb-item]" aria-label="Nachbar suchen">
+		{{if .Completed}}
+		<label class="switch"><input type="checkbox" data-open-filter><span>Nur offene</span></label>
+		{{end}}
+	</div>
 	{{end}}
 	<div class="list">
 		{{range .Summaries}}
-		<div class="list__row card" data-nb-item>
+		<div class="list__row card" data-nb-item{{if and $.Completed (not .Paid)}} data-open="1"{{end}}>
 			<a class="list__main list__main--link" href="/neighbors/{{.Neighbor.ID}}?year={{$.Year.ID}}">
 				<span class="list__title">{{.Neighbor.Name}}</span>
 				<span class="list__sub">{{.Entries}} Buchungen · {{num .Hours}} h</span>
 			</a>
 			<div class="list__value">{{money .Cost}}</div>
 			{{if $.Completed}}
-			<form method="post" action="/years/mark-paid" class="paytoggle">
-				<input type="hidden" name="year_id" value="{{$.Year.ID}}">
-				<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
-				<input type="hidden" name="paid" value="{{if .Paid}}false{{else}}true{{end}}">
-				<button class="paychip {{if .Paid}}paychip--paid{{else}}paychip--open{{end}}" type="submit"
-					title="Klicken, um auf {{if .Paid}}offen{{else}}bezahlt{{end}} zu setzen">
-					{{if .Paid}}✓ Bezahlt{{else}}Offen{{end}}
-				</button>
-			</form>
-			{{else if eq .Entries 0}}
+			{{if .Paid}}
+				<span class="paychip paychip--paid">{{template "ic-check"}} Bezahlt</span>
+				{{else}}
+				<form method="post" action="/years/mark-paid" class="paytoggle"
+					data-confirm="Restbetrag ({{money .Remaining}}) als bezahlt verbuchen?">
+					<input type="hidden" name="year_id" value="{{$.Year.ID}}">
+					<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+					<button class="paychip paychip--open" type="submit" title="Restbetrag als bezahlt verbuchen">
+						Offen · {{money .Remaining}}
+					</button>
+				</form>
+				{{end}}
+			{{else if gt .Entries 0}}
+				{{/* Running year: show payment status at a glance (read-only — the
+				     "als bezahlt verbuchen" toggle stays gated to completed years). */}}
+				{{if .Paid}}
+				<span class="paychip paychip--paid" title="Vollständig bezahlt">{{template "ic-check"}} Bezahlt</span>
+				{{else}}
+				<span class="paychip paychip--open paychip--static" title="Noch offener Betrag">Offen · {{money .Remaining}}</span>
+				{{end}}
+			{{else}}
 			<form method="post" action="/years/remove-neighbor" class="list__remove"
-				data-confirm="{{.Neighbor.Name}} aus diesem Jahr entfernen?">
+				data-confirm-danger data-confirm="{{.Neighbor.Name}} aus diesem Jahr entfernen?">
 				<input type="hidden" name="year_id" value="{{$.Year.ID}}">
 				<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
-				<button class="btn btn--ghost btn--icon" type="submit" title="Aus Jahr entfernen" aria-label="Aus Jahr entfernen">✕</button>
+				<button class="btn btn--ghost btn--icon" type="submit" title="Aus Jahr entfernen" aria-label="Aus Jahr entfernen">{{template "ic-x"}}</button>
 			</form>
 			{{end}}
 		</div>
 		{{else}}
-		<p class="muted card">Noch keine Nachbarn in diesem Jahr. Füge unten welche hinzu.</p>
+		<div class="empty">
+			<svg viewBox="0 0 76 44" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<circle cx="30" cy="15" r="7"/><path d="M17 38c0-7 5.5-11 13-11s13 4 13 11"/>
+				<circle cx="52" cy="17" r="5.4"/><path d="M50 26.5c5.7.8 9 4.6 9 10.5"/>
+			</svg>
+			<span class="empty__title">Noch keine Nachbarn in {{.Year.Year}}</span>
+			<span class="empty__sub">Unten übernehmen oder hinzufügen — neue Nachbarn legst du im Reiter Nachbarn an.</span>
+			<a class="btn btn--primary btn--sm" href="/neighbors">Nachbarn verwalten</a>
+		</div>
 		{{end}}
 	</div>
 

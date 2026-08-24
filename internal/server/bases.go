@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/models"
 )
 
 // baseView pairs a basis with whether a billing year references it.
@@ -16,14 +16,14 @@ type baseView struct {
 func (s *Server) handleBases(w http.ResponseWriter, r *http.Request) {
 	bases, err := s.store.ListBases(r.Context())
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	views := make([]baseView, 0, len(bases))
 	for _, b := range bases {
 		inUse, err := s.store.BaseInUse(r.Context(), b.ID)
 		if err != nil {
-			http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+			s.serverError(w, r.URL.Path, err)
 			return
 		}
 		views = append(views, baseView{Base: b, InUse: inUse})
@@ -45,13 +45,17 @@ func (s *Server) handleBases(w http.ResponseWriter, r *http.Request) {
 // all its values are cloned; otherwise an empty basis is created.
 func (s *Server) handleBaseCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	year := int(formInt64(r, "year"))
+	year := formInt(r, "year")
 	name := trimmed(r, "name")
 	if year < 1900 || year > 3000 {
-		s.setFlash(w, "error", "Bitte ein gültiges Jahr angeben.")
+		s.setFlash(w, r, "error", "Bitte ein gültiges Jahr angeben.")
+		redirect(w, r, "/bases")
+		return
+	}
+	if s.tooLong(w, r, "Name", name, maxNameLen) {
 		redirect(w, r, "/bases")
 		return
 	}
@@ -69,10 +73,10 @@ func (s *Server) handleBaseCreate(w http.ResponseWriter, r *http.Request) {
 		newID, err = s.store.CreateEmptyBase(r.Context(), year, name)
 	}
 	if err != nil {
-		s.setFlash(w, "error", "Anlegen fehlgeschlagen (Jahr bereits vorhanden?).")
+		s.setFlash(w, r, "error", "Anlegen fehlgeschlagen (Jahr bereits vorhanden?).")
 	} else {
 		s.audit(r, "create", "base", newID, name)
-		s.setFlash(w, "success", "Bemessungsgrundlage angelegt. Vorjahreswerte bleiben unverändert.")
+		s.setFlash(w, r, "success", "Bemessungsgrundlage angelegt. Vorjahreswerte bleiben unverändert.")
 	}
 	redirect(w, r, "/bases")
 }
@@ -85,21 +89,39 @@ func (s *Server) handleBaseUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	name := trimmed(r, "name")
-	year := int(formInt64(r, "year"))
+	year := formInt(r, "year")
 	if name == "" || year < 1900 || year > 3000 {
-		s.setFlash(w, "error", "Bitte Name und gültiges Jahr angeben.")
+		s.setFlash(w, r, "error", "Bitte Name und gültiges Jahr angeben.")
 		redirect(w, r, "/bases")
 		return
 	}
+	if s.tooLong(w, r, "Name", name, maxNameLen) {
+		redirect(w, r, "/bases")
+		return
+	}
+	// Snapshot before overwriting so the audit trail shows old → new (name AND year).
+	// GetBase returns a non-nil zero-value pointer alongside a non-ErrNoRows error, so
+	// gate the diff on the ERROR, not on before != nil — otherwise a transient read
+	// failure would emit a bogus "— → …" diff. On error, fall back to the new name.
+	before, beforeErr := s.store.GetBase(r.Context(), id)
 	if err := s.store.UpdateBase(r.Context(), id, year, name); err != nil {
-		s.setFlash(w, "error", "Speichern fehlgeschlagen (Jahr bereits vergeben?).")
+		s.setFlash(w, r, "error", "Speichern fehlgeschlagen (Jahr bereits vergeben?).")
 	} else {
-		s.audit(r, "update", "base", id, name)
-		s.setFlash(w, "success", "Bemessungsgrundlage aktualisiert.")
+		detail := name
+		if beforeErr == nil {
+			if d := diffFields(
+				fieldChange{"Name", before.Name, name},
+				fieldChange{"Jahr", strconv.Itoa(before.Year), strconv.Itoa(year)},
+			); d != "" {
+				detail = d
+			}
+		}
+		s.audit(r, "update", "base", id, detail)
+		s.setFlash(w, r, "success", "Bemessungsgrundlage aktualisiert.")
 	}
 	redirect(w, r, "/bases")
 }
@@ -113,19 +135,24 @@ func (s *Server) handleBaseDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	inUse, err := s.store.BaseInUse(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	if inUse {
-		s.setFlash(w, "error", "Grundlage wird von mindestens einem Abrechnungsjahr verwendet und kann nicht gelöscht werden.")
+		s.setFlash(w, r, "error", "Grundlage wird von mindestens einem Abrechnungsjahr verwendet und kann nicht gelöscht werden.")
 		redirect(w, r, "/bases")
 		return
 	}
+	before, _ := s.store.GetBase(r.Context(), id)
 	if err := s.store.DeleteBase(r.Context(), id); err != nil {
-		s.setFlash(w, "error", "Löschen fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Löschen fehlgeschlagen.")
 	} else {
-		s.audit(r, "delete", "base", id, "")
-		s.setFlash(w, "success", "Bemessungsgrundlage gelöscht.")
+		detail := ""
+		if before != nil {
+			detail = before.Name
+		}
+		s.audit(r, "delete", "base", id, detail)
+		s.setFlash(w, r, "success", "Bemessungsgrundlage gelöscht.")
 	}
 	redirect(w, r, "/bases")
 }
@@ -144,14 +171,18 @@ func (s *Server) setBaseLock(w http.ResponseWriter, r *http.Request, locked bool
 		http.NotFound(w, r)
 		return
 	}
+	name := ""
+	if b, err := s.store.GetBase(r.Context(), id); err == nil {
+		name = b.Name
+	}
 	if err := s.store.SetBaseLocked(r.Context(), id, locked); err != nil {
-		s.setFlash(w, "error", "Aktion fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
 	} else if locked {
-		s.audit(r, "lock", "base", id, "")
-		s.setFlash(w, "success", "Bemessungsgrundlage gesperrt.")
+		s.audit(r, "lock", "base", id, name)
+		s.setFlash(w, r, "success", "Bemessungsgrundlage gesperrt.")
 	} else {
-		s.audit(r, "unlock", "base", id, "")
-		s.setFlash(w, "success", "Bemessungsgrundlage entsperrt.")
+		s.audit(r, "unlock", "base", id, name)
+		s.setFlash(w, r, "success", "Bemessungsgrundlage entsperrt.")
 	}
 	redirect(w, r, "/bases")
 }

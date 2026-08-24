@@ -2,14 +2,19 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"treckrr/internal/calc"
-	"treckrr/internal/models"
+	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/calc"
+	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/pdf"
+	"github.com/d0linger/treckrr/internal/store"
 )
 
 func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
@@ -31,13 +36,49 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := s.store.ListEntries(r.Context(), neighbor.ID, year.ID)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	cost, hours, err := s.store.NeighborTotal(r.Context(), neighbor.ID, year.ID)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
+	}
+	// Bidirectional ledger: manual postings that net against the bookings.
+	ledger, err := s.store.ListNeighborLedger(r.Context(), year.ID, neighbor.ID)
+	if err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return
+	}
+	ledgerSum := decimal.Zero
+	for _, l := range ledger {
+		if !l.Voided {
+			ledgerSum = ledgerSum.Add(l.Amount)
+		}
+	}
+
+	// Payments toward this year (dated amounts). The remaining balance is the
+	// saldo minus what was paid; payments are editable regardless of year status.
+	payments, err := s.store.ListPayments(r.Context(), year.ID, neighbor.ID)
+	if err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return
+	}
+	paidSum := decimal.Zero
+	for _, p := range payments {
+		paidSum = paidSum.Add(p.Amount)
+	}
+
+	// Bookings whose stored price no longer matches the current basis (the basis
+	// was edited after they were booked). Marked in the table; offered for
+	// recalculation. Best-effort — a failure just omits the markers.
+	stale := map[int64]bool{}
+	if rows, err := s.store.RecalcPreview(r.Context(), year.ID, &neighbor.ID); err == nil {
+		for _, ro := range rows {
+			if ro.Changed {
+				stale[ro.EntryID] = true
+			}
+		}
 	}
 
 	// Only active tractors/machines can be booked; inactive ones remain only
@@ -48,10 +89,12 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	gespanne, _ := s.store.ListGespanne(r.Context(), base.ID)
 
 	data := s.newPage(w, r, neighbor.Name, "dashboard")
+	data["Stale"] = stale
+	data["StaleCount"] = len(stale)
 	data["TaskSummary"] = summarizeByTask(entries)
 	data["Completed"] = year.Completed()
 	if err := s.withYearSelector(r, data, year); err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	data["Base"] = base
@@ -59,6 +102,15 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	data["Entries"] = entries
 	data["TotalCost"] = cost
 	data["TotalHours"] = hours
+	data["Ledger"] = ledger
+	data["LedgerSum"] = ledgerSum
+	data["Saldo"] = cost.Add(ledgerSum)
+	data["Payments"] = payments
+	data["PaidSum"] = paidSum
+	data["Remaining"] = cost.Add(ledgerSum).Sub(paidSum)
+	// An issued invoice enables the Skonto (§16) option on the payment form.
+	_, invErr := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
+	data["HasInvoice"] = invErr == nil
 	data["Tractors"] = tractors
 	data["Loads"] = loads
 	data["Machines"] = machines
@@ -80,41 +132,79 @@ func (s *Server) handleNeighborOverview(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	years, err := s.store.ListBillingYears(r.Context())
+	// One query for the whole history (membership, totals, ledger, paid flag)
+	// instead of a 4-queries-per-year fan-out. Cost carries the net (bookings +
+	// ledger), same as the dashboard/detail views.
+	history, err := s.store.NeighborYearHistory(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, "neighbor year history", err)
 		return
 	}
 	type yearRow struct {
 		Year      int
 		YearID    int64
-		Cost      float64
-		Hours     float64
+		Cost      decimal.Decimal
+		Hours     decimal.Decimal
 		Paid      bool
 		Completed bool
 	}
-	var rows []yearRow
-	var totalCost, totalHours float64
-	for _, y := range years {
-		member, err := s.store.NeighborInYear(r.Context(), y.ID, id)
-		if err != nil || !member {
-			continue
-		}
-		cost, hours, _ := s.store.NeighborTotal(r.Context(), id, y.ID)
-		payments, _ := s.store.YearPayments(r.Context(), y.ID)
+	rows := make([]yearRow, 0, len(history))
+	var totalCost, totalHours decimal.Decimal
+	for _, h := range history {
 		rows = append(rows, yearRow{
-			Year: y.Year, YearID: y.ID, Cost: cost, Hours: hours,
-			Paid: payments[id], Completed: y.Completed(),
+			Year: h.Year, YearID: h.YearID, Cost: h.Net, Hours: h.Hours,
+			Paid: h.Paid, Completed: h.Status == models.YearCompleted,
 		})
-		totalCost += cost
-		totalHours += hours
+		totalCost = totalCost.Add(h.Net)
+		totalHours = totalHours.Add(h.Hours)
 	}
+	company, _ := s.store.GetCompany(r.Context())
 	data := s.newPage(w, r, neighbor.Name+" · Verlauf", "dashboard")
 	data["Neighbor"] = neighbor
 	data["Rows"] = rows
 	data["TotalCost"] = totalCost
 	data["TotalHours"] = totalHours
+	data["Company"] = company
+	data["Today"] = time.Now()
 	s.render(w, r, "neighbor_overview", data)
+}
+
+// handleNeighborOverviewPDF serves the multi-year Kontoauszug as a PDF.
+func (s *Server) handleNeighborOverviewPDF(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	neighbor, err := s.store.GetNeighbor(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	history, err := s.store.NeighborYearHistory(r.Context(), id)
+	if err != nil {
+		s.serverError(w, "overview pdf: history", err)
+		return
+	}
+	company, _ := s.store.GetCompany(r.Context())
+	sd := pdf.StatementData{
+		IssuerName: company.Name, IssuerAddress: company.Address,
+		RecipientName: neighbor.Name, RecipientAddr: neighbor.Address, Today: time.Now(),
+	}
+	for _, h := range history {
+		sd.Rows = append(sd.Rows, pdf.StatementYear{Year: h.Year, Cost: h.Net, Hours: h.Hours, Paid: h.Paid})
+		sd.TotalCost = sd.TotalCost.Add(h.Net)
+		sd.TotalHours = sd.TotalHours.Add(h.Hours)
+	}
+	blob, err := pdf.RenderStatement(sd)
+	if err != nil {
+		s.serverError(w, "overview pdf", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `inline; filename="Kontoauszug_`+sanitizeFilename(neighbor.Name)+`.pdf"`)
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(blob)
 }
 
 // neighborName returns a neighbor's name for audit details, or "#id" if it
@@ -129,8 +219,8 @@ func (s *Server) neighborName(r *http.Request, id int64) string {
 // taskSummary aggregates hours and cost per task label (like the Excel columns).
 type taskSummary struct {
 	Task  string
-	Hours float64
-	Cost  float64
+	Hours decimal.Decimal
+	Cost  decimal.Decimal
 }
 
 // summarizeByTask groups entries by task label, preserving first-seen order.
@@ -148,8 +238,8 @@ func summarizeByTask(entries []models.Entry) []taskSummary {
 			byTask[label] = s
 			order = append(order, label)
 		}
-		s.Hours += e.Hours
-		s.Cost += e.Cost
+		s.Hours = s.Hours.Add(e.Hours)
+		s.Cost = s.Cost.Add(e.Cost)
 	}
 	out := make([]taskSummary, 0, len(order))
 	for _, l := range order {
@@ -195,14 +285,17 @@ func (s *Server) handlePricingAPI(w http.ResponseWriter, r *http.Request) {
 		Machines []apiMachine `json:"machines"`
 		Gespanne []apiGespann `json:"gespanne"`
 	}{}
+	// The pricing API feeds a client-side preview only; float is fine here and
+	// keeps the JSON numeric for the JS. The authoritative cost is computed
+	// server-side in exact decimals.
 	for _, t := range tractors {
-		out.Tractors = append(out.Tractors, apiTractor{ID: t.ID, PS: t.PS})
+		out.Tractors = append(out.Tractors, apiTractor{ID: t.ID, PS: t.PS.InexactFloat64()})
 	}
 	for _, l := range loads {
-		out.Loads = append(out.Loads, apiLoad{ID: l.ID, Cost: l.CostPerPS})
+		out.Loads = append(out.Loads, apiLoad{ID: l.ID, Cost: l.CostPerPS.InexactFloat64()})
 	}
 	for _, m := range machines {
-		out.Machines = append(out.Machines, apiMachine{ID: m.ID, Rate: calc.MachineRate(m)})
+		out.Machines = append(out.Machines, apiMachine{ID: m.ID, Rate: calc.MachineRate(m).InexactFloat64()})
 	}
 	for _, g := range gespanne {
 		out.Gespanne = append(out.Gespanne, apiGespann{
@@ -213,42 +306,146 @@ func (s *Server) handlePricingAPI(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// neighborInYearOrRedirect guards booking creation against orphan rows: a
+// booking for a neighbor not in the year is invisible on the (membership-driven)
+// dashboard yet counted by stats/CSV, skewing the year's totals. Ledger and
+// payment creation already enforce the same membership check.
+func (s *Server) neighborInYearOrRedirect(w http.ResponseWriter, r *http.Request, yearID, neighborID int64) bool {
+	in, err := s.store.NeighborInYear(r.Context(), yearID, neighborID)
+	if err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return false
+	}
+	if !in {
+		s.setFlash(w, r, "error", "Nachbar ist diesem Abrechnungsjahr nicht zugeordnet.")
+		redirect(w, r, dashboardURL(yearID))
+		return false
+	}
+	return true
+}
+
+// invoiceLocked reports whether a festgeschriebene (issued) Rechnung exists for
+// this neighbor+year. While one does, the neighbor's bookings and ledger for that
+// year are locked (BAO §131 Unveränderbarkeit): corrections go through a
+// Storno/Gutschrift, not by editing the frozen basis. Payments and year-close are
+// deliberately NOT gated by this — they stay decoupled from invoicing. On a true
+// lock (or a lookup error, failing closed) it writes the flash + redirect and
+// returns true so the caller just returns.
+func (s *Server) invoiceLocked(w http.ResponseWriter, r *http.Request, yearID, neighborID int64) bool {
+	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		s.setFlash(w, r, "error", "Rechnungsstatus konnte nicht geprüft werden.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return true
+	}
+	s.setFlash(w, r, "error", "Rechnung "+iv.Number+" ist festgeschrieben – Buchungen und Verrechnungen für diesen Nachbarn sind gesperrt. Für Korrekturen bitte die Rechnung stornieren.")
+	redirect(w, r, neighborURL(neighborID, yearID))
+	return true
+}
+
 func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	neighborID := formInt64(r, "neighbor_id")
 	yearID := formInt64(r, "year_id")
+	// An offline replay (offline.js) sets this header and wants a machine-readable
+	// status, not a redirect: 2xx = stored, 422 = permanent business rejection so
+	// the client drops it from the queue (and 401 from auth = retry after login).
+	// This lets the queue distinguish "won't self-heal" from "retry later" instead
+	// of treating every redirect as success and silently discarding the booking.
+	replay := r.Header.Get("X-Offline-Replay") == "1"
+	reject := func(status int, msg, redirectTo string) {
+		if replay {
+			http.Error(w, msg, status)
+			return
+		}
+		s.setFlash(w, r, "error", msg)
+		redirect(w, r, redirectTo)
+	}
 
 	year, err := s.store.GetBillingYear(r.Context(), yearID)
-	if err != nil {
-		http.Error(w, "Unbekanntes Abrechnungsjahr", http.StatusBadRequest)
+	if errors.Is(err, store.ErrNotFound) {
+		s.badRequest(w, "Unbekanntes Abrechnungsjahr")
+		return
+	} else if err != nil {
+		// A real DB error is not "unknown year": surface a 500 so a replay client
+		// retries later instead of dropping the booking as a permanent rejection.
+		s.serverError(w, "entry create: load year", err)
 		return
 	}
 	if year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen – es können keine Buchungen mehr erfasst werden.")
-		redirect(w, r, neighborURL(neighborID, yearID))
+		reject(http.StatusUnprocessableEntity, "Das Abrechnungsjahr ist abgeschlossen – es können keine Buchungen mehr erfasst werden.", neighborURL(neighborID, yearID))
+		return
+	}
+	// Inline the neighbor-in-year and invoice-lock checks (rather than the
+	// w,r-writing helpers) so the same gates can answer a replay with a status
+	// code; the interactive messages/redirect targets are unchanged.
+	if in, err := s.store.NeighborInYear(r.Context(), year.ID, neighborID); err != nil {
+		s.serverError(w, r.URL.Path, err)
+		return
+	} else if !in {
+		reject(http.StatusUnprocessableEntity, "Nachbar ist diesem Abrechnungsjahr nicht zugeordnet.", dashboardURL(yearID))
+		return
+	}
+	if iv, err := s.store.GetInvoice(r.Context(), year.ID, neighborID); err == nil {
+		reject(http.StatusUnprocessableEntity, "Rechnung "+iv.Number+" ist festgeschrieben – Buchungen und Verrechnungen für diesen Nachbarn sind gesperrt. Für Korrekturen bitte die Rechnung stornieren.", neighborURL(neighborID, yearID))
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		// A real store failure (not "no invoice") is transient — return 500 so an
+		// offline replay retries rather than dropping the booking as a permanent 422.
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
 
 	entry, machineIDs, msg := s.resolveEntryFromForm(r)
 	if msg != "" {
-		s.setFlash(w, "error", msg)
-		redirect(w, r, neighborURL(neighborID, yearID))
+		reject(http.StatusUnprocessableEntity, msg, neighborURL(neighborID, yearID))
+		return
+	}
+	idempotencyKey := trimmed(r, "idempotency_key") // set only for offline replays
+	if s.tooLong(w, r, "Idempotency-Key", idempotencyKey, maxNameLen) {
+		reject(http.StatusUnprocessableEntity, "Idempotency-Key darf höchstens 100 Zeichen lang sein.", neighborURL(neighborID, yearID))
 		return
 	}
 	entry.NeighborID = neighborID
 	entry.BillingYearID = year.ID
+	entry.IdempotencyKey = idempotencyKey
 
 	newID, err := s.store.CreateEntry(r.Context(), entry, machineIDs)
 	if err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	s.audit(r, "create", "entry", newID, fmt.Sprintf("%s · %s, %.2f h × %.2f = %.2f €",
-		s.neighborName(r, neighborID), entry.TaskLabel, entry.Hours, entry.HourlyRate, entry.Cost))
-	s.setFlash(w, "success", "Buchung gespeichert.")
+	if newID == 0 { // duplicate replay of an offline booking — already recorded
+		if replay {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.setFlash(w, r, "success", "Buchung war bereits erfasst.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	var detail string
+	if entry.Unit != "" && entry.Unit != "h" {
+		detail = fmt.Sprintf("%s · %s, %s %s × %s = %s €",
+			s.neighborName(r, neighborID), entry.TaskLabel,
+			entry.Quantity.String(), entry.Unit, entry.UnitPrice.StringFixed(2), entry.Cost.StringFixed(2))
+	} else {
+		detail = fmt.Sprintf("%s · %s, %s h × %s = %s €",
+			s.neighborName(r, neighborID), entry.TaskLabel,
+			entry.Hours.StringFixed(2), entry.HourlyRate.StringFixed(2), entry.Cost.StringFixed(2))
+	}
+	s.audit(r, "create", "entry", newID, detail)
+	if replay {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.setFlash(w, r, "success", "Buchung gespeichert.")
 	redirect(w, r, neighborURL(neighborID, yearID))
 }
 
@@ -257,6 +454,57 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 // returns a populated Entry (without neighbor/year) plus its machine ids. On
 // validation failure it returns a non-empty German message.
 func (s *Server) resolveEntryFromForm(r *http.Request) (*models.Entry, []int64, string) {
+	// Non-hour unit (ha, Ballen, m³, …): quantity × unit price, no rig required.
+	// Hours stay 0 (they don't count toward TotalHours). Unit "h" (or empty) falls
+	// through to the rig-based hourly path below. "__custom" resolves to the
+	// free-text unit field.
+	unit := trimmed(r, "unit")
+	if unit == "__custom" {
+		unit = trimmed(r, "unit_custom")
+		if unit == "" {
+			return nil, nil, "Bitte eine eigene Einheit angeben."
+		}
+	}
+	if unit != "" && unit != "h" {
+		if msg := lenError("Einheit", unit, 16); msg != "" {
+			return nil, nil, msg
+		}
+		taskLabel := trimmed(r, "task_label")
+		if taskLabel == "" {
+			return nil, nil, "Bitte eine Tätigkeit angeben."
+		}
+		if msg := lenError("Tätigkeit", taskLabel, maxNameLen); msg != "" {
+			return nil, nil, msg
+		}
+		quantity := formDecimal(r, "quantity")
+		if !quantity.IsPositive() {
+			return nil, nil, "Menge muss größer als 0 sein."
+		}
+		unitPrice := formDecimal(r, "unit_price")
+		if !unitPrice.IsPositive() {
+			return nil, nil, "Preis je Einheit muss größer als 0 sein."
+		}
+		note := trimmed(r, "note")
+		if msg := lenError("Notiz", note, maxNoteLen); msg != "" {
+			return nil, nil, msg
+		}
+		entryDate, err := time.Parse("2006-01-02", trimmed(r, "entry_date"))
+		if err != nil {
+			entryDate = time.Now()
+		}
+		return &models.Entry{
+			Date:       entryDate,
+			TaskLabel:  taskLabel,
+			Unit:       unit,
+			Quantity:   quantity,
+			UnitPrice:  unitPrice,
+			Hours:      decimal.Zero,
+			HourlyRate: decimal.Zero,
+			Cost:       calc.Cost(quantity, unitPrice),
+			Note:       note,
+		}, nil, ""
+	}
+
 	var (
 		gespannID   *int64
 		tractorID   = formInt64Ptr(r, "tractor_id")
@@ -295,13 +543,20 @@ func (s *Server) resolveEntryFromForm(r *http.Request) (*models.Entry, []int64, 
 	if err != nil {
 		return nil, nil, "Interner Fehler beim Laden der Maschinen."
 	}
-	hours := formFloat(r, "hours")
-	if hours <= 0 {
+	hours := formDecimal(r, "hours")
+	if !hours.IsPositive() {
 		return nil, nil, "Stunden müssen größer als 0 sein."
 	}
 	entryDate, err := time.Parse("2006-01-02", trimmed(r, "entry_date"))
 	if err != nil {
 		entryDate = time.Now()
+	}
+	if msg := lenError("Tätigkeit", taskLabel, maxNameLen); msg != "" {
+		return nil, nil, msg
+	}
+	note := trimmed(r, "note")
+	if msg := lenError("Notiz", note, maxNoteLen); msg != "" {
+		return nil, nil, msg
 	}
 	rate := calc.GespannRate(*tractor, *load, machines)
 	names := make([]string, 0, len(machines))
@@ -322,8 +577,36 @@ func (s *Server) resolveEntryFromForm(r *http.Request) (*models.Entry, []int64, 
 		Hours:         hours,
 		HourlyRate:    rate,
 		Cost:          calc.Cost(hours, rate),
-		Note:          trimmed(r, "note"),
+		Note:          note,
 	}, ids, ""
+}
+
+// entryUpdateDetail renders a per-field old→new summary of an edited booking so
+// the audit trail shows what actually changed, not just the resulting cost.
+func entryUpdateDetail(prev, cur *models.Entry) string {
+	d := diffFields(
+		fieldChange{"Datum", prev.Date.Format("02.01.2006"), cur.Date.Format("02.01.2006")},
+		fieldChange{"Tätigkeit", prev.TaskLabel, cur.TaskLabel},
+		fieldChange{"Maschinen", prev.MachineLabels, cur.MachineLabels},
+		fieldChange{"Einheit", prev.Unit, cur.Unit},
+		fieldChange{"Menge", prev.Quantity.StringFixed(2), cur.Quantity.StringFixed(2)},
+		fieldChange{"Einzelpreis", prev.UnitPrice.StringFixed(2), cur.UnitPrice.StringFixed(2)},
+		fieldChange{"Stunden", prev.Hours.StringFixed(2), cur.Hours.StringFixed(2)},
+		fieldChange{"Satz", prev.HourlyRate.StringFixed(2), cur.HourlyRate.StringFixed(2)},
+		fieldChange{"Kosten", prev.Cost.StringFixed(2) + " €", cur.Cost.StringFixed(2) + " €"},
+		fieldChange{"Notiz", prev.Note, cur.Note},
+	)
+	if d == "" {
+		// Mirror the booking's own basis: hours × rate for time bookings, but
+		// quantity × unit price for a unit-based one (h × rate would be 0 there).
+		if cur.Unit != "" && cur.Unit != "h" {
+			return fmt.Sprintf("keine inhaltliche Änderung (%s %s × %s = %s €)",
+				cur.Quantity.StringFixed(2), cur.Unit, cur.UnitPrice.StringFixed(2), cur.Cost.StringFixed(2))
+		}
+		return fmt.Sprintf("keine inhaltliche Änderung (%s h × %s = %s €)",
+			cur.Hours.StringFixed(2), cur.HourlyRate.StringFixed(2), cur.Cost.StringFixed(2))
+	}
+	return d
 }
 
 // handleEntryUpdate edits an existing booking (only while the year is open).
@@ -334,7 +617,7 @@ func (s *Server) handleEntryUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	existing, err := s.store.GetEntry(r.Context(), id)
@@ -342,24 +625,22 @@ func (s *Server) handleEntryUpdate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if year, err := s.store.GetBillingYear(r.Context(), existing.BillingYearID); err == nil && year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen – Buchungen können nicht mehr geändert werden.")
-		redirect(w, r, neighborURL(existing.NeighborID, existing.BillingYearID))
+	if !s.entryYearOpen(w, r, existing, "Das Abrechnungsjahr ist abgeschlossen – Buchungen können nicht mehr geändert werden.") {
 		return
 	}
 	entry, machineIDs, msg := s.resolveEntryFromForm(r)
 	if msg != "" {
-		s.setFlash(w, "error", msg)
+		s.setFlash(w, r, "error", msg)
 		redirect(w, r, neighborURL(existing.NeighborID, existing.BillingYearID))
 		return
 	}
 	entry.ID = id
 	if err := s.store.UpdateEntry(r.Context(), entry, machineIDs); err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	s.audit(r, "update", "entry", id, fmt.Sprintf("%.2f h × %.2f = %.2f €", entry.Hours, entry.HourlyRate, entry.Cost))
-	s.setFlash(w, "success", "Buchung aktualisiert.")
+	s.audit(r, "update", "entry", id, s.neighborName(r, existing.NeighborID)+" · "+entryUpdateDetail(existing, entry))
+	s.setFlash(w, r, "success", "Buchung aktualisiert.")
 	redirect(w, r, neighborURL(existing.NeighborID, existing.BillingYearID))
 }
 
@@ -372,7 +653,7 @@ func (s *Server) handleEntryVoid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	entry, err := s.store.GetEntry(r.Context(), id)
@@ -380,25 +661,340 @@ func (s *Server) handleEntryVoid(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if year, err := s.store.GetBillingYear(r.Context(), entry.BillingYearID); err == nil && year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen.")
-		redirect(w, r, neighborURL(entry.NeighborID, entry.BillingYearID))
+	if !s.entryYearOpen(w, r, entry, "Das Abrechnungsjahr ist abgeschlossen.") {
 		return
 	}
 	void := r.FormValue("voided") == "true"
 	reason := trimmed(r, "reason")
+	if s.tooLong(w, r, "Grund", reason, maxNoteLen) {
+		redirect(w, r, neighborURL(entry.NeighborID, entry.BillingYearID))
+		return
+	}
 	nb := s.neighborName(r, entry.NeighborID)
 	if err := s.store.SetEntryVoided(r.Context(), id, void, reason); err != nil {
-		s.setFlash(w, "error", "Aktion fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
 	} else if void {
-		s.audit(r, "void", "entry", id, fmt.Sprintf("%s · %.2f € %s", nb, entry.Cost, reason))
-		s.setFlash(w, "success", "Buchung storniert.")
+		s.audit(r, "void", "entry", id, fmt.Sprintf("%s · %s € %s", nb, entry.Cost.StringFixed(2), reason))
+		s.setFlash(w, r, "success", "Buchung storniert.")
 	} else {
-		s.audit(r, "unvoid", "entry", id, nb)
-		s.setFlash(w, "success", "Stornierung aufgehoben.")
+		s.audit(r, "unvoid", "entry", id, fmt.Sprintf("%s · %s €", nb, entry.Cost.StringFixed(2)))
+		s.setFlash(w, r, "success", "Stornierung aufgehoben.")
 	}
 	redirect(w, r, neighborURL(entry.NeighborID, entry.BillingYearID))
 }
+
+// ledgerFormValues parses the shared add/edit fields: a positive amount plus a
+// direction ("credit" = I owe the neighbor → stored negative), a description
+// and an optional posting date (defaults to today). Returns a user-facing
+// message when the amount is invalid.
+func ledgerFormValues(r *http.Request) (amount decimal.Decimal, description string, date time.Time, msg string) {
+	amount = formDecimal(r, "amount").Abs()
+	if !amount.IsPositive() {
+		return amount, "", date, "Bitte einen Betrag größer 0 angeben."
+	}
+	if r.FormValue("direction") == "credit" {
+		amount = amount.Neg() // I owe the neighbor → reduces the balance
+	}
+	description = trimmed(r, "description")
+	if msg := lenError("Beschreibung", description, maxNoteLen); msg != "" {
+		return amount, "", date, msg
+	}
+	date, err := time.Parse("2006-01-02", trimmed(r, "posting_date"))
+	if err != nil {
+		date = time.Now()
+	}
+	return amount, description, date, ""
+}
+
+// ledgerYearOpen reports whether the billing year is still open. It fails
+// closed: a lookup error also blocks the mutation (never silently proceed on a
+// possibly-completed or missing year).
+func (s *Server) ledgerYearOpen(w http.ResponseWriter, r *http.Request, yearID, neighborID int64) bool {
+	year, err := s.store.GetBillingYear(r.Context(), yearID)
+	if err != nil {
+		s.setFlash(w, r, "error", "Abrechnungsjahr konnte nicht geladen werden.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return false
+	}
+	if year.Completed() {
+		s.setFlash(w, r, "error", "Das Abrechnungsjahr ist abgeschlossen.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return false
+	}
+	if s.invoiceLocked(w, r, yearID, neighborID) {
+		return false
+	}
+	return true
+}
+
+// transferYearsOpen reports whether every billing year a carry-forward transfer
+// touches is still open. Undoing a transfer changes both sides at once, so it
+// must be blocked when either the clicked or the linked year is completed —
+// ledgerYearOpen only guards the clicked side.
+func (s *Server) transferYearsOpen(w http.ResponseWriter, r *http.Request, transferID string, neighborID, yearID int64) bool {
+	ids, err := s.store.LedgerTransferYearIDs(r.Context(), transferID)
+	if err != nil {
+		s.setFlash(w, r, "error", "Übertrag konnte nicht geladen werden.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return false
+	}
+	for _, id := range ids {
+		year, err := s.store.GetBillingYear(r.Context(), id)
+		if err != nil {
+			s.setFlash(w, r, "error", "Abrechnungsjahr konnte nicht geladen werden.")
+			redirect(w, r, neighborURL(neighborID, yearID))
+			return false
+		}
+		if year.Completed() {
+			s.setFlash(w, r, "error", "Ein beteiligtes Abrechnungsjahr ist abgeschlossen.")
+			redirect(w, r, neighborURL(neighborID, yearID))
+			return false
+		}
+	}
+	return true
+}
+
+// entryYearOpen reports whether the entry's billing year is still open. Like
+// ledgerYearOpen it fails closed: a year-lookup error blocks the mutation
+// instead of silently proceeding on a possibly-completed (settled) year.
+func (s *Server) entryYearOpen(w http.ResponseWriter, r *http.Request, e *models.Entry, blockedMsg string) bool {
+	year, err := s.store.GetBillingYear(r.Context(), e.BillingYearID)
+	if err != nil {
+		s.setFlash(w, r, "error", "Abrechnungsjahr konnte nicht geladen werden.")
+		redirect(w, r, neighborURL(e.NeighborID, e.BillingYearID))
+		return false
+	}
+	if year.Completed() {
+		s.setFlash(w, r, "error", blockedMsg)
+		redirect(w, r, neighborURL(e.NeighborID, e.BillingYearID))
+		return false
+	}
+	if s.invoiceLocked(w, r, e.BillingYearID, e.NeighborID) {
+		return false
+	}
+	return true
+}
+
+// handleLedgerAdd records a manual account posting for a neighbor in a year.
+func (s *Server) handleLedgerAdd(w http.ResponseWriter, r *http.Request) {
+	neighborID, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
+	yearID := s.yearIDFromForm(r)
+	if yearID == 0 {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
+	if !s.ledgerYearOpen(w, r, yearID, neighborID) {
+		return
+	}
+	// Only members of the year may get postings, otherwise an orphan posting
+	// would count in the year ledger total but not in the per-neighbor / payment
+	// views (which join billing_year_neighbors), skewing the stats.
+	// A lookup error is NOT "not a member": surface it instead of masking a DB
+	// problem behind a data-sounding message.
+	member, err := s.store.NeighborInYear(r.Context(), yearID, neighborID)
+	if err != nil {
+		s.serverError(w, "ledger add: membership lookup", err)
+		return
+	}
+	if !member {
+		s.setFlash(w, r, "error", "Nachbar ist in diesem Abrechnungsjahr nicht vorhanden.")
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	amount, description, date, msg := ledgerFormValues(r)
+	if msg != "" {
+		s.setFlash(w, r, "error", msg)
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	if _, err := s.store.AddNeighborLedger(r.Context(), yearID, neighborID, amount, description, date); err != nil {
+		s.setFlash(w, r, "error", "Speichern fehlgeschlagen.")
+	} else {
+		s.audit(r, "ledger_add", "neighbor", neighborID,
+			s.neighborName(r, neighborID)+" · Jahr "+s.yearLabel(r, yearID)+" · "+amount.StringFixed(2)+" € "+description)
+		s.setFlash(w, r, "success", "Position hinzugefügt.")
+	}
+	redirect(w, r, neighborURL(neighborID, yearID))
+}
+
+// handleLedgerEditForm renders the edit form for one posting.
+func (s *Server) handleLedgerEditForm(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	yearID, neighborID, e, err := s.store.GetLedgerEntry(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	neighbor, err := s.store.GetNeighbor(r.Context(), neighborID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	year, err := s.store.GetBillingYear(r.Context(), yearID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	data := s.newPage(w, r, "Position bearbeiten", "dashboard")
+	data["Neighbor"] = neighbor
+	data["Year"] = year
+	data["Ledger"] = e
+	data["IsCredit"] = e.Amount.IsNegative()
+	data["AbsAmount"] = e.Amount.Abs()
+	s.render(w, r, "ledger_edit", data)
+}
+
+// handleLedgerUpdate saves an edited posting (while the year is open).
+func (s *Server) handleLedgerUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
+	yearID, neighborID, _, err := s.store.GetLedgerEntry(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ledgerYearOpen(w, r, yearID, neighborID) {
+		return
+	}
+	amount, description, date, msg := ledgerFormValues(r)
+	if msg != "" {
+		s.setFlash(w, r, "error", msg)
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	if err := s.store.UpdateNeighborLedger(r.Context(), id, amount, description, date); err != nil {
+		s.setFlash(w, r, "error", "Speichern fehlgeschlagen.")
+	} else {
+		s.audit(r, "ledger_update", "neighbor", neighborID,
+			s.neighborName(r, neighborID)+" · "+amount.StringFixed(2)+" € "+description)
+		s.setFlash(w, r, "success", "Position aktualisiert.")
+	}
+	redirect(w, r, neighborURL(neighborID, yearID))
+}
+
+// handleLedgerVoid cancels or restores a posting (traceable alternative to
+// deletion; a voided posting stays visible but is excluded from the balance).
+func (s *Server) handleLedgerVoid(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
+	yearID, neighborID, e, err := s.store.GetLedgerEntry(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ledgerYearOpen(w, r, yearID, neighborID) {
+		return
+	}
+	void := r.FormValue("voided") == "true"
+	reason := trimmed(r, "reason")
+	if s.tooLong(w, r, "Grund", reason, maxNoteLen) {
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	// A carry-forward posting reverses as a unit: void/restore both sides so the
+	// balance can't be left settled in one year and gone from the other.
+	if e.TransferID != "" {
+		if !s.transferYearsOpen(w, r, e.TransferID, neighborID, yearID) {
+			return
+		}
+		if err := s.store.SetLedgerVoidedTransfer(r.Context(), e.TransferID, void, reason); err != nil {
+			s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
+		} else if void {
+			s.audit(r, "ledger_void", "neighbor", neighborID, s.neighborName(r, neighborID)+" · Übertrag storniert (beide Seiten)")
+			s.setFlash(w, r, "success", "Übertrag storniert — beide Seiten aufgehoben.")
+		} else {
+			s.audit(r, "ledger_unvoid", "neighbor", neighborID, s.neighborName(r, neighborID)+" · Übertrag wiederhergestellt")
+			s.setFlash(w, r, "success", "Übertrags-Stornierung aufgehoben.")
+		}
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	if err := s.store.SetLedgerVoided(r.Context(), id, void, reason); err != nil {
+		s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
+	} else if void {
+		s.audit(r, "ledger_void", "neighbor", neighborID,
+			s.neighborName(r, neighborID)+" · "+e.Amount.StringFixed(2)+" € "+reason)
+		s.setFlash(w, r, "success", "Position storniert.")
+	} else {
+		s.audit(r, "ledger_unvoid", "neighbor", neighborID,
+			s.neighborName(r, neighborID)+" · "+e.Amount.StringFixed(2)+" €")
+		s.setFlash(w, r, "success", "Stornierung aufgehoben.")
+	}
+	redirect(w, r, neighborURL(neighborID, yearID))
+}
+
+// handleLedgerDelete removes a manual posting (while the year is open).
+func (s *Server) handleLedgerDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	yearID, neighborID, e, err := s.store.GetLedgerEntry(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.ledgerYearOpen(w, r, yearID, neighborID) {
+		return
+	}
+	// A carry-forward posting reverses as a unit: deleting one side removes both,
+	// so the balance reopens in the source year instead of vanishing.
+	if e.TransferID != "" {
+		if !s.transferYearsOpen(w, r, e.TransferID, neighborID, yearID) {
+			return
+		}
+		if err := s.store.DeleteLedgerTransfer(r.Context(), e.TransferID); err != nil {
+			s.setFlash(w, r, "error", "Löschen fehlgeschlagen.")
+		} else {
+			s.audit(r, "ledger_delete", "neighbor", neighborID, s.neighborName(r, neighborID)+" · Übertrag rückgängig")
+			s.setFlash(w, r, "success", "Übertrag rückgängig gemacht — der Rest ist im anderen Jahr wieder offen.")
+		}
+		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	if err := s.store.DeleteNeighborLedger(r.Context(), id); err != nil {
+		s.setFlash(w, r, "error", "Löschen fehlgeschlagen.")
+	} else {
+		s.audit(r, "ledger_delete", "neighbor", neighborID,
+			s.neighborName(r, neighborID)+" · "+e.Amount.StringFixed(2)+" € "+e.Description)
+		s.setFlash(w, r, "success", "Position entfernt.")
+	}
+	redirect(w, r, neighborURL(neighborID, yearID))
+}
+
+// knownUnits are the booking form's named unit options. Anything else that isn't
+// empty is a custom (free-text) unit — the form must select "Andere Einheit" and
+// prefill the free-text field, or the select would silently fall back to "h".
+var knownUnits = map[string]bool{"h": true, "ha": true, "Ballen": true, "m³": true, "Fuhre": true, "t": true}
+
+func unitIsCustom(u string) bool { return u != "" && !knownUnits[u] }
 
 // handleEntryEditForm renders a prefilled booking form for editing.
 func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +1019,7 @@ func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen.")
+		s.setFlash(w, r, "error", "Das Abrechnungsjahr ist abgeschlossen.")
 		redirect(w, r, neighborURL(neighbor.ID, year.ID))
 		return
 	}
@@ -434,6 +1030,7 @@ func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
 	gespanne, _ := s.store.ListGespanne(r.Context(), base.ID)
 	selMachines, _ := s.store.EntryMachineIDs(r.Context(), id)
 
+	photos, _ := s.store.ListEntryPhotos(r.Context(), id)
 	data := s.newPage(w, r, "Buchung bearbeiten", "dashboard")
 	data["Entry"] = entry
 	data["Neighbor"] = neighbor
@@ -444,6 +1041,64 @@ func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
 	data["Machines"] = machines
 	data["Gespanne"] = gespanne
 	data["SelectedMachineIDs"] = selMachines
+	data["Photos"] = photos
+	data["UnitIsCustom"] = unitIsCustom(entry.Unit)
+	data["IsQtyEntry"] = entry.Unit != "" && entry.Unit != "h"
+	data["NextWeek"] = time.Now().AddDate(0, 0, 7).Format("2006-01-02")
+	s.render(w, r, "entry_edit", data)
+}
+
+// handleEntryCopy renders the entry form pre-filled from an existing booking as a
+// NEW booking (dated today), so a recurring task can be re-entered in one click.
+// It reuses the entry_edit template with Copy=true, which points the form at the
+// create route and adds the neighbor/year hidden fields.
+func (s *Server) handleEntryCopy(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	entry, err := s.store.GetEntry(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	neighbor, err := s.store.GetNeighbor(r.Context(), entry.NeighborID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	year, err := s.store.GetBillingYear(r.Context(), entry.BillingYearID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if year.Completed() {
+		s.setFlash(w, r, "error", "Das Abrechnungsjahr ist abgeschlossen.")
+		redirect(w, r, neighborURL(neighbor.ID, year.ID))
+		return
+	}
+	entry.Date = time.Now() // a copy is a fresh booking for today
+	base := year.Base
+	tractors, _ := s.store.ListTractors(r.Context(), base.ID)
+	loads, _ := s.store.ListLoadLevels(r.Context(), base.ID)
+	machines, _ := s.store.ListMachines(r.Context(), base.ID)
+	gespanne, _ := s.store.ListGespanne(r.Context(), base.ID)
+	selMachines, _ := s.store.EntryMachineIDs(r.Context(), id)
+
+	data := s.newPage(w, r, "Buchung kopieren", "dashboard")
+	data["Entry"] = entry
+	data["Neighbor"] = neighbor
+	data["Year"] = year
+	data["Base"] = base
+	data["Tractors"] = tractors
+	data["Loads"] = loads
+	data["Machines"] = machines
+	data["Gespanne"] = gespanne
+	data["SelectedMachineIDs"] = selMachines
+	data["UnitIsCustom"] = unitIsCustom(entry.Unit)
+	data["IsQtyEntry"] = entry.Unit != "" && entry.Unit != "h"
+	data["Copy"] = true
 	s.render(w, r, "entry_edit", data)
 }
 
@@ -451,19 +1106,28 @@ func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
 // (date, fixed gespann, hours).
 func (s *Server) handleQuickEntries(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	neighborID := formInt64(r, "neighbor_id")
 	yearID := formInt64(r, "year_id")
 	year, err := s.store.GetBillingYear(r.Context(), yearID)
-	if err != nil {
-		http.Error(w, "Unbekanntes Abrechnungsjahr", http.StatusBadRequest)
+	if errors.Is(err, store.ErrNotFound) {
+		s.badRequest(w, "Unbekanntes Abrechnungsjahr")
+		return
+	} else if err != nil {
+		s.serverError(w, "quick entries: load year", err)
 		return
 	}
 	if year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen.")
+		s.setFlash(w, r, "error", "Das Abrechnungsjahr ist abgeschlossen.")
 		redirect(w, r, neighborURL(neighborID, yearID))
+		return
+	}
+	if !s.neighborInYearOrRedirect(w, r, year.ID, neighborID) {
+		return
+	}
+	if s.invoiceLocked(w, r, year.ID, neighborID) {
 		return
 	}
 
@@ -473,11 +1137,11 @@ func (s *Server) handleQuickEntries(w http.ResponseWriter, r *http.Request) {
 	created := 0
 	for i := range gespanne {
 		gid, _ := strconv.ParseInt(strings.TrimSpace(gespanne[i]), 10, 64)
-		hours := 0.0
+		hours := decimal.Zero
 		if i < len(hoursList) {
-			hours = parseGermanFloat(hoursList[i])
+			hours = parseGermanDecimal(hoursList[i])
 		}
-		if gid == 0 || hours <= 0 {
+		if gid == 0 || !hours.IsPositive() {
 			continue
 		}
 		dateStr := ""
@@ -495,16 +1159,16 @@ func (s *Server) handleQuickEntries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if created == 0 {
-		s.setFlash(w, "error", "Keine gültigen Zeilen (Gespann und Stunden erforderlich).")
+		s.setFlash(w, r, "error", "Keine gültigen Zeilen (Gespann und Stunden erforderlich).")
 	} else {
 		s.audit(r, "quick_create", "entry", 0, fmt.Sprintf("%d Buchungen für %s", created, s.neighborName(r, neighborID)))
-		s.setFlash(w, "success", fmt.Sprintf("%d Buchungen gespeichert.", created))
+		s.setFlash(w, r, "success", fmt.Sprintf("%d Buchungen gespeichert.", created))
 	}
 	redirect(w, r, neighborURL(neighborID, yearID))
 }
 
 // buildGespannEntry resolves a fixed gespann into a snapshotted entry.
-func (s *Server) buildGespannEntry(r *http.Request, gespannID int64, hours float64, dateStr string) (*models.Entry, []int64, bool) {
+func (s *Server) buildGespannEntry(r *http.Request, gespannID int64, hours decimal.Decimal, dateStr string) (*models.Entry, []int64, bool) {
 	g, err := s.store.GetGespann(r.Context(), gespannID)
 	if err != nil || g.TractorID == nil || g.LoadLevelID == nil {
 		return nil, nil, false
@@ -559,17 +1223,16 @@ func (s *Server) handleEntryDelete(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if year, err := s.store.GetBillingYear(r.Context(), entry.BillingYearID); err == nil && year.Completed() {
-		s.setFlash(w, "error", "Das Abrechnungsjahr ist abgeschlossen – Buchungen können nicht mehr gelöscht werden.")
-		redirect(w, r, neighborURL(entry.NeighborID, entry.BillingYearID))
+	if !s.entryYearOpen(w, r, entry, "Das Abrechnungsjahr ist abgeschlossen – Buchungen können nicht mehr gelöscht werden.") {
 		return
 	}
 	if err := s.store.DeleteEntry(r.Context(), id); err != nil {
-		s.setFlash(w, "error", "Löschen fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Löschen fehlgeschlagen.")
 	} else {
-		s.audit(r, "delete", "entry", id, fmt.Sprintf("%s · %s, %.2f h, %.2f €",
-			s.neighborName(r, entry.NeighborID), entry.TractorLabel, entry.Hours, entry.Cost))
-		s.setFlash(w, "success", "Buchung gelöscht.")
+		s.audit(r, "delete", "entry", id, fmt.Sprintf("%s · %s, %s h, %s €",
+			s.neighborName(r, entry.NeighborID), entry.TractorLabel,
+			entry.Hours.StringFixed(2), entry.Cost.StringFixed(2)))
+		s.setFlash(w, r, "success", "Buchung gelöscht.")
 	}
 	redirect(w, r, neighborURL(entry.NeighborID, entry.BillingYearID))
 }

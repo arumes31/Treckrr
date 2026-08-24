@@ -15,15 +15,22 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// Pool sizing, shared by Connect and ResetPool so a reset restores the same caps.
+const (
+	maxOpenConns    = 10
+	maxIdleConns    = 5
+	connMaxLifetime = time.Hour
+)
+
 // Connect opens a connection pool and waits until the database is reachable.
 func Connect(ctx context.Context, dsn string) (*sql.DB, error) {
 	pool, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	pool.SetMaxOpenConns(10)
-	pool.SetMaxIdleConns(5)
-	pool.SetConnMaxLifetime(time.Hour)
+	pool.SetMaxOpenConns(maxOpenConns)
+	pool.SetMaxIdleConns(maxIdleConns)
+	pool.SetConnMaxLifetime(connMaxLifetime)
 
 	// Retry until Postgres accepts connections (it may still be starting up).
 	deadline := time.Now().Add(60 * time.Second)
@@ -45,8 +52,38 @@ func Connect(ctx context.Context, dsn string) (*sql.DB, error) {
 	}
 }
 
+// ResetPool discards the pooled connections so none keeps a prepared statement
+// bound to a table that a `pg_restore --clean` just dropped and recreated — the
+// classic "cached plan must not change result type" after an in-place restore.
+// database/sql has no Reset() like pgxpool: dropping the idle limit to zero closes
+// every idle connection synchronously, and restoring it lets the pool reopen fresh
+// connections (with an empty statement cache) on demand. Call it before re-running
+// Migrate so the migration and all later queries run on clean connections.
+func ResetPool(pool *sql.DB) {
+	pool.SetMaxIdleConns(0)
+	pool.SetMaxIdleConns(maxIdleConns)
+}
+
+// migrateLockKey is a fixed advisory-lock key that serializes Migrate across
+// instances (any constant works as long as it's unique to this concern).
+const migrateLockKey = 4711
+
 // Migrate applies every embedded migration that has not yet run, in order.
+// It runs under a session-level Postgres advisory lock so two instances booting
+// together cannot both apply the same migration (a data-backfill migration could
+// otherwise double-apply before its constraints exist). Other instances block on
+// the lock, then find every migration already recorded and no-op.
 func Migrate(ctx context.Context, pool *sql.DB) error {
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: acquire conn: %w", err)
+	}
+	defer conn.Close() // releases the session advisory lock even on error
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrateLockKey); err != nil {
+		return fmt.Errorf("migrate: advisory lock: %w", err)
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrateLockKey) }()
+
 	if _, err := pool.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			name TEXT PRIMARY KEY,

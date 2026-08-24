@@ -2,15 +2,56 @@ package server
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
-	"treckrr/internal/calc"
-	"treckrr/internal/models"
+	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/calc"
+	"github.com/d0linger/treckrr/internal/models"
 )
+
+// --- audit label resolvers (human names for audit detail) ----------------
+
+func (s *Server) tractorLabel(r *http.Request, id *int64) string {
+	if id == nil {
+		return "—"
+	}
+	if t, err := s.store.GetTractor(r.Context(), *id); err == nil {
+		return t.Label()
+	}
+	return "#" + strconv.FormatInt(*id, 10)
+}
+
+func (s *Server) loadName(r *http.Request, id *int64) string {
+	if id == nil {
+		return "—"
+	}
+	if l, err := s.store.GetLoadLevel(r.Context(), *id); err == nil {
+		return l.Name
+	}
+	return "#" + strconv.FormatInt(*id, 10)
+}
+
+func (s *Server) machineNames(r *http.Request, ids []int64) string {
+	if len(ids) == 0 {
+		return "—"
+	}
+	ms, err := s.store.MachinesByIDs(r.Context(), ids)
+	if err != nil || len(ms) == 0 {
+		return "—"
+	}
+	names := make([]string, 0, len(ms))
+	for _, m := range ms {
+		names = append(names, m.Name)
+	}
+	return strings.Join(names, ", ")
+}
 
 // partRate is one line of a gespann's cost breakdown.
 type partRate struct {
 	Label string
-	Rate  float64
+	Rate  decimal.Decimal
 }
 
 // gespannView pairs a gespann with its resolved parts and hourly rate.
@@ -19,7 +60,7 @@ type gespannView struct {
 	Tractor   *models.Tractor
 	Load      *models.LoadLevel
 	Machines  []models.Machine
-	Rate      float64
+	Rate      decimal.Decimal
 	Breakdown []partRate // tractor + each machine, for the full cost breakdown
 }
 
@@ -89,7 +130,7 @@ func (s *Server) handleGespanne(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGespannSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	baseID := s.baseIDFromForm(r)
@@ -101,22 +142,44 @@ func (s *Server) handleGespannSave(w http.ResponseWriter, r *http.Request) {
 	tractorID := formInt64Ptr(r, "tractor_id")
 	loadID := formInt64Ptr(r, "load_level_id")
 	machineIDs := formMachineIDs(r)
-	sortOrder := int(formInt64(r, "sort_order"))
+	sortOrder := formInt(r, "sort_order")
 	if name == "" {
-		s.setFlash(w, "error", "Name darf nicht leer sein.")
+		s.setFlash(w, r, "error", "Name darf nicht leer sein.")
+		redirect(w, r, gespanneURL(baseID))
+		return
+	}
+	if s.tooLong(w, r, "Name", name, maxNameLen) {
 		redirect(w, r, gespanneURL(baseID))
 		return
 	}
 	var err error
 	if id == 0 {
-		_, err = s.store.CreateGespann(r.Context(), baseID, name, tractorID, loadID, machineIDs, sortOrder)
+		var newID int64
+		newID, err = s.store.CreateGespann(r.Context(), baseID, name, tractorID, loadID, machineIDs, sortOrder)
+		if err == nil {
+			s.audit(r, "create", "gespann", newID, name)
+		}
 	} else {
+		before, _ := s.store.GetGespann(r.Context(), id)
 		err = s.store.UpdateGespann(r.Context(), id, name, tractorID, loadID, machineIDs, sortOrder)
+		if err == nil {
+			detail := name
+			if before != nil {
+				if d := diffFields(
+					fieldChange{"Name", before.Name, name},
+					fieldChange{"Traktor", s.tractorLabel(r, before.TractorID), s.tractorLabel(r, tractorID)},
+					fieldChange{"Last", s.loadName(r, before.LoadLevelID), s.loadName(r, loadID)},
+					fieldChange{"Maschinen", s.machineNames(r, before.MachineIDs), s.machineNames(r, machineIDs)},
+				); d != "" {
+					// Prefix the Gespann name so the entry says WHICH gespann changed,
+					// even when the name itself wasn't one of the changed fields.
+					detail = name + " · " + d
+				}
+			}
+			s.audit(r, "update", "gespann", id, detail)
+		}
 	}
-	if err == nil {
-		s.audit(r, "save", "gespann", id, name)
-	}
-	s.flashSaved(w, err)
+	s.flashSaved(w, r, err)
 	redirect(w, r, gespanneURL(baseID))
 }
 
@@ -130,10 +193,15 @@ func (s *Server) handleGespannDelete(w http.ResponseWriter, r *http.Request) {
 	if s.lockedRedirect(w, r, baseID, gespanneURL(baseID)) {
 		return
 	}
+	before, _ := s.store.GetGespann(r.Context(), id)
 	err = s.store.DeleteGespann(r.Context(), id)
 	if err == nil {
-		s.audit(r, "delete", "gespann", id, "")
+		detail := ""
+		if before != nil {
+			detail = before.Name
+		}
+		s.audit(r, "delete", "gespann", id, detail)
 	}
-	s.flashDeleted(w, err)
+	s.flashDeleted(w, r, err)
 	redirect(w, r, gespanneURL(baseID))
 }

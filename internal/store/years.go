@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/models"
 )
 
 // ---- Billing years (Abrechnungsjahre) -----------------------------------
@@ -97,15 +97,6 @@ func (s *Store) SetYearStatus(ctx context.Context, id int64, status string) erro
 	return err
 }
 
-// SetNeighborPaid marks a neighbor's yearly bill as paid or open.
-func (s *Store) SetNeighborPaid(ctx context.Context, yearID, neighborID int64, paid bool) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE billing_year_neighbors
-		   SET paid = $3, paid_at = CASE WHEN $3 THEN now() ELSE NULL END
-		 WHERE billing_year_id = $1 AND neighbor_id = $2`, yearID, neighborID, paid)
-	return err
-}
-
 // ResetYearPayments sets every neighbor of a year back to "open" (unpaid).
 func (s *Store) ResetYearPayments(ctx context.Context, yearID int64) error {
 	_, err := s.db.ExecContext(ctx,
@@ -113,10 +104,14 @@ func (s *Store) ResetYearPayments(ctx context.Context, yearID int64) error {
 	return err
 }
 
-// YearPayments returns a map of neighbor id -> paid flag for a billing year.
+// YearPayments returns, per neighbor, whether any payment has been recorded for
+// the year — used to warn before a recalc changes an already-paid neighbor's
+// bill. It reads the payments table: the legacy billing_year_neighbors.paid flag
+// has been dead since migration 0016 (never set true), so the old query made the
+// warning silently never fire.
 func (s *Store) YearPayments(ctx context.Context, yearID int64) (map[int64]bool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT neighbor_id, paid FROM billing_year_neighbors WHERE billing_year_id=$1`, yearID)
+		`SELECT DISTINCT neighbor_id FROM payments WHERE billing_year_id=$1 AND deleted_at IS NULL`, yearID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +119,10 @@ func (s *Store) YearPayments(ctx context.Context, yearID int64) (map[int64]bool,
 	out := map[int64]bool{}
 	for rows.Next() {
 		var nid int64
-		var paid bool
-		if err := rows.Scan(&nid, &paid); err != nil {
+		if err := rows.Scan(&nid); err != nil {
 			return nil, err
 		}
-		out[nid] = paid
+		out[nid] = true
 	}
 	return out, rows.Err()
 }
@@ -166,11 +160,11 @@ func (s *Store) PreviousBillingYear(ctx context.Context, beforeYear int) (*model
 // ListYearNeighbors returns the neighbors participating in a billing year.
 func (s *Store) ListYearNeighbors(ctx context.Context, yearID int64) ([]models.Neighbor, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.id, n.name, n.note, n.archived, n.created_at
+		SELECT n.id, n.name, n.note, n.address, n.tax_id, n.archived, n.created_at
 		  FROM billing_year_neighbors byn
 		  JOIN neighbors n ON n.id = byn.neighbor_id
 		 WHERE byn.billing_year_id = $1
-		 ORDER BY n.name`, yearID)
+		 ORDER BY n.name, n.id`, yearID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +176,13 @@ func (s *Store) ListYearNeighbors(ctx context.Context, yearID int64) ([]models.N
 // Archived neighbors are not offered for new assignments.
 func (s *Store) ListNeighborsNotInYear(ctx context.Context, yearID int64) ([]models.Neighbor, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.id, n.name, n.note, n.archived, n.created_at
+		SELECT n.id, n.name, n.note, n.address, n.tax_id, n.archived, n.created_at
 		  FROM neighbors n
 		 WHERE n.archived = FALSE
 		   AND NOT EXISTS (
 		     SELECT 1 FROM billing_year_neighbors byn
 		      WHERE byn.neighbor_id = n.id AND byn.billing_year_id = $1)
-		 ORDER BY n.name`, yearID)
+		 ORDER BY n.name, n.id`, yearID)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +194,7 @@ func scanNeighborRows(rows *sql.Rows) ([]models.Neighbor, error) {
 	var out []models.Neighbor
 	for rows.Next() {
 		var n models.Neighbor
-		if err := rows.Scan(&n.ID, &n.Name, &n.Note, &n.Archived, &n.Created); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Note, &n.Address, &n.TaxID, &n.Archived, &n.Created); err != nil {
 			return nil, err
 		}
 		out = append(out, n)

@@ -1,0 +1,9 @@
+{
+  "name": "treckrr-e2e",
+  "private": true,
+  "description": "Playwright end-to-end smoke tests for Treckrr.",
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "1.62.1"
+  }
+}

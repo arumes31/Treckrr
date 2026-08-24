@@ -6,7 +6,7 @@
 	{{end}}
 
 	<!-- Belastungsstufen --------------------------------------------------->
-	<h2 class="section-title">Belastungsstufen <span class="muted">(€ / PS · h)</span></h2>
+	<h2 class="section-title">Belastungsstufen <span class="badge">{{len .Loads}}</span> <span class="muted">(€ / PS · h)</span></h2>
 	<div class="list">
 		{{range .Loads}}
 		<details class="card disclosure disclosure--row">
@@ -27,7 +27,7 @@
 					<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
 				</div>
 			</form>
-			<form method="post" action="/prices/loadlevels/{{.ID}}/delete" data-confirm="Belastungsstufe löschen?">
+			<form method="post" action="/prices/loadlevels/{{.ID}}/delete" data-confirm-danger data-confirm="Belastungsstufe löschen?">
 				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
 				<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
 			</form>
@@ -37,7 +37,7 @@
 	</div>
 	{{if not .Locked}}
 	<details class="card disclosure">
-		<summary>+ Belastungsstufe hinzufügen</summary>
+		<summary>{{template "ic-plus"}} Belastungsstufe hinzufügen</summary>
 		<form method="post" action="/prices/loadlevels" class="form">
 			<input type="hidden" name="base_id" value="{{.Base.ID}}">
 			<div class="form__grid">
@@ -51,12 +51,15 @@
 	{{end}}
 
 	<!-- Traktoren ---------------------------------------------------------->
-	<h2 class="section-title">Traktoren <span class="muted">(Stundensatz = PS × €/PS·h)</span></h2>
+	<h2 class="section-title">Traktoren <span class="badge">{{len .TractorViews}}</span> <span class="muted">(Stundensatz = PS × €/PS·h)</span></h2>
 	<div class="list">
 		{{range .TractorViews}}
 		<details class="card disclosure disclosure--row {{if not .Tractor.Active}}is-inactive{{end}}">
 			<summary>
-				<span class="list__title">{{.Tractor.Label}}{{if not .Tractor.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+				<span class="list__main">
+					<span class="list__title">{{.Tractor.Label}}{{if not .Tractor.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+					{{if .Rates}}<span class="calcline">{{num .Tractor.PS}} PS · {{range $i, $r := .Rates}}{{if $i}} · {{end}}{{$r.Load.Name}} {{num $r.Rate}}{{end}} €/h</span>{{end}}
+				</span>
 				<span class="list__value">{{num .Tractor.PS}} PS</span>
 			</summary>
 			<div class="ratechips">
@@ -82,7 +85,7 @@
 					<input type="hidden" name="active" value="{{if .Tractor.Active}}false{{else}}true{{end}}">
 					<button class="btn btn--ghost btn--sm" type="submit">{{if .Tractor.Active}}Deaktivieren{{else}}Aktivieren{{end}}</button>
 				</form>
-				<form method="post" action="/prices/tractors/{{.Tractor.ID}}/delete" data-confirm="Traktor endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
+				<form method="post" action="/prices/tractors/{{.Tractor.ID}}/delete" data-confirm-danger data-confirm="Traktor endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
 					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
 					<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
 				</form>
@@ -93,7 +96,7 @@
 	</div>
 	{{if not .Locked}}
 	<details class="card disclosure">
-		<summary>+ Traktor hinzufügen</summary>
+		<summary>{{template "ic-plus"}} Traktor hinzufügen</summary>
 		<form method="post" action="/prices/tractors" class="form">
 			<input type="hidden" name="base_id" value="{{.Base.ID}}">
 			<div class="form__grid">
@@ -108,7 +111,7 @@
 	{{end}}
 
 	<!-- Maschinen ---------------------------------------------------------->
-	<h2 class="section-title">Maschinen <span class="muted">(Stundensatz = AB × €/AB·h)</span></h2>
+	<h2 class="section-title">Maschinen <span class="badge">{{len .MachineViews}}</span> <span class="muted">(Stundensatz = AB × €/AB·h)</span></h2>
 	<datalist id="machine-cats">
 		{{range .Categories}}<option value="{{.}}"></option>{{end}}
 	</datalist>
@@ -126,9 +129,12 @@
 		<details class="card disclosure disclosure--row {{if not .Machine.Active}}is-inactive{{end}}"
 			data-machine-row data-category="{{.Machine.Category}}">
 			<summary>
-				<span class="list__title">{{.Machine.Name}}
-					{{if .Machine.Category}}<span class="chip">{{.Machine.Category}}</span>{{end}}
-					{{if not .Machine.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+				<span class="list__main">
+					<span class="list__title">{{.Machine.Name}}
+						{{if .Machine.Category}}<span class="chip">{{.Machine.Category}}</span>{{end}}
+						{{if not .Machine.Active}}<span class="pill-off">inaktiv</span>{{end}}</span>
+					<span class="calcline">{{num .Machine.WorkingWidth}} m × {{num .Machine.CostPerAB}} €/AB·h</span>
+				</span>
 				<span class="list__value">{{money .Rate}}/h</span>
 			</summary>
 			{{if not $.Locked}}
@@ -152,7 +158,7 @@
 					<input type="hidden" name="active" value="{{if .Machine.Active}}false{{else}}true{{end}}">
 					<button class="btn btn--ghost btn--sm" type="submit">{{if .Machine.Active}}Deaktivieren{{else}}Aktivieren{{end}}</button>
 				</form>
-				<form method="post" action="/prices/machines/{{.Machine.ID}}/delete" data-confirm="Maschine endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
+				<form method="post" action="/prices/machines/{{.Machine.ID}}/delete" data-confirm-danger data-confirm="Maschine endgültig löschen? (Zum Ausblenden besser deaktivieren.)">
 					<input type="hidden" name="base_id" value="{{$.Base.ID}}">
 					<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
 				</form>
@@ -163,7 +169,7 @@
 	</div>
 	{{if not .Locked}}
 	<details class="card disclosure">
-		<summary>+ Maschine hinzufügen</summary>
+		<summary>{{template "ic-plus"}} Maschine hinzufügen</summary>
 		<form method="post" action="/prices/machines" class="form">
 			<input type="hidden" name="base_id" value="{{.Base.ID}}">
 			<div class="form__grid">

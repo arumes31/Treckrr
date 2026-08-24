@@ -3,8 +3,36 @@ package server
 import (
 	"net/http"
 
-	"treckrr/internal/totp"
+	"github.com/d0linger/treckrr/internal/auth"
+	"github.com/d0linger/treckrr/internal/totp"
 )
+
+// recoveryCodeCount is how many one-time recovery codes are issued.
+const recoveryCodeCount = 10
+
+// ---- Sensitive-action rate limiting (per user) --------------------------
+
+func acctLimitKey(userID int64) string { return "acct:" + itoa64(userID) }
+
+// sensitiveBlocked reports (and flashes/redirects) whether the per-user limiter
+// for password / 2FA verification is currently tripped.
+func (s *Server) sensitiveBlocked(w http.ResponseWriter, r *http.Request, userID int64, redirectTo string) bool {
+	if s.logins.blocked(r.Context(), acctLimitKey(userID)) {
+		s.audit(r, "rate_limited", "user", userID, "zu viele Versuche bei sensibler Aktion")
+		s.setFlash(w, r, "error", "Zu viele Versuche. Bitte in einigen Minuten erneut versuchen.")
+		redirect(w, r, redirectTo)
+		return true
+	}
+	return false
+}
+
+func (s *Server) sensitiveFail(r *http.Request, userID int64) {
+	s.logins.fail(r.Context(), acctLimitKey(userID))
+}
+
+func (s *Server) sensitiveReset(r *http.Request, userID int64) {
+	s.logins.reset(r.Context(), acctLimitKey(userID))
+}
 
 // ---- Forced / voluntary password change ---------------------------------
 
@@ -17,30 +45,58 @@ func (s *Server) handleAccountPasswordForm(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleAccountPasswordSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	user := userFromCtx(r)
+	if s.sensitiveBlocked(w, r, user.ID, "/account/password") {
+		return
+	}
 	current := r.FormValue("current_password")
 	next := r.FormValue("new_password")
 
 	if _, err := s.store.AuthenticateUser(r.Context(), user.Username, current); err != nil {
-		s.setFlash(w, "error", "Aktuelles Passwort ist falsch.")
+		s.sensitiveFail(r, user.ID)
+		s.setFlash(w, r, "error", "Aktuelles Passwort ist falsch.")
+		redirect(w, r, "/account/password")
+		return
+	}
+	if next != r.FormValue("new_password_confirm") {
+		s.setFlash(w, r, "error", "Die beiden neuen Passwörter stimmen nicht überein.")
+		redirect(w, r, "/account/password")
+		return
+	}
+	if current == next {
+		s.setFlash(w, r, "error", "Das neue Passwort darf nicht mit dem aktuellen Passwort übereinstimmen.")
 		redirect(w, r, "/account/password")
 		return
 	}
 	if msg := passwordPolicyError(next); msg != "" {
-		s.setFlash(w, "error", msg)
+		s.setFlash(w, r, "error", msg)
 		redirect(w, r, "/account/password")
 		return
 	}
 	if err := s.store.UpdatePassword(r.Context(), user.ID, next); err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, "password change: update", err)
 		return
 	}
+	s.sensitiveReset(r, user.ID)
+	// Invalidate every other session on password change; keep the current one.
+	keepToken := ""
+	if c, err := r.Cookie(s.sessionCookieName(r)); err == nil {
+		keepToken = c.Value
+	}
+	// Load-bearing: revoke all other sessions on password change. Surface a
+	// failure instead of falsely reporting that other sessions were ended.
+	if err := s.store.DeleteUserSessionsExcept(r.Context(), user.ID, keepToken); err != nil {
+		s.serverError(w, "password change: revoke sessions", err)
+		return
+	}
+	// Best-effort: clear the forced-change flag. A failure only re-prompts the user to
+	// change their (already changed) password next login — no security impact.
 	_ = s.store.SetMustChangePassword(r.Context(), user.ID, false)
-	s.audit(r, "password_change", "user", user.ID, "eigenes Passwort")
-	s.setFlash(w, "success", "Passwort geändert.")
+	s.audit(r, "password_change", "user", user.ID, "eigenes Passwort; andere Sitzungen beendet")
+	s.setFlash(w, r, "success", "Passwort geändert. Andere Sitzungen wurden beendet.")
 	redirect(w, r, "/profile")
 }
 
@@ -50,72 +106,171 @@ func (s *Server) handleAccountPasswordSubmit(w http.ResponseWriter, r *http.Requ
 // enabled it generates (and persists as pending) a secret to display.
 func (s *Server) handleTwoFactor(w http.ResponseWriter, r *http.Request) {
 	user := userFromCtx(r)
-	data := s.newPage(w, r, "Zwei‑Faktor", "profile")
-	data["Enabled"] = user.TotpEnabled
-
-	if !user.TotpEnabled {
-		secret, err := s.store.GetTotpSecret(r.Context(), user.ID)
-		if err != nil || secret == "" {
-			secret, err = totp.GenerateSecret()
-			if err != nil {
-				http.Error(w, "Interner Fehler", http.StatusInternalServerError)
-				return
-			}
-			if err := s.store.SetTotp(r.Context(), user.ID, false, secret); err != nil {
-				http.Error(w, "Interner Fehler", http.StatusInternalServerError)
-				return
-			}
-		}
-		data["Secret"] = secret
-		data["URI"] = totp.ProvisioningURI(secret, user.Username, "Treckrr")
+	// 2FA management (enabled state) now lives inline on the Einstellungen
+	// overview; this page only drives the setup flow for users who haven't
+	// enabled it yet.
+	if user.TotpEnabled {
+		redirect(w, r, "/profile")
+		return
 	}
+	data := s.newPage(w, r, "Zwei‑Faktor einrichten", "profile")
+	data["Enabled"] = false
+	secret, err := s.store.GetTotpSecret(r.Context(), user.ID)
+	if err != nil {
+		// A read/decrypt failure must surface, not be masked by minting a fresh
+		// secret and overwriting the stored one on a failed read.
+		s.serverError(w, "2fa setup: load secret", err)
+		return
+	}
+	if secret == "" {
+		secret, err = totp.GenerateSecret()
+		if err != nil {
+			s.serverError(w, "2fa setup: generate secret", err)
+			return
+		}
+		if err := s.store.SetTotp(r.Context(), user.ID, false, secret); err != nil {
+			s.serverError(w, "2fa setup: persist secret", err)
+			return
+		}
+	}
+	data["Secret"] = secret
+	data["URI"] = totp.ProvisioningURI(secret, user.Username, "Treckrr")
 	s.render(w, r, "account_2fa", data)
+}
+
+// handleTwoFactorQR streams the setup QR code as a PNG for the pending secret.
+func (s *Server) handleTwoFactorQR(w http.ResponseWriter, r *http.Request) {
+	user := userFromCtx(r)
+	if user.TotpEnabled {
+		http.NotFound(w, r) // QR only relevant during setup
+		return
+	}
+	secret, err := s.store.GetTotpSecret(r.Context(), user.ID)
+	if err != nil || secret == "" {
+		http.NotFound(w, r)
+		return
+	}
+	png, err := qrPNG(totp.ProvisioningURI(secret, user.Username, "Treckrr"))
+	if err != nil {
+		s.serverError(w, "2fa: render QR", err)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(png)
 }
 
 func (s *Server) handleTwoFactorConfirm(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	user := userFromCtx(r)
+	if s.sensitiveBlocked(w, r, user.ID, "/account/2fa") {
+		return
+	}
 	secret, err := s.store.GetTotpSecret(r.Context(), user.ID)
 	if err != nil || secret == "" {
-		s.setFlash(w, "error", "Kein ausstehendes 2FA‑Geheimnis. Bitte erneut starten.")
+		s.setFlash(w, r, "error", "Kein ausstehendes 2FA‑Geheimnis. Bitte erneut starten.")
+		redirect(w, r, "/account/2fa")
+		return
+	}
+	// Step-up: enabling a second factor requires re-entering the password, so a
+	// hijacked session can't silently enroll one (SH-02).
+	if _, err := s.store.AuthenticateUser(r.Context(), user.Username, r.FormValue("password")); err != nil {
+		s.sensitiveFail(r, user.ID)
+		s.setFlash(w, r, "error", "Passwort falsch – Zwei‑Faktor nicht aktiviert.")
 		redirect(w, r, "/account/2fa")
 		return
 	}
 	if !totp.Validate(secret, r.FormValue("code")) {
-		s.setFlash(w, "error", "Code ungültig. Bitte erneut versuchen.")
+		s.sensitiveFail(r, user.ID)
+		s.setFlash(w, r, "error", "Code ungültig. Bitte erneut versuchen.")
 		redirect(w, r, "/account/2fa")
 		return
 	}
+	s.sensitiveReset(r, user.ID)
 	if err := s.store.SetTotp(r.Context(), user.ID, true, secret); err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, "2fa enable: set totp", err)
 		return
 	}
 	s.audit(r, "2fa_enable", "user", user.ID, "")
-	s.setFlash(w, "success", "Zwei‑Faktor‑Authentifizierung aktiviert.")
-	redirect(w, r, "/profile")
+	// Issue recovery codes and show them once.
+	s.issueAndShowRecoveryCodes(w, r, user.ID, "Zwei‑Faktor aktiviert. Bitte die Wiederherstellungscodes jetzt sichern – sie werden nur einmal angezeigt.")
+}
+
+// handleRecoveryRegenerate creates a fresh set of recovery codes (invalidating
+// the old ones), after confirming the account password.
+func (s *Server) handleRecoveryRegenerate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
+	user := userFromCtx(r)
+	if !user.TotpEnabled {
+		redirect(w, r, "/account/2fa")
+		return
+	}
+	if s.sensitiveBlocked(w, r, user.ID, "/account/2fa") {
+		return
+	}
+	if _, err := s.store.AuthenticateUser(r.Context(), user.Username, r.FormValue("password")); err != nil {
+		s.sensitiveFail(r, user.ID)
+		s.setFlash(w, r, "error", "Passwort falsch – Codes nicht neu erstellt.")
+		redirect(w, r, "/account/2fa")
+		return
+	}
+	s.sensitiveReset(r, user.ID)
+	s.audit(r, "2fa_recovery_regenerate", "user", user.ID, "")
+	s.issueAndShowRecoveryCodes(w, r, user.ID, "Neue Wiederherstellungscodes erstellt. Alte Codes sind ungültig. Bitte jetzt sichern.")
+}
+
+// issueAndShowRecoveryCodes generates, stores and then renders a fresh set of
+// recovery codes exactly once.
+func (s *Server) issueAndShowRecoveryCodes(w http.ResponseWriter, r *http.Request, userID int64, notice string) {
+	plain, hashes, err := auth.GenerateRecoveryCodes(recoveryCodeCount)
+	if err != nil {
+		s.serverError(w, "2fa: generate recovery codes", err)
+		return
+	}
+	if err := s.store.ReplaceRecoveryCodes(r.Context(), userID, hashes); err != nil {
+		s.serverError(w, "2fa: store recovery codes", err)
+		return
+	}
+	data := s.newPage(w, r, "Zwei‑Faktor", "profile")
+	data["Enabled"] = true
+	data["NewCodes"] = plain
+	data["RecoveryRemaining"] = len(plain)
+	data["Notice"] = notice
+	s.render(w, r, "account_2fa", data)
 }
 
 func (s *Server) handleTwoFactorDisable(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	user := userFromCtx(r)
+	if s.sensitiveBlocked(w, r, user.ID, "/account/2fa") {
+		return
+	}
 	// Require the current password to disable 2FA.
 	if _, err := s.store.AuthenticateUser(r.Context(), user.Username, r.FormValue("password")); err != nil {
-		s.setFlash(w, "error", "Passwort falsch – 2FA nicht deaktiviert.")
+		s.sensitiveFail(r, user.ID)
+		s.setFlash(w, r, "error", "Passwort falsch – 2FA nicht deaktiviert.")
 		redirect(w, r, "/account/2fa")
 		return
 	}
+	s.sensitiveReset(r, user.ID)
 	if err := s.store.SetTotp(r.Context(), user.ID, false, ""); err != nil {
-		http.Error(w, "Interner Fehler", http.StatusInternalServerError)
+		s.serverError(w, "2fa disable: clear totp", err)
 		return
 	}
+	// Best-effort cleanup: with TOTP now off, leftover recovery codes can't be used to
+	// bypass anything (they only unlock an active second factor).
+	_ = s.store.ClearRecoveryCodes(r.Context(), user.ID)
 	s.audit(r, "2fa_disable", "user", user.ID, "")
-	s.setFlash(w, "success", "Zwei‑Faktor‑Authentifizierung deaktiviert.")
+	s.setFlash(w, r, "success", "Zwei‑Faktor‑Authentifizierung deaktiviert.")
 	redirect(w, r, "/profile")
 }
 
@@ -123,15 +278,15 @@ func (s *Server) handleTwoFactorDisable(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleSessionRevoke(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
 	user := userFromCtx(r)
 	if err := s.store.DeleteSessionForUser(r.Context(), user.ID, r.FormValue("token")); err != nil {
-		s.setFlash(w, "error", "Sitzung konnte nicht beendet werden.")
+		s.setFlash(w, r, "error", "Sitzung konnte nicht beendet werden.")
 	} else {
 		s.audit(r, "session_revoke", "user", user.ID, "")
-		s.setFlash(w, "success", "Sitzung beendet.")
+		s.setFlash(w, r, "success", "Sitzung beendet.")
 	}
 	redirect(w, r, "/profile")
 }
@@ -139,14 +294,14 @@ func (s *Server) handleSessionRevoke(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSessionRevokeOthers(w http.ResponseWriter, r *http.Request) {
 	user := userFromCtx(r)
 	current := ""
-	if c, err := r.Cookie(sessionCookie); err == nil {
+	if c, err := r.Cookie(s.sessionCookieName(r)); err == nil {
 		current = c.Value
 	}
 	if err := s.store.DeleteUserSessionsExcept(r.Context(), user.ID, current); err != nil {
-		s.setFlash(w, "error", "Aktion fehlgeschlagen.")
+		s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
 	} else {
 		s.audit(r, "session_revoke_others", "user", user.ID, "")
-		s.setFlash(w, "success", "Alle anderen Sitzungen wurden beendet.")
+		s.setFlash(w, r, "success", "Alle anderen Sitzungen wurden beendet.")
 	}
 	redirect(w, r, "/profile")
 }

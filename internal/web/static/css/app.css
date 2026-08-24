@@ -1,20 +1,82 @@
 /* Treckrr — mobile-first PWA styles. All assets served locally. */
+
+/* Self-hosted brand typefaces (served same-origin, allowed by the CSP).
+   Werkblatt identity: JetBrains Mono LEADS (display/headings/KPIs/labels — the
+   machine-ledger voice), Hanken Grotesk stays on body duty. Manrope retired. */
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:400;font-display:swap;src:url('/static/fonts/hanken-400.woff2') format('woff2');}
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:500;font-display:swap;src:url('/static/fonts/hanken-500.woff2') format('woff2');}
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:600;font-display:swap;src:url('/static/fonts/hanken-600.woff2') format('woff2');}
+@font-face{font-family:'Hanken Grotesk';font-style:normal;font-weight:700;font-display:swap;src:url('/static/fonts/hanken-700.woff2') format('woff2');}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500;font-display:swap;src:url('/static/fonts/jetbrainsmono-500.woff2') format('woff2');}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:700;font-display:swap;src:url('/static/fonts/jetbrainsmono-700.woff2') format('woff2');}
+
 :root {
-	--bg: #f4f6f4;
-	--surface: #ffffff;
-	--surface-2: #eef1ee;
-	--text: #1c231e;
-	--muted: #6b756d;
-	--border: #dbe0db;
-	--primary: #2f6f4f;
-	--primary-strong: #245840;
+	--font-body: 'Hanken Grotesk', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	--font-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	/* Werkblatt (light): green-tinted technical paper, iron-green ink. */
+	--bg: #edf1ec;
+	--surface: #f9fbf9;
+	--surface-2: #eff2ef;
+	--text: #19211d;
+	--muted: #57645c; /* passes 4.5:1 on the bg */
+	--border: #ccd4ce;
+	--primary: #115638;        /* deep "Treckrr green" — links, nav, paid states */
+	--primary-strong: #2f6f4f; /* mid green — the lighter end of the hero gradients */
 	--primary-tint: #e3efe8;
-	--danger: #b4442f;
-	--danger-tint: #f7e3df;
+	--on-primary: #ffffff; /* text/icon on a solid primary surface (dark in Noir) */
+	/* Signal — safety orange, THE action colour (primary buttons, FAB, active
+	   pill). Ink-on-orange like a stamped machine warning label (~7:1 both
+	   themes); green machine, orange decals. */
+	--signal: #e05910;
+	--signal-press: #c74d0c;
+	--on-signal: #1c1006;
+	--signal-tint: #f9e6da;
+	--signal-text: #b04408; /* orange as TEXT/stroke on light surfaces (AA) */
+	/* danger = CRIMSON, deliberately pulled away from the signal orange so a
+	   destructive control can never be confused with the primary action. */
+	--danger: #a4262e;
+	--danger-tint: #f4dcdd;
 	--accent: #c8891f;
-	--radius: 14px;
-	--radius-sm: 9px;
-	--shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 4px 16px rgba(0, 0, 0, .05);
+	/* Darker amber used only where amber is TEXT (links, warn chips, status tags):
+	   passes 4.5:1 in light mode where the vivid --accent does not. In dark mode it
+	   equals --accent, which already passes. */
+	--accent-text: #8a5e12;
+	/* High-contrast keyboard-focus ring (WCAG 2.4.7). */
+	--focus: #1f6feb;
+	/* chart marks: a touch more chroma than the brand green so a bar doesn't read
+	   grey; owe/pay are the diverging poles for signed (Verrechnung) charts. */
+	--data: #2f8457;
+	--data-track: #e8ece8;
+	--pay: #2f8457;
+	--owe: #c05635;
+	/* Chassis — the machine frame: app bar + nav rail/tab bar stay this dark
+	   green-black in BOTH themes (a deliberate constant, like the white appbar
+	   icons); the orange marker is the only moving part. */
+	--chassis: #1f2823;
+	--chassis-2: #171f1a;
+	--chassis-text: #c9d4cd;
+	--chassis-muted: #9fb0a6;
+	--chassis-line: #33403a;
+	--chassis-active: #85d7a9; /* B: nav marker is a STATE -> mint */
+	/* Blueprint grid on the page ground — part of the Werkblatt identity. */
+	--grid-line: rgba(20, 40, 30, .05);
+	--radius: 10px;
+	--radius-sm: 6px;
+	/* Modular type scale (theme-independent) — one system instead of ~15 ad-hoc sizes. */
+	--fs-xs: .75rem; --fs-sm: .8125rem; --fs-base: 1rem; --fs-md: 1.0625rem;
+	--fs-lg: 1.25rem; --fs-xl: 1.5rem; --fs-2xl: 1.9rem;
+	--shadow: 0 1px 2px rgba(0, 0, 0, .05);
+	/* Werkblatt depth: hairlines over shadows — cards are bordered sheets on the
+	   gridded paper; the pop-shadow is reserved for true overlays. */
+	--card-grad: var(--surface);
+	--card-hairline: rgba(20, 40, 30, .16);
+	--card-shadow: 0 1px 2px rgba(24, 45, 35, .05);
+	--glow: none;
+	--glass: rgba(31, 40, 35, .92);
+	--glass-border: var(--chassis-line);
+	--btn-glow: rgba(224, 89, 16, .22);
+	--brand-grad: linear-gradient(135deg, var(--signal), var(--signal-press));
 	--tap: 44px;
 	--maxw: 720px;
 	font-size: 16px;
@@ -24,35 +86,90 @@
    user forced light), and always when the user forced dark. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
-		--bg: #0f1411;
-		--surface: #182019;
-		--surface-2: #202a22;
-		--text: #e7ede8;
-		--muted: #9aa89e;
-		--border: #2a352c;
-		--primary: #4c9d73;
-		--primary-strong: #3c8460;
+		--bg: #0c1511;
+		--surface: #19221d;
+		--surface-2: #232c28;
+		--text: #dbe5de;
+		--muted: #a2ada4;
+		--border: #2b332d;
+		--primary: #85d7a9;        /* Noir: vibrant mint accent */
+		--primary-strong: #63c192; /* mint gradient end (hero surfaces) */
 		--primary-tint: #1b2a22;
-		--danger: #e06a52;
-		--danger-tint: #33201c;
+		--on-primary: #04170e;     /* dark text/icon on the mint accent */
+		--signal: #ff8142;         /* Nachtschicht: signal orange glows brighter */
+		--signal-press: #e86f31;
+		--on-signal: #201005;
+		--signal-tint: rgba(255, 129, 66, .16);
+		--signal-text: #ff9a68;
+		--danger: #e04b55; /* crimson — clearly apart from the #ff8142 signal */
+		--danger-tint: #341a1c;
 		--accent: #e0a640;
-		--shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .35);
+		--accent-text: #e0a640;
+		--focus: #5b9bff;
+		--data: #52b184;
+		--data-track: #26302a;
+		--pay: #52b184;
+		--owe: #e0805f;
+		--chassis: #16201b;
+		--chassis-2: #101a15;
+		--chassis-muted: #93a49a;
+		--chassis-line: #263329;
+		/* --chassis-text / --chassis-active are theme-CONSTANT: declared once on
+		   bare :root, no dark override — identical copies would only drift. */
+		--grid-line: rgba(219, 229, 222, .035);
+		--shadow: 0 1px 2px rgba(0, 0, 0, .4);
+		--card-grad: var(--surface); /* flat card surface */
+		--card-hairline: rgba(255, 255, 255, .09);
+		--card-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+		--glow: none;
+		--glass: rgba(16, 26, 21, .94);
+		--glass-border: var(--chassis-line);
+		--btn-glow: rgba(255, 129, 66, .25);
 	}
 }
 :root[data-theme="dark"] {
-	--bg: #0f1411;
-	--surface: #182019;
-	--surface-2: #202a22;
-	--text: #e7ede8;
-	--muted: #9aa89e;
-	--border: #2a352c;
-	--primary: #4c9d73;
-	--primary-strong: #3c8460;
+	--bg: #0c1511;
+	--surface: #19221d;
+	--surface-2: #232c28;
+	--text: #dbe5de;
+	--muted: #a2ada4;
+	--border: #2b332d;
+	--primary: #85d7a9;        /* Noir: vibrant mint accent */
+	--primary-strong: #63c192; /* mint gradient end (hero surfaces) */
 	--primary-tint: #1b2a22;
-	--danger: #e06a52;
-	--danger-tint: #33201c;
+	--on-primary: #04170e;     /* dark text/icon on the mint accent */
+	--signal: #ff8142;         /* Nachtschicht: signal orange glows brighter */
+	--signal-press: #e86f31;
+	--on-signal: #201005;
+	--signal-tint: rgba(255, 129, 66, .16);
+	--signal-text: #ff9a68;
+	--danger: #e04b55; /* crimson — clearly apart from the #ff8142 signal */
+	--danger-tint: #341a1c;
 	--accent: #e0a640;
-	--shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .35);
+	--accent-text: #e0a640;
+	--focus: #5b9bff;
+	--chassis: #16201b;
+	--chassis-2: #101a15;
+	--chassis-muted: #93a49a;
+	--chassis-line: #263329;
+	/* --chassis-text / --chassis-active are theme-CONSTANT: declared once on
+	   bare :root, no dark override — identical copies would only drift. */
+	--grid-line: rgba(219, 229, 222, .035);
+	--shadow: 0 1px 2px rgba(0, 0, 0, .4);
+	--card-grad: var(--surface); /* flat card surface */
+	--card-hairline: rgba(255, 255, 255, .09);
+	--card-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+	--glow: none;
+	--glass: rgba(16, 26, 21, .94);
+	--glass-border: var(--chassis-line);
+	--btn-glow: rgba(255, 129, 66, .25);
+	/* Chart-mark tokens must be redeclared here too: forcing dark via the theme
+	   toggle on a light system does not match the prefers-dark media query, so
+	   without these the bars/tracks/sparklines fall back to light values. */
+	--data: #52b184;
+	--data-track: #26302a;
+	--pay: #52b184;
+	--owe: #e0805f;
 }
 
 * { box-sizing: border-box; }
@@ -62,28 +179,93 @@ html, body {
 	padding: 0;
 	background: var(--bg);
 	color: var(--text);
-	font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	font-family: var(--font-body);
 	line-height: 1.45;
 	-webkit-text-size-adjust: 100%;
 }
 
+/* Blueprint grid on the page ground — the Werkblatt paper. Scrolls WITH the
+   page: background-attachment:fixed would force a repaint every scroll frame
+   on mobile (and iOS Safari mishandles it on body) — a mobile-first PWA can't
+   afford that, and paper whose grid moves with the sheet is the truer metaphor
+   anyway. */
 body {
 	min-height: 100dvh;
+	background-image:
+		linear-gradient(var(--grid-line) 1px, transparent 1px),
+		linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+	background-size: 26px 26px;
+}
+/* Reserve space for the fixed bottom tab bar — only on pages that render it
+   (authenticated). Without this scope, the login/offline pages (no tab bar) get
+   an extra 72px below a 100dvh container and show a phantom vertical scrollbar. */
+body.has-nav {
 	padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+/* Full-height, self-centering pages without the nav (login, offline) provide
+   their own padding via .auth, so drop the .main gutter — otherwise it stacks
+   on top of a 100dvh child and forces a phantom scrollbar at every size. */
+body:not(.has-nav) .main { padding: 0; }
+
+/* The off-canvas side drawer is fixed and parked just off the right edge when
+   closed. On iOS Safari a fixed element beyond the viewport becomes pannable,
+   which produced a stray horizontal scrollbar (and pushed the fixed tab bar
+   below the fold). Clip horizontal overflow at the root — `clip` doesn't create
+   a scroll container, so the sticky app bar keeps working; `hidden` is the
+   fallback for browsers without `overflow: clip`. */
+html { overflow-x: hidden; }
+@supports (overflow: clip) {
+	html { overflow-x: clip; }
 }
 
 a { color: var(--primary); text-decoration: none; }
+.linkbtn { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--primary);
+	font-weight: 600; cursor: pointer; text-decoration: underline; }
+.linkbtn:hover { color: var(--primary-strong); }
+.twofa-alt { margin: -.2rem 0 .3rem; }
+/* One-time-code fields: large centred digits (app code) / grouped code (backup). */
+.otp { width: 100%; text-align: center; font-family: inherit; font-size: 1.9rem; font-weight: 800;
+	letter-spacing: .5em; padding: .7rem .3rem .7rem .8rem; font-variant-numeric: tabular-nums;
+	border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+.otp::placeholder { letter-spacing: .5em; color: color-mix(in srgb, var(--muted) 70%, transparent); font-weight: 700; }
+/* Backup code: full format is four 4-char groups (e.g. N6YD-DBNN-UPXT-PB67 =
+   19 chars). Monospace keeps every glyph the same width so the whole code fits
+   at 390px regardless of which letters it contains. */
+.otp2 { width: 100%; text-align: center; font-family: var(--font-mono);
+	font-size: .95rem; font-weight: 700; letter-spacing: .02em; padding: .72rem .35rem; text-transform: uppercase;
+	border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); }
+.otp2::placeholder { letter-spacing: .02em; color: color-mix(in srgb, var(--muted) 70%, transparent); font-weight: 700; }
 h1, h2, h3 { margin: 0; }
+/* Display face on headings and the big numeric readouts. */
+h1, h2, h3, .section-title, .summary-card__value, .summary-card__label,
+.appbar__title, .kpi__value, .kpi__label, .barpair__v, .stat__value {
+	font-family: var(--font-display); letter-spacing: -.01em;
+}
 .muted { color: var(--muted); font-size: .9rem; }
 .small { font-size: .78rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 em { font-style: normal; color: var(--muted); }
 
 /* ---- Sticky top stack (app bar + year bar move together) -------------- */
+/* The top stack rides on the chassis — dark green-black iron in BOTH themes
+   (the machine frame; a deliberate constant like the white appbar icons). */
+/* App-wide worksheet backdrop (app-bg.js paints it): opaque canvas pinned behind
+   all authenticated chrome. .main is transparent so it shows through in the
+   content gutters; the frosted topstack, the drawer and the opaque cards sit
+   above it. z-index:-1 keeps it above the body's own --bg — the safe fallback
+   shown when JS is off or the canvas context is unavailable. */
+.app-bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+
 .topstack {
 	position: sticky;
 	top: 0;
 	z-index: 20;
-	box-shadow: var(--shadow);
+	background: var(--chassis); /* opaque fallback where color-mix() is unsupported */
+	background: color-mix(in srgb, var(--chassis) 94%, transparent);
+	-webkit-backdrop-filter: blur(14px) saturate(1.3);
+	backdrop-filter: blur(14px) saturate(1.3);
+	border-bottom: 1px solid var(--chassis-line);
+	box-shadow: 0 4px 20px rgba(0, 0, 0, .18);
 }
 
 /* ---- App bar ---------------------------------------------------------- */
@@ -92,20 +274,78 @@ em { font-style: normal; color: var(--muted); }
 	align-items: center;
 	gap: .6rem;
 	padding: calc(.6rem + env(safe-area-inset-top)) 1rem .6rem;
-	background: var(--primary);
+	background: transparent;
 	color: #fff;
 }
 .appbar__brand { display: flex; align-items: center; gap: .45rem; color: #fff; font-weight: 700; }
 .appbar__brand img { display: block; }
-.appbar__title { flex: 1; text-align: center; font-size: 1.05rem; font-weight: 600; }
-.appbar__logout { margin: 0; }
-/* Higher specificity than .btn--ghost so the icon stays white on the green bar. */
-.appbar__logout .btn {
-	color: #fff;
-	border-color: rgba(255, 255, 255, .45);
-	background: rgba(255, 255, 255, .12);
+.appbar__brand-mark { display: block; }
+/* min-width:0 + ellipsis so a long page title (e.g. "Bemessungsgrundlagen")
+   truncates instead of forcing the app bar wider than the screen (which caused
+   a horizontal scroll and pushed the fixed tab bar below the fold). */
+.appbar__title { flex: 1; min-width: 0; text-align: center; font-size: 1.05rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Narrow phones: the brand WORD yields (the tractor mark stays tappable), so
+   the page title gets the width instead of truncating to "Übersic…". */
+@media (max-width: 480px) {
+	.appbar__brand > span { display: none; }
+	.appbar__title { font-size: .98rem; }
 }
-.appbar__logout .btn svg { display: block; margin: auto; stroke: #fff; }
+.appbar__icon {
+	flex: none;
+	width: 40px; height: 40px;
+	display: grid; place-items: center;
+	background: transparent; border: 0; border-radius: 10px;
+	color: #fff; cursor: pointer;
+}
+.appbar__icon:hover { background: rgba(255, 255, 255, .14); }
+.appbar__icon svg { display: block; }
+
+/* ---- Side drawer ------------------------------------------------------ */
+.drawer__scrim { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .45); }
+.drawer__scrim[hidden] { display: none; }
+.drawer {
+	position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+	width: min(82vw, 300px);
+	background: var(--surface); color: var(--text);
+	box-shadow: -6px 0 28px rgba(0, 0, 0, .28);
+	transform: translateX(100%);
+	transition: transform .22s ease;
+	display: flex; flex-direction: column;
+	padding-top: env(safe-area-inset-top);
+	overscroll-behavior: contain;
+}
+.drawer.is-open { transform: translateX(0); }
+.drawer__head {
+	display: flex; align-items: center; gap: .7rem;
+	padding: 1rem 1.15rem .85rem;
+	border-bottom: 1px solid var(--border);
+}
+.drawer__avatar { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+	display: grid; place-items: center; font-weight: 800; font-size: .95rem;
+	background: var(--primary-tint); color: var(--primary); }
+.drawer__id { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
+.drawer__user { font-weight: 700; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer__role { font-size: .85rem; }
+.drawer__nav { display: flex; flex-direction: column; padding: .5rem; gap: .1rem; }
+.drawer__sep { height: 1px; background: var(--border); margin: .3rem .4rem; }
+.drawer__logout { margin: 0; }
+.drawer__item {
+	display: flex; align-items: center; gap: .8rem;
+	width: 100%; min-height: var(--tap);
+	padding: .7rem .85rem; border: 0; border-radius: 10px;
+	background: transparent; color: var(--text);
+	/* mono nav voice (audit F-R3-05); weights pinned to the two faces
+	   JetBrains Mono actually ships (500/700) so declared == rendered */
+	font: inherit; font-family: var(--font-mono); font-size: .85rem; font-weight: 500;
+	text-align: left; cursor: pointer;
+}
+.drawer__item:hover { background: var(--surface-2); }
+.drawer__item.is-active { background: var(--primary-tint); color: var(--primary-strong); font-weight: 700; }
+.drawer__item--danger { color: var(--danger); }
+.drawer__ico { width: 1.4rem; display: grid; place-items: center; }
+.drawer__ico svg { width: 20px; height: 20px; display: block; color: var(--muted); }
+.drawer__item.is-active .drawer__ico svg { color: var(--primary-strong); }
+.drawer__item--danger .drawer__ico svg { color: var(--danger); }
 .backlink { color: var(--primary); font-weight: 600; font-size: .9rem; display: inline-block; }
 
 /* ---- Base selector ---------------------------------------------------- */
@@ -122,34 +362,62 @@ em { font-style: normal; color: var(--muted); }
 
 /* ---- Layout ----------------------------------------------------------- */
 .main { max-width: var(--maxw); margin: 0 auto; padding: 1rem; }
+/* Micro-interactions: content fades in on load; list cards lift subtly on hover.
+   Both disabled under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+	.main { animation: page-in .32s cubic-bezier(.22, .61, .36, 1) both; }
+	.bcard:hover, .logcard:hover, .cmprow:hover, .rcard:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, .10), 0 14px 30px rgba(0, 0, 0, .14);
+	}
+}
+/* Fade only — no transform: a transform on .main would make it the containing
+   block for position:fixed descendants (e.g. the quick-book FAB), trapping them
+   at the page bottom instead of pinning them to the viewport. */
+@keyframes page-in { from { opacity: 0; } }
 .stack { display: flex; flex-direction: column; gap: 1rem; }
-.section-title { font-size: 1rem; font-weight: 700; margin-top: .25rem; }
+/* Section titles as stamped plate labels: uppercase mono, technical spacing. */
+.section-title { font-size: var(--fs-md); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin-top: .6rem; }
 
 .card {
-	background: var(--surface);
-	border: 1px solid var(--border);
+	background: var(--card-grad);
+	border: 1px solid var(--card-hairline);
 	border-radius: var(--radius);
-	box-shadow: var(--shadow);
+	box-shadow: var(--card-shadow);
 	padding: 1rem;
 }
 
 /* ---- Summary card ----------------------------------------------------- */
-.summary-card { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; background: linear-gradient(135deg, var(--primary), var(--primary-strong)); color: #fff; border: none; }
+/* Mobile-first: stack the value above the meta/actions so nothing overflows;
+   side-by-side layout kicks in on wider screens (see @media below). */
+.summary-card { display: flex; flex-direction: column; gap: 1rem; background: linear-gradient(135deg, var(--primary), var(--primary-strong)); color: #fff; border: none; }
 .summary-card__label { display: block; font-size: .8rem; opacity: .85; }
 .summary-card__value { display: block; font-size: 1.7rem; font-weight: 700; }
-.summary-card__meta { text-align: right; font-size: .85rem; opacity: .95; display: flex; flex-direction: column; gap: .4rem; align-items: flex-end; }
+.summary-card__meta { font-size: .85rem; opacity: .95; display: flex; flex-direction: column; gap: .4rem; align-items: flex-start; text-align: left; }
 .summary-card .btn--ghost { color: #fff; border-color: rgba(255, 255, 255, .5); }
+@media (min-width: 560px) {
+	.summary-card { flex-direction: row; align-items: flex-end; justify-content: space-between; }
+	.summary-card__meta { align-items: flex-end; text-align: right; }
+}
 /* Keep the Statistik / CSV-Export buttons on one line, sized to their text. */
-.summary-card__meta .btnrow { display: flex; flex-wrap: nowrap; gap: .4rem; }
-.summary-card__meta .btnrow .btn { flex: 0 0 auto; white-space: nowrap; }
+.summary-card__meta .btnrow { display: flex; flex-wrap: wrap; gap: .4rem; }
+.summary-card__meta .btnrow .btn { flex: 0 0 auto; }
 
 /* ---- Lists ------------------------------------------------------------ */
 .list { display: flex; flex-direction: column; gap: .6rem; }
-.list__row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; color: var(--text); }
-.list__main { display: flex; flex-direction: column; }
+/* flex-wrap: on narrow phones a wide status chip drops to its own line instead
+   of crushing the name/value columns into overlapping fragments. */
+.list__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem .75rem; color: var(--text); }
+.list__main { display: flex; flex-direction: column; min-width: 0; }
 .list__title { font-weight: 600; }
-.list__sub { font-size: .82rem; color: var(--muted); }
-.list__value { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Sub line ellipsizes as a whole ("10 Buchungen · 20,91 h") instead of
+   word-wrapping character-by-character in a squeezed column. */
+.list__sub { font-size: .82rem; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Money never shrinks and never breaks before its € — the amount is the one
+   thing a row must always show intact. */
+.list__value { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; }
+/* When the row wraps, the payment chip/toggle keeps right alignment on its own line. */
+.list__row > .paytoggle, .list__row > .paychip { margin-left: auto; }
 .list__actions { display: flex; gap: .4rem; align-items: center; }
 .list__actions form { margin: 0; }
 .list__main--link { text-decoration: none; color: inherit; flex: 1 1 auto; min-width: 0; }
@@ -161,13 +429,13 @@ em { font-style: normal; color: var(--muted); }
 .stack--tight { gap: .6rem; }
 .disclosure--plain { border: 0; padding: 0; background: none; }
 .center { text-align: center; }
-.link { color: var(--accent, #2f6f4f); font-weight: 600; text-decoration: none; }
+.link { color: var(--accent-text); font-weight: 600; text-decoration: none; }
 .link:hover { text-decoration: underline; }
 
 /* ---- Entries ---------------------------------------------------------- */
 .entry { display: grid; grid-template-columns: 1fr auto; gap: .3rem .6rem; align-items: start; }
 .entry__head { grid-column: 1 / -1; display: flex; justify-content: space-between; font-weight: 600; }
-.entry__cost { color: var(--primary); font-variant-numeric: tabular-nums; }
+.entry__cost { color: var(--primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .entry__body { display: flex; flex-direction: column; gap: .15rem; }
 .entry__task { font-weight: 600; }
 .entry__detail { font-size: .85rem; }
@@ -178,8 +446,21 @@ em { font-style: normal; color: var(--muted); }
 .form:first-child { margin-top: 0; }
 .form__row { display: flex; gap: .6rem; flex-wrap: wrap; }
 .form__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .8rem; }
+/* Toggled elements (hidden attr) must win over .field/.input display rules. */
+[hidden] { display: none !important; }
+/* Booking-form sub-groups that toggle by unit — keep the form's vertical gap
+   so fields inside them are spaced like direct form children. */
+[data-h-only], [data-qty-only] { display: flex; flex-direction: column; gap: .8rem; }
 .field { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; color: var(--muted); }
+/* Werkblatt F5: field LABELS are stamped plates app-wide — uppercase mono,
+   tracked (formerly only the login had this treatment). Scoped to the FIRST
+   span: a .field may carry further direct spans (e.g. the live pw-match
+   feedback) that must stay body copy, not shouty plates. */
 .field > span { font-weight: 600; }
+.field > span:first-child {
+	font-family: var(--font-mono); font-size: .72rem; font-weight: 700;
+	letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
 
 .input, .select {
 	width: 100%;
@@ -187,13 +468,17 @@ em { font-style: normal; color: var(--muted); }
 	padding: .55rem .7rem;
 	font-size: 1rem;
 	color: var(--text);
-	background: var(--surface);
+	background: var(--surface-2);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-sm);
+	border-radius: 11px;
 	appearance: none;
 	transition: border-color .15s, box-shadow .15s;
 }
-.input:focus, .select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-tint); }
+.input:focus, .select:focus { outline: none; border-color: var(--signal); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 22%, transparent); }
+/* Visible keyboard focus for every interactive element (WCAG 2.4.7). Only shows
+   on keyboard navigation — a mouse click does not trigger :focus-visible. Text
+   inputs keep their box-shadow ring above (higher specificity wins). */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .select {
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath fill='%236b756d' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
 	background-repeat: no-repeat;
@@ -202,35 +487,61 @@ em { font-style: normal; color: var(--muted); }
 	padding-right: 2rem;
 }
 
+/* Werkblatt F5: the native file input joins the system — the picker button
+   renders as a small stamped Werkblatt button instead of raw browser chrome. */
+input[type="file"].input { padding: .45rem .55rem; font-size: .85rem; color: var(--muted); }
+input[type="file"].input::file-selector-button {
+	font-family: var(--font-display); font-size: .72rem; font-weight: 700;
+	letter-spacing: .04em; text-transform: uppercase;
+	color: var(--text); background: var(--surface-2);
+	border: 1px solid var(--line-strong, var(--border)); border-radius: 7px;
+	padding: .38rem .75rem; margin-right: .7rem; cursor: pointer;
+	transition: background .15s ease;
+}
+input[type="file"].input::file-selector-button:hover { background: var(--surface); }
+
 .fieldset { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem; margin: 0; }
-.fieldset legend { font-size: .8rem; font-weight: 600; color: var(--muted); padding: 0 .3rem; }
+/* Legends join the mono plate family (audit F-R2-03) — deliberately one step
+   quieter than .field labels (smaller/lighter/wider-tracked), since a legend
+   captions a GROUP of fields rather than a single input. */
+.fieldset legend { font-family: var(--font-mono); font-size: .68rem; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 0 .3rem; }
 
 /* ---- Buttons (modern) ------------------------------------------------- */
+/* Werkblatt buttons: industrial rectangles, uppercase mono labels, 1-px press
+   displacement. The primary action stamps INK on safety orange (like a machine
+   warning label), not white-on-colour. */
 .btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	gap: .4rem;
 	min-height: var(--tap);
-	padding: .6rem 1.1rem;
-	font-size: 1rem;
-	font-weight: 600;
-	font-family: inherit;
+	padding: .6rem 1.05rem;
+	font-size: .82rem;
+	font-weight: 700;
+	font-family: var(--font-display);
+	letter-spacing: .04em;
+	text-transform: uppercase;
 	color: var(--text);
 	background: var(--surface-2);
 	border: 1px solid transparent;
-	border-radius: 999px;
+	border-radius: 8px;
 	cursor: pointer;
+	white-space: nowrap;
 	transition: transform .08s ease, filter .15s ease, background .15s ease;
 	-webkit-tap-highlight-color: transparent;
 }
-.btn:active { transform: translateY(1px) scale(.99); }
-.btn--primary { background: var(--primary); color: #fff; box-shadow: var(--shadow); }
-.btn--primary:hover { background: var(--primary-strong); }
-.btn--danger { color: var(--danger); background: var(--danger-tint); }
-.btn--danger.btn--primary { background: var(--danger); color: #fff; }
+.btn:active { transform: translateY(1px); }
+.btn--primary { background: var(--brand-grad); color: var(--on-signal); box-shadow: 0 4px 14px var(--btn-glow); }
+.btn--primary:hover { filter: brightness(1.06); }
+/* Werkblatt danger: crimson OUTLINE by default — a destructive action must never
+   read like the page's signal action. The filled crimson is reserved for the
+   final confirmation step (btn--danger.btn--primary). */
+.btn--danger { color: var(--danger); background: transparent; border-color: var(--danger); }
+.btn--danger:hover { background: var(--danger-tint); }
+.btn--danger.btn--primary { background: var(--danger); color: #fff; box-shadow: var(--shadow); }
 .btn--ghost { background: transparent; border-color: var(--border); color: var(--primary); }
-.btn--sm { min-height: 36px; padding: .35rem .8rem; font-size: .85rem; }
+.btn--sm { min-height: 36px; padding: .35rem .8rem; font-size: .75rem; } /* below the .82rem base — small stays small */
 .btn--block { width: 100%; }
 .btn--icon { padding: 0; width: var(--tap); min-height: var(--tap); border-radius: 50%; font-size: 1.1rem; }
 
@@ -254,12 +565,30 @@ em { font-style: normal; color: var(--muted); }
 	width: 12px; height: 12px;
 	transform: scale(0);
 	transition: transform .12s ease-in-out;
-	box-shadow: inset 1em 1em #fff;
+	box-shadow: inset 1em 1em var(--on-primary);
 	clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
 }
+/* B: a checked box is a selection STATE -> green, not signal. */
 .check input[type="checkbox"]:checked { background: var(--primary); border-color: var(--primary); }
 .check input[type="checkbox"]:checked::before { transform: scale(1); }
-.check input[type="checkbox"]:focus-visible { outline: 3px solid var(--primary-tint); }
+.check input[type="checkbox"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Werkblatt F2: theme picker as a true segmented control. The active option is
+   a selection STATE → green ink on brand tint with a green base edge (the same
+   selection language as subtabs), never the orange signal. */
+.themeseg { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.themeseg__item {
+	flex: 1; text-align: center; min-height: var(--tap);
+	display: inline-flex; align-items: center; justify-content: center;
+	font-family: var(--font-display); font-size: .78rem; font-weight: 700;
+	letter-spacing: .04em; text-transform: uppercase;
+	color: var(--muted); text-decoration: none;
+	border-right: 1px solid var(--border); padding: .5rem .4rem;
+	transition: background .15s ease, color .15s ease;
+}
+.themeseg__item:last-child { border-right: 0; }
+.themeseg__item:hover { background: var(--surface-2); color: var(--text); }
+.themeseg__item.is-on { background: var(--primary-tint); color: var(--primary); box-shadow: inset 0 -2px 0 var(--primary); }
 
 /* ---- Segmented control ------------------------------------------------ */
 .segmented { display: flex; background: var(--surface-2); border-radius: 999px; padding: 4px; gap: 4px; }
@@ -272,17 +601,45 @@ em { font-style: normal; color: var(--muted); }
 .segmented__item input:checked + span { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
 
 /* ---- Rate preview ----------------------------------------------------- */
+/* Live cost result of the booking form — the hero feedback: big cost, small
+   rate. Values are filled in by entry-form.js via [data-cost] / [data-rate]. */
 .rate-preview {
-	display: flex; justify-content: space-between; gap: 1rem;
-	background: var(--primary-tint); color: var(--primary-strong);
-	border-radius: var(--radius-sm); padding: .6rem .9rem; font-size: .9rem;
+	display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+	background: linear-gradient(135deg, var(--primary), var(--primary-strong)); color: #fff;
+	border-radius: var(--radius); padding: .65rem .85rem; box-shadow: var(--shadow);
 }
-.rate-preview strong { font-variant-numeric: tabular-nums; }
+.rate-preview__main { display: flex; flex-direction: column; gap: .05rem; }
+.rate-preview__lbl { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; font-weight: 800; opacity: .85; }
+.rate-preview__cost { font-size: var(--fs-xl); font-weight: 800; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.rate-preview__rate { font-size: var(--fs-sm); opacity: .92; text-align: right; }
+.rate-preview strong { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* Skeleton shimmer over the live figures while the pricing table is still being
+   fetched — so the "–" placeholder reads as "loading", not "broken". */
+@keyframes tw-shimmer { 0% { background-position: -160px 0; } 100% { background-position: 160px 0; } }
+.rate-preview.is-loading [data-rate],
+.rate-preview.is-loading [data-cost],
+.rate-preview.is-loading [data-qty-cost] {
+	color: transparent; border-radius: 6px; min-width: 3.5rem; display: inline-block;
+	background: linear-gradient(90deg, rgba(255,255,255,.18) 25%, rgba(255,255,255,.42) 37%, rgba(255,255,255,.18) 63%);
+	background-size: 300px 100%; animation: tw-shimmer 1.1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.rate-preview.is-loading [data-rate],
+	.rate-preview.is-loading [data-cost],
+	.rate-preview.is-loading [data-qty-cost] { animation: none; }
+}
+
+/* Dashboard list toolbar: search field + "Nur offene" toggle side by side. */
+.listtools { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .2rem; }
+.listtools .input { flex: 1 1 12rem; }
+.switch { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; white-space: nowrap; user-select: none; }
+.switch input { accent-color: var(--primary); width: 1.05rem; height: 1.05rem; }
 
 /* ---- Chips ------------------------------------------------------------ */
 .ratechips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .6rem; }
 .chip { background: var(--surface-2); border-radius: 999px; padding: .2rem .6rem; font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.chip--accent { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); font-weight: 700; }
+.chip--accent { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-text); font-weight: 700; }
 
 /* ---- Disclosure ------------------------------------------------------- */
 .disclosure > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
@@ -297,6 +654,7 @@ em { font-style: normal; color: var(--muted); }
 /* Deactivated pricing items are dimmed but still visible for traceability. */
 .is-inactive { opacity: .55; }
 .pill-off { font-size: .7rem; font-weight: 700; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: .05rem .5rem; margin-left: .4rem; }
+.pill-warn { font-size: .7rem; font-weight: 700; color: var(--accent-text); background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 999px; padding: .05rem .5rem; margin-left: .4rem; white-space: nowrap; }
 
 /* ---- Modal dialog ----------------------------------------------------- */
 .modal {
@@ -304,21 +662,41 @@ em { font-style: normal; color: var(--muted); }
 	max-width: min(420px, 92vw); width: 100%;
 	color: var(--text);
 }
-.modal::backdrop { background: rgba(0, 0, 0, .45); }
+.modal::backdrop { background: rgba(0, 0, 0, .45); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
 .modal__card {
-	margin: 0; background: var(--surface); border-radius: var(--radius);
+	margin: 0; background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius);
 	padding: 1.25rem; box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
 	display: flex; flex-direction: column; gap: 1.1rem;
 }
 .modal__msg { margin: 0; font-size: 1rem; line-height: 1.45; }
+.modal__input { width: 100%; }
+.modal__input[hidden] { display: none; } /* beat .input's display so the gap collapses */
 .modal__actions { display: flex; gap: .6rem; justify-content: flex-end; }
 .modal[open] { animation: modal-in .16s ease-out; }
 @keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+/* Bottom-sheet on phones: dock the confirm dialog to the bottom with a grab
+   handle and slide-up; on wider screens it stays a centered card. */
+@media (max-width: 640px) {
+	.modal { max-width: 100%; width: 100%; margin: auto 0 0; }
+	.modal__card {
+		border-radius: 20px 20px 0 0;
+		padding: .7rem 1.1rem calc(1.1rem + env(safe-area-inset-bottom));
+		box-shadow: 0 -16px 44px rgba(0, 0, 0, .4);
+	}
+	.modal__card::before {
+		content: ""; align-self: center; margin-bottom: -.5rem;
+		width: 36px; height: 4px; border-radius: 4px; background: var(--border);
+	}
+	.modal__actions .btn { flex: 1; }
+	.modal[open] { animation: sheet-up .24s cubic-bezier(.22, .61, .36, 1); }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { .modal[open] { animation: none; } }
 
 /* ---- Status / payment tags ------------------------------------------- */
 .tag { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem; font-weight: 700;
 	border-radius: 999px; padding: .12rem .55rem; white-space: nowrap; }
-.tag--progress { background: color-mix(in srgb, #d89b00 20%, transparent); color: #a06f00; }
+.tag--progress { background: color-mix(in srgb, #d89b00 20%, transparent); color: var(--accent-text); }
 .tag--done { background: var(--primary-tint); color: var(--primary-strong); }
 .tag--paid { background: var(--primary-tint); color: var(--primary-strong); }
 .tag--open { background: var(--danger-tint); color: var(--danger); }
@@ -330,7 +708,11 @@ em { font-style: normal; color: var(--muted); }
 .flash--info { background: var(--surface-2); color: var(--muted); }
 
 /* ---- Auth ------------------------------------------------------------- */
-.auth { min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; }
+/* Decorative login backdrop (login-bg.js paints it): opaque canvas pinned to
+   the viewport behind the card, pointer-inert. The card sits above via z-index.
+   Without JS it stays transparent, so the plain --bg background shows through. */
+.login-bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.auth { position: relative; z-index: 1; min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; }
 .auth__card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 1.2rem; }
 .auth__brand { text-align: center; display: flex; flex-direction: column; align-items: center; gap: .3rem; }
 .auth__brand img { margin-bottom: .3rem; }
@@ -342,23 +724,46 @@ em { font-style: normal; color: var(--muted); }
 	z-index: 30;
 	display: flex;
 	justify-content: space-around;
-	background: var(--surface);
-	border-top: 1px solid var(--border);
+	background: var(--glass);
+	-webkit-backdrop-filter: blur(14px) saturate(1.25);
+	backdrop-filter: blur(14px) saturate(1.25);
+	border-top: 1px solid var(--glass-border);
 	padding-bottom: env(safe-area-inset-bottom);
-	box-shadow: 0 -2px 12px rgba(0, 0, 0, .05);
+	box-shadow: 0 -6px 24px rgba(0, 0, 0, .22);
 }
+/* The tab bar rides on the chassis (dark in both themes); the orange marker is
+   the only moving part. */
 .tabbar__item {
 	flex: 1;
-	display: flex; flex-direction: column; align-items: center; gap: .1rem;
-	padding: .5rem 0 .55rem;
+	display: flex; flex-direction: column; align-items: center; gap: .12rem;
+	padding: .35rem 0 .5rem;
 	font-size: .68rem;
-	color: var(--muted);
+	font-family: var(--font-mono);
+	color: var(--chassis-muted);
 	min-height: var(--tap);
+	position: relative;
 }
-.tabbar__icon { font-size: 1.15rem; line-height: 1; }
-.tabbar__item.is-active { color: var(--primary); font-weight: 700; }
+.tabbar__pill {
+	display: flex; align-items: center; justify-content: center;
+	width: 46px; height: 28px; border-radius: 8px;
+	transition: background .18s ease, box-shadow .18s ease;
+}
+.tabbar__icon { width: 22px; height: 22px; display: block; }
+.tabbar__item.is-active { color: var(--chassis-active); font-weight: 700; }
+.tabbar__item.is-active .tabbar__pill { background: rgba(133, 215, 169, .14); color: var(--chassis-active); }
+.tabbar__item.is-active::before {
+	content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+	width: 20px; height: 3px; border-radius: 3px;
+	background: var(--chassis-active);
+}
 
 .tabbar__item span:last-child { white-space: nowrap; }
+
+/* Fallback where backdrop-filter is unsupported: opaque bars keep text legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	.tabbar { background: var(--chassis); }
+	.topstack { background: var(--chassis); }
+}
 
 /* ---- Wider screens ---------------------------------------------------- */
 @media (min-width: 640px) {
@@ -369,23 +774,27 @@ em { font-style: normal; color: var(--muted); }
 .yearbar {
 	display: flex; gap: .4rem; align-items: center;
 	overflow-x: auto; -webkit-overflow-scrolling: touch;
-	padding: .5rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border);
+	padding: .5rem 1rem; background: transparent; border-bottom: 1px solid rgba(255, 255, 255, .12);
 	scrollbar-width: none;
 }
 .yearbar::-webkit-scrollbar { display: none; }
+/* Year segments on the chassis: mono, squared, paper-white active. The chassis
+   is dark in both themes, so one treatment serves both. */
 .yearpill {
-	flex: 0 0 auto; padding: .35rem .85rem; border-radius: 999px;
-	background: var(--surface-2); color: var(--text); font-weight: 600;
-	font-variant-numeric: tabular-nums; text-decoration: none; border: 1px solid var(--border);
+	flex: 0 0 auto; padding: .35rem .85rem; border-radius: 7px;
+	background: rgba(255, 255, 255, .08); color: rgba(255, 255, 255, .88); font-weight: 600;
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums; text-decoration: none; border: 1px solid rgba(255, 255, 255, .14);
 	min-height: 2rem; display: inline-flex; align-items: center;
 }
-.yearpill.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.yearpill--manage { font-weight: 700; color: var(--muted); }
+.yearpill.is-active { background: #fff; color: var(--chassis); border-color: #fff; font-weight: 700; }
+.yearpill--manage { font-weight: 700; color: rgba(255, 255, 255, .8); }
 
 /* ---- Basis workspace header ------------------------------------------- */
 .workspace {
 	display: flex; flex-direction: column; gap: .5rem;
-	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+	background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius);
+	box-shadow: var(--card-shadow);
 	padding: .7rem .9rem;
 }
 .workspace__back { text-decoration: none; color: var(--muted); font-weight: 600; font-size: .85rem; align-self: flex-start; }
@@ -395,14 +804,20 @@ em { font-style: normal; color: var(--muted); }
 	flex: 1; text-align: center; text-decoration: none; padding: .5rem; border-radius: var(--radius);
 	background: var(--surface-2); color: var(--text); font-weight: 600; border: 1px solid var(--border);
 }
-.subtab.is-active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.subtab.is-active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 .badge { font-size: .72rem; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: .1rem .5rem; }
 
 /* ---- Button rows & carry-over ----------------------------------------- */
-.btnrow { display: flex; gap: .5rem; }
-.btnrow .btn { flex: 1; }
+.btnrow { display: flex; gap: .5rem; flex-wrap: wrap; }
+/* Grow to fill, but size to the label (basis auto) and wrap to a new line when
+   the row is too narrow — avoids labels wrapping into tall pill "ovals". */
+.btnrow .btn { flex: 1 1 auto; }
+/* Split row: backlink on the left, action(s) on the right (non-stretching). */
+.btnrow--split { align-items: center; justify-content: space-between; }
+.btnrow--split .btn { flex: 0 0 auto; }
 .carryover { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .statusrow { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.statusrow--warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
 .statusrow__info { display: flex; flex-direction: column; gap: .25rem; }
 .statusrow form { margin: 0; }
 .paysummary { display: flex; gap: .4rem; flex-wrap: wrap; }
@@ -410,17 +825,44 @@ em { font-style: normal; color: var(--muted); }
 	background: var(--surface-2); border-radius: var(--radius-sm); padding: .5rem .7rem;
 	word-break: break-all; user-select: all; font-size: .9rem; }
 
-/* Single clickable payment chip showing the current status (click to toggle). */
+/* 2FA setup QR code */
+.qrwrap { display: flex; justify-content: center; margin: .4rem 0 .8rem; }
+.qr { width: 220px; height: 220px; max-width: 60vw; image-rendering: pixelated;
+	background: #fff; padding: .6rem; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+
+/* 2FA recovery codes */
+.codes { list-style: none; padding: 0; margin: .6rem 0; display: grid;
+	grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+.codes li { background: var(--surface-2); border-radius: var(--radius-sm); padding: .5rem .6rem; text-align: center; }
+.codes code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	font-size: 1rem; letter-spacing: .05em; user-select: all; }
+@media (max-width: 380px) { .codes { grid-template-columns: 1fr; } }
+
+/* Single clickable payment chip showing the current status (click to toggle).
+   Werkblatt badge language: status dot + uppercase mono + semantic TINT surface —
+   a round tinted plate reads as STATE, a rectangle as action, so the warn amber
+   can never be mistaken for the signal orange by form alone. */
 .paytoggle { margin: 0; }
 .paychip {
-	display: inline-flex; align-items: center; gap: .3rem;
-	border-radius: 999px; padding: .35rem .8rem; font-weight: 700; font-size: .82rem;
-	cursor: pointer; min-height: var(--tap); border: 1.5px solid transparent; white-space: nowrap;
+	display: inline-flex; align-items: center; gap: .4rem;
+	border-radius: 999px; padding: .16rem .6rem;
+	font-family: var(--font-mono); font-weight: 700; font-size: .68rem;
+	letter-spacing: .06em; text-transform: uppercase; font-variant-numeric: tabular-nums;
+	cursor: pointer; border: 1px solid transparent; white-space: nowrap;
 }
-.paychip--paid { background: var(--primary); color: #fff; border-color: var(--primary); }
-.paychip--open { background: transparent; color: #a06f00; border-color: color-mix(in srgb, #d89b00 55%, transparent); }
-.paychip--open:hover { background: color-mix(in srgb, #d89b00 12%, transparent); }
-.carryover strong { display: block; }
+/* Only the CLICKABLE toggle keeps the 44-px tap target; the read-only status
+   display is a compact chip like every other badge. */
+button.paychip { min-height: var(--tap); padding: .35rem .8rem; }
+.paychip--paid { background: var(--primary-tint); color: var(--primary); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.paychip--open { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 38%, transparent); }
+.paychip--open::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.paychip--open:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Read-only status chip (running year): not a button, so no pointer/hover —
+   the hover keeps the base tint (it must not strip the status surface). */
+.paychip--static { cursor: default; }
+.paychip--static.paychip--open:hover { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+span.paychip { cursor: default; }
+.carryover strong { display: block; white-space: nowrap; }
 .carryover .muted { font-size: .82rem; }
 
 /* ---- Data tables (Excel-like overview) -------------------------------- */
@@ -440,19 +882,116 @@ em { font-style: normal; color: var(--muted); }
 .rowactions { display: inline-flex; gap: .25rem; justify-content: flex-end; }
 .rowactions form { margin: 0; }
 .is-invalid { border-color: var(--danger) !important; box-shadow: 0 0 0 2px var(--danger-tint); }
+/* Inline validation error (created by app.js; wired via aria-describedby). */
+.field__err { display: block; font-size: var(--fs-xs); color: var(--danger); font-weight: 600; margin-top: .15rem; }
+/* Required-field marker — CSS-only via :has, no per-template change. */
+/* :required covers input/select/textarea in one selector; scoped to the FIRST
+   span (the label by convention, see .field > span:first-child above) so the
+   pw-match live region cannot grow a stray asterisk. */
+.field:has(:required) > span:first-child::after { content: " *"; color: var(--danger); font-weight: 800; }
+/* Submit "saving" state: keeps the label, adds a spinner. currentColor matches
+   the button text (white on a primary button). */
+.btn.is-submitting { opacity: .85; pointer-events: none; }
+.btn.is-submitting::before { content: ""; width: 1em; height: 1em; margin-right: .45rem; flex: 0 0 auto;
+	border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%;
+	display: inline-block; vertical-align: -.15em; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.is-submitting::before { animation: none; } }
 /* ---- KPIs & charts ---------------------------------------------------- */
-.kpigrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem; }
-.kpi { display: flex; flex-direction: column; gap: .15rem; padding: .8rem; }
-.kpi__label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.kpi__value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.barchart { display: flex; flex-direction: column; gap: .45rem; }
-.barchart__row { display: grid; grid-template-columns: minmax(70px, 30%) 1fr auto; align-items: center; gap: .6rem; }
+/* KPI tiles: a role-coloured accent edge, a larger tabular value, and an
+   optional trend chip. Colour the edge with .kpi--<role>. */
+.kpigrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .6rem; }
+.kpi { position: relative; display: flex; flex-direction: column; gap: .08rem; padding: .85rem .9rem; overflow: hidden;
+	transition: transform .14s ease, box-shadow .14s ease; }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0, 0, 0, .07), 0 12px 26px rgba(0, 0, 0, .09); }
+.kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--kpi-accent, var(--data)); }
+.kpi--rev { --kpi-accent: var(--data); }
+.kpi--hours { --kpi-accent: var(--accent); }
+.kpi--owe { --kpi-accent: var(--owe); }
+.kpi--pay { --kpi-accent: var(--pay); }
+.kpi--net { --kpi-accent: var(--primary-strong); }
+.kpi--paid { --kpi-accent: var(--primary); }
+.kpi--open { --kpi-accent: var(--accent); }
+.kpi__label { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.kpi__value { font-size: clamp(1rem, 4.2vw, 1.5rem); font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: .12rem; white-space: nowrap; }
+.delta { display: inline-flex; align-items: center; gap: .22rem; align-self: flex-start; font-size: .72rem; font-weight: 700;
+	margin-top: .35rem; padding: .08rem .42rem; border-radius: 999px; }
+.delta--up { color: var(--data); background: color-mix(in srgb, var(--data) 15%, transparent); }
+.delta--down { color: var(--owe); background: color-mix(in srgb, var(--owe) 16%, transparent); }
+/* Tile trend sparkline: inline SVG, coloured by the tile's role accent. Stretched
+   to full width (preserveAspectRatio none) with a non-scaling stroke so the line
+   keeps its 2px weight. */
+.spark { display: block; width: 100%; height: 28px; margin-top: .5rem; color: var(--kpi-accent, var(--data)); overflow: visible; }
+.spark__area { fill: currentColor; opacity: .13; stroke: none; }
+.barpair { display: flex; gap: .7rem; align-items: flex-end; margin-top: .5rem; }
+.barpair__col { display: flex; flex-direction: column; align-items: center; gap: .12rem; }
+.barpair__v { font-size: .62rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.barpair__bar { width: 14px; height: 28px; overflow: visible; }
+.barpair__yr { font-size: .58rem; color: var(--muted); font-weight: 700; }
+.bp--prev { fill: color-mix(in srgb, var(--kpi-accent, var(--data)) 38%, var(--surface-2)); }
+.bp--cur { fill: var(--kpi-accent, var(--data)); }
+.spark__line { fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.spark__dot { fill: currentColor; pointer-events: none; }
+.spark__hit { fill: transparent; cursor: pointer; }
+.sparktip { position: fixed; z-index: 60; transform: translate(-50%, -100%); background: var(--text); color: var(--bg);
+	font-size: .66rem; font-weight: 800; padding: .15rem .42rem; border-radius: 6px; white-space: nowrap;
+	pointer-events: none; opacity: 0; transition: opacity .1s ease; box-shadow: 0 4px 12px rgba(0, 0, 0, .3); }
+.sparktip.is-on { opacity: 1; }
+
+/* Horizontal bar chart. Rendered as inline SVG so bar widths ride on SVG
+   geometry attributes (CSP-safe) rather than a CSP-blocked inline style; the
+   fill scales in with a gentle staggered grow-in. Magnitude → one hue (green). */
+.barchart { display: flex; flex-direction: column; gap: .6rem; }
+.barchart__row { display: grid; grid-template-columns: minmax(64px, 28%) 1fr auto; align-items: center; gap: .7rem; }
 .barchart__label { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barchart__val { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.barchart__meter { width: 100%; height: 14px; -webkit-appearance: meter; appearance: meter; }
-.barchart__meter::-webkit-meter-bar { background: var(--surface-2); border: 0; border-radius: 999px; height: 14px; }
-.barchart__meter::-webkit-meter-optimum-value { background: var(--primary); border-radius: 999px; }
-.barchart__meter::-moz-meter-bar { background: var(--primary); border-radius: 999px; }
+.bchart { display: block; width: 100%; height: 10px; }
+.gradient-defs { position: absolute; width: 0; height: 0; }
+/* Bar-chart gradient stops: a dramatic deep -> bright green sweep (dark base at
+   the left, bright highlight at the value tip) in both themes. */
+.gs-strong { stop-color: #0f5233; }
+.gs-data, .gs-pay { stop-color: #58c286; }
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .gs-strong { stop-color: #2b6f50; }
+	:root:not([data-theme="light"]) .gs-data, :root:not([data-theme="light"]) .gs-pay { stop-color: #aef4cd; }
+}
+:root[data-theme="dark"] .gs-strong { stop-color: #2b6f50; }
+:root[data-theme="dark"] .gs-data, :root[data-theme="dark"] .gs-pay { stop-color: #aef4cd; }
+.bchart__track { fill: var(--data-track); }
+.bchart__fill { fill: url(#barGrad); transform-box: fill-box; transform-origin: left center;
+	animation: barGrow .7s cubic-bezier(.22, .61, .36, 1) both; transition: filter .15s ease; }
+.barchart__row:hover .bchart__fill { filter: brightness(1.08); }
+.barchart__row:hover .barchart__label { color: var(--text); }
+.barchart__row:nth-child(2) .bchart__fill { animation-delay: .05s; }
+.barchart__row:nth-child(3) .bchart__fill { animation-delay: .1s; }
+.barchart__row:nth-child(4) .bchart__fill { animation-delay: .15s; }
+.barchart__row:nth-child(5) .bchart__fill { animation-delay: .2s; }
+.barchart__row:nth-child(n+6) .bchart__fill { animation-delay: .25s; }
+/* The rect's resting width is its full value; the grow only scales it, so the
+   bar is correct even when the animation is skipped. */
+@keyframes barGrow { from { transform: scaleX(0); } }
+
+/* Diverging bar chart for signed money (Verrechnung): bars grow from a center
+   axis — left = owe (warm), right = receivable (green). The signed value label
+   carries the sign; colour only reinforces. */
+.dchart { display: flex; flex-direction: column; gap: .6rem; }
+.dchart__row { display: grid; grid-template-columns: minmax(64px, 26%) 1fr auto; align-items: center; gap: .7rem; }
+.dchart__label { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dchart__svg { display: block; width: 100%; height: 12px; }
+.dchart__center { stroke: var(--border); stroke-width: 1; }
+.dchart__fill { transform-box: fill-box; animation: barGrow .7s cubic-bezier(.22, .61, .36, 1) both; transition: filter .15s ease; }
+.dchart__row:hover .dchart__fill { filter: brightness(1.08); }
+.dchart__fill--owe { fill: var(--owe); transform-origin: right center; }
+.dchart__fill--pay { fill: url(#payGrad); transform-origin: left center; }
+.dchart__val { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dchart__val--owe { color: var(--owe); }
+.dchart__val--pay { color: var(--pay); }
+.dchart__legend { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: .1rem; font-size: .74rem; color: var(--muted); }
+.dchart__legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.dchart__sw { width: 10px; height: 10px; border-radius: 3px; }
+.dchart__sw--owe { background: var(--owe); }
+.dchart__sw--pay { background: var(--pay); }
+@media (prefers-reduced-motion: reduce) { .bchart__fill, .dchart__fill { animation: none; } }
 
 .diff-up { color: var(--danger); font-weight: 700; }
 .diff-down { color: var(--primary-strong); font-weight: 700; }
@@ -465,3 +1004,993 @@ em { font-style: normal; color: var(--muted); }
 .dtable .entry__detail { display: block; line-height: 1.35; }
 /* Keep the numeric/action columns tight so the task column gets the space. */
 .dtable--entries th.num, .dtable--entries td.num { width: 1%; }
+
+/* Audit trail: let the Detail column wrap at word boundaries (not mid-word) so
+   old→new diffs stay readable; each " · "-separated field renders on its own
+   line. Give it a comfortable width; the table scrolls if space is tight. */
+.dtable--audit td.detailcell {
+	white-space: normal;
+	overflow-wrap: break-word;
+	word-break: normal;
+	min-width: 15rem;
+	max-width: 34rem;
+	line-height: 1.45;
+}
+
+/* ---- Unified status chips -------------------------------------------- */
+/* One shape for every state: glyph + colour + label (never colour alone, so
+   it stays legible for colour-blind users and in print). */
+.chip2 { display: inline-flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 800;
+	padding: .14rem .5rem; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; line-height: 1.3; }
+.chip2__g { font-size: .74rem; line-height: 1; }
+.chip2--paid { color: var(--pay); background: color-mix(in srgb, var(--pay) 14%, transparent); border-color: color-mix(in srgb, var(--pay) 30%, transparent); }
+.chip2--open { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+.chip2--void { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+.chip2--stale { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.chip2--owe { color: var(--owe); background: color-mix(in srgb, var(--owe) 14%, transparent); border-color: color-mix(in srgb, var(--owe) 30%, transparent); }
+.chip2--prog { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* ---- Booking / ledger cards (mobile-first, replace the sideways table) - */
+/* Two compact lines per card: date · task · badges · cost on top, the
+   derivation/details plus small icon actions below. */
+.bookcards { display: flex; flex-direction: column; gap: .45rem; }
+.bcard { background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius);
+	padding: .5rem .7rem; display: flex; flex-direction: column; gap: .25rem; box-shadow: var(--card-shadow);
+	transition: transform .14s ease, box-shadow .14s ease; }
+.bcard--void { background: var(--surface-2); }
+.bcard--void .bcard__task, .bcard--void .bcard__cost { text-decoration: line-through; color: var(--muted); }
+/* The head may wrap on very narrow cards: the task keeps a readable minimum
+   (so it ellipsizes instead of vanishing), badges/cost move to the next line
+   when the fixed parts alone don't fit, and the cost stays right-aligned. */
+.bcard__head { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .5rem; }
+.bcard__date { font-size: .74rem; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bcard__task { flex: 1 1 auto; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	font-weight: 700; font-size: .92rem; }
+.bcard__badges { display: flex; gap: .3rem; flex-wrap: wrap; flex: 0 1 auto; min-width: 0; }
+.bcard__cost { flex: 0 0 auto; margin-left: auto; font-weight: 800; font-size: .98rem; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: -.01em; }
+.bcard__foot { display: flex; align-items: center; gap: .5rem; }
+.bcard__detail { flex: 1 1 auto; min-width: 0; font-size: .76rem; color: var(--muted); line-height: 1.4; }
+.bcard__acts { display: flex; gap: .25rem; flex: 0 0 auto; align-self: flex-end; }
+.bcard__acts form { margin: 0; }
+.iconact { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 9px;
+	border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: .95rem;
+	cursor: pointer; text-decoration: none; }
+.iconact:hover { background: var(--surface-2); color: var(--text); }
+.iconact--danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+/* Inline SVG icon (see ic-* partials): inherits colour and follows the text
+   size, so control icons match the theme, hover and focus states. */
+.ic { width: 1.15em; height: 1.15em; display: inline-block; vertical-align: -.18em; flex: 0 0 auto; }
+.iconact .ic { width: 18px; height: 18px; vertical-align: 0; }
+.bcard__summary { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem;
+	padding: .15rem .3rem 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+.bcard__summary .muted { font-weight: 600; }
+
+/* ---- "Zu erledigen" attention strip (dashboard cockpit) --------------- */
+.attn { display: flex; flex-direction: column; gap: .4rem; }
+.attn__row { display: flex; align-items: center; gap: .6rem; text-decoration: none; color: var(--text);
+	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+	padding: .55rem .65rem; box-shadow: var(--shadow); }
+.attn__row:hover { background: var(--surface-2); }
+.attn__row--warn { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.attn__row--owe { border-color: color-mix(in srgb, var(--owe) 40%, var(--border)); background: color-mix(in srgb, var(--owe) 7%, var(--surface)); }
+.attn__ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+	font-size: .9rem; font-weight: 800; flex: 0 0 auto; }
+.attn__ic--warn { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-text); }
+.attn__ic--owe { background: color-mix(in srgb, var(--owe) 18%, transparent); color: var(--owe); }
+.attn__ic--pay { background: color-mix(in srgb, var(--pay) 18%, transparent); color: var(--pay); }
+.attn__txt { flex: 1; font-size: .85rem; }
+.attn__txt strong { font-weight: 800; }
+.attn__go { color: var(--muted); font-size: 1.1rem; line-height: 1; }
+
+/* ---- Backup-health dot (header status indicator) ---------------------- */
+/* A fine stroked "signal ring", monochrome via currentColor — the status colour
+   comes from the tone class. Green checkmark (with a faint glow), amber pulsing
+   exclamation (= needs attention; NOT a spinner, which would imply "running"),
+   red cross. Three distinct shapes so state is never colour-alone. */
+.bkdot { position: relative; display: inline-flex; }
+.bkdot__btn { display: grid; place-items: center; }
+/* The app bar is a green (--primary) surface in BOTH themes, so the page-surface
+   status tokens don't work here — the mid-green --primary-strong is nearly the
+   header colour and vanishes in light mode. Use bright, header-tuned colours (same
+   reason .appbar icons are hard-coded #fff) + a faint dark shadow so the ring pops
+   on the green bar in light and dark alike. */
+.bkdot__mark { display: inline-flex; color: #fff; filter: drop-shadow(0 1px 1px rgba(0,0,0,.28)); }
+.bkdot__mark svg { display: block; }
+.bkdot--ok .bkdot__mark { color: #8fe6b6; }
+.bkdot--warn .bkdot__mark { color: #f6c650; animation: bkdot-pulse 1.7s ease-in-out infinite; }
+.bkdot--bad .bkdot__mark { color: #ff9078; }
+@keyframes bkdot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+/* For a future real "Backup läuft" state, swap the amber icon for the open arc
+   (path "M12 3a9 9 0 1 0 9 9") and use: animation: bkdot-spin .9s linear infinite;
+   @keyframes bkdot-spin { to { transform: rotate(360deg); } } */
+@media (prefers-reduced-motion: reduce) { .bkdot--warn .bkdot__mark { animation: none; } }
+.bkdot__pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; min-width: 220px; max-width: 80vw;
+	display: none; flex-direction: column; gap: .15rem; text-align: left;
+	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+	box-shadow: var(--shadow); padding: .6rem .7rem; }
+/* Hover (desktop) or the JS .is-open toggle (tap/keyboard) reveal the popover — NOT
+   :focus-within, which would keep it open after a click-to-close because the button
+   retains focus. Screen readers get the state from the button's aria-label anyway. */
+.bkdot:hover .bkdot__pop, .bkdot.is-open .bkdot__pop { display: flex; }
+.bkdot__pop-title { font-weight: 700; font-size: .85rem; }
+.bkdot__pop-meta { font-size: .78rem; color: var(--muted); }
+.bkdot__pop-link { font-size: .78rem; margin-top: .2rem; font-weight: 600; }
+
+/* ---- Floating action button (quick-book) ------------------------------ */
+/* Quick-book is THE action — it wears the signal orange. */
+.fab { position: fixed; right: 1rem; z-index: 25;
+	bottom: calc(1rem + 58px + env(safe-area-inset-bottom));
+	width: 52px; height: 52px; border-radius: 50%; background: var(--signal); color: var(--on-signal);
+	display: grid; place-items: center; font-size: 1.6rem; font-weight: 700; text-decoration: none;
+	box-shadow: 0 6px 18px color-mix(in srgb, var(--signal) 45%, transparent), 0 2px 6px rgba(0, 0, 0, .3); }
+.fab:hover { background: var(--signal-press); }
+
+/* ---- Beleg: shareable statement (Saldo first + compact table) --------- */
+.beleg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+	overflow: hidden; box-shadow: var(--card-shadow);
+	/* Match the app's content column (--maxw) rather than a narrower document cap,
+	   so it fills the page like every other view instead of looking like a thin
+	   strip on wide screens. The @media print rule below overrides to full A4. */
+	max-width: var(--maxw); margin-inline: auto; }
+
+.beleg__hero { padding: .85rem .9rem; color: var(--on-primary);
+	background: linear-gradient(135deg, var(--primary), var(--primary-strong)); }
+.beleg__hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.beleg__who { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; }
+.beleg__yr { font-family: var(--font-mono); font-size: .74rem; opacity: .85; white-space: nowrap; }
+.beleg__hl { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; opacity: .85; margin-top: .5rem; }
+.beleg__hv { font-family: var(--font-mono); font-weight: 700; font-size: 1.7rem; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.beleg__hb { display: flex; flex-wrap: wrap; gap: .05rem .9rem; font-family: var(--font-mono); font-size: .73rem; opacity: .92; margin-top: .2rem; }
+/* Keep each summary figure intact ("−50,00 €", "14 h · 3 Buchungen") so it wraps
+   as a whole between items and never splits before the € — the image export
+   re-lays-out the flex row and would otherwise break at the space. */
+.beleg__hb span { white-space: nowrap; }
+
+.beleg__sec { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase;
+	color: var(--muted); padding: .7rem .9rem .15rem; }
+.beleg__lhead, .beleg__lrow, .beleg__lsub {
+	display: grid; grid-template-columns: 2.9rem 1fr 3.4rem 6rem; gap: .5rem; align-items: baseline;
+	padding: .34rem .9rem; line-height: 1.25; }
+.beleg__lhead { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .04em; text-transform: uppercase;
+	color: var(--muted); padding-top: .1rem; padding-bottom: .35rem; }
+.beleg__r { text-align: right; white-space: nowrap; }
+.beleg__lrow { border-top: 1px solid var(--card-hairline); }
+/* Bookings are grouped by day: the date shows on the first row, and a left rail on
+   the (empty) date cell links the day's continuation rows (a real border, so it
+   survives the image export's DOM clone — mirrors the Traktoren rail). */
+.beleg__lrow--dayfirst { border-top: 1px solid var(--border); }
+.beleg__lrow--daycont .beleg__d { align-self: stretch; border-left: 2px solid var(--border); }
+.beleg__d { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); }
+.beleg__t { font-weight: 600; font-size: .87rem; min-width: 0; overflow-wrap: anywhere; }
+.beleg__t small { display: block; font-family: var(--font-mono); font-weight: 400; font-size: .66rem; color: var(--muted); margin-top: 1px; }
+.beleg__h { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--muted); }
+.beleg__b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .92rem; font-weight: 500; white-space: nowrap; }
+.beleg__b--neg { color: var(--owe); }
+.beleg__lrow--void .beleg__t, .beleg__lrow--void .beleg__b { text-decoration: line-through; color: var(--muted); }
+.beleg__lsub { border-top: 1px solid var(--border); background: var(--surface-2); font-weight: 600; }
+.beleg__lsub .beleg__r { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Hours on the summary line are secondary — muted and smaller so the money
+   figure reads as the total, not two competing numbers. */
+.beleg__lsub-h { color: var(--muted); font-weight: 500; font-size: .72rem; }
+.beleg__lsub--muted { background: transparent; color: var(--muted); font-weight: 500; }
+.beleg__empty { padding: .7rem .9rem; color: var(--muted); font-size: .9rem; }
+
+/* "Bündeln" — an alternate Leistungen view that collapses identical Leistungen to
+   one row (count + totals). Both views live in the DOM; the button toggles which
+   one shows (like the Grundlage toggle), so print/copy/image follow the choice. */
+.beleg__bundle { display: none; }
+.beleg--bundle .beleg__items { display: none; }
+.beleg--bundle .beleg__bundle { display: block; }
+.beleg__lhead--bundle, .beleg__brow { grid-template-columns: 1fr 3.4rem 6rem; }
+.beleg__brow { display: grid; gap: .5rem; align-items: baseline; padding: .34rem .9rem; line-height: 1.25;
+	border-top: 1px solid var(--card-hairline); }
+.beleg__lhead--bundle + .beleg__brow { border-top-color: var(--border); }
+.beleg__bx { font-family: var(--font-mono); font-weight: 500; font-size: .72rem; color: var(--muted); }
+
+.beleg__grund { display: none; border-top: 1px dashed var(--border); }
+.beleg--grund .beleg__grund { display: block; }
+.beleg__grund-h { display: flex; align-items: center; gap: .45rem; padding: .7rem .9rem .1rem;
+	font-family: var(--font-display); font-weight: 800; font-size: .9rem; }
+.beleg__grund-h .ic { width: 1em; height: 1em; color: var(--primary-strong); }
+.beleg__grund-sub { padding: 0 .9rem .4rem; font-size: .74rem; color: var(--muted); }
+/* Kostengrundlage as two reference tables (only what was used this year) */
+/* Entity word in the head row (Traktor/Maschine): same mono/size/caps as the
+   labels beside it, only bolder + full-ink — it doubles as the table heading. */
+.beleg__ghcap { font-weight: 800; color: var(--text); }
+/* Traktoren: tractor+PS in a left rail (grouped with a line across loads) */
+.beleg__gt { display: grid; grid-template-columns: 3.6rem 1fr 3.4rem 4.6rem; gap: .4rem; padding: .3rem .9rem; align-items: baseline; position: relative; }
+.beleg__gt--head { padding: .3rem .9rem .2rem; font-family: var(--font-mono); font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.beleg__gt--head .beleg__r { font-size: .6rem; text-transform: uppercase; }
+.beleg__gt--first { border-top: 1px solid var(--border); }
+.beleg__gt--cont { border-top: 1px solid var(--card-hairline); }
+/* group continuation rows with a left line on the (empty) tractor cell — a real
+   border so it survives the image export's DOM clone (a ::before would not). */
+.beleg__gt--cont .beleg__gt-id { align-self: stretch; border-left: 2px solid var(--border); }
+.beleg__gt-id { font-family: var(--font-display); font-weight: 800; font-size: .82rem; line-height: 1.05; }
+.beleg__gt-id small { display: block; font-family: var(--font-mono); font-weight: 500; font-size: .64rem; color: var(--muted); }
+.beleg__gt-bl { font-weight: 600; font-size: .88rem; min-width: 0; overflow-wrap: anywhere; }
+.beleg__gt-bl small { display: block; font-family: var(--font-mono); font-weight: 400; font-size: .66rem; color: var(--muted); margin-top: 1px; }
+.beleg__gt-ps, .beleg__gt-rt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .82rem; }
+.beleg__gt-rt { font-weight: 700; }
+.beleg__gm { display: grid; grid-template-columns: 1fr 2.6rem 3.6rem 4.6rem; gap: .5rem; padding: .24rem .9rem; align-items: baseline; border-top: 1px solid var(--card-hairline); }
+.beleg__gm span:first-child { font-size: .85rem; font-weight: 600; }
+.beleg__gm .beleg__r { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .82rem; }
+.beleg__gm--head { border-top: 1px solid var(--border); margin-top: .3rem; font-family: var(--font-mono); font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding-top: .45rem; padding-bottom: .1rem; }
+/* Keep the head's entity word at header size + bold (matches Traktoren); the
+   .beleg__gm span:first-child rule above is for machine-name data rows. */
+.beleg__gm--head span:first-child { font-size: inherit; font-weight: 800; }
+.beleg__gm--head .beleg__r { font-size: .62rem; text-transform: uppercase; }
+
+.beleg__foot { text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: .73rem; padding: .7rem .9rem .5rem; }
+
+.beleg__actions { display: flex; flex-direction: column; gap: .5rem; margin-top: .85rem; }
+/* Wide-enough tracks that the longest label ("Als versendet markieren") stays on
+   one line; auto-fit then packs as many columns as fit and reflows to fewer on
+   narrow screens instead of forcing every button to wrap. */
+.beleg__actrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .5rem; }
+.beleg__markform { display: contents; } /* let the button lay out as an actrow grid child */
+/* min-width:0 lets a button shrink to its track (grid children default to
+   min-width:auto). Keep labels on one line by default — with the wide track they
+   all fit — and only permit wrapping on phone-width screens, where the 2-column
+   grid makes a cell too narrow for the longest label and nowrap would overflow. */
+.beleg__actrow .btn { min-width: 0; text-align: center; }
+@media (max-width: 30rem) {
+	.beleg__actrow .btn { white-space: normal; }
+}
+/* "Versendet" once the Beleg was marked sent: a filled/done look so the status is
+   readable straight off the button, distinct from the neutral not-yet-sent state. */
+.beleg__actrow .btn.is-sent {
+	background: var(--primary-tint);
+	border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+	color: var(--primary-strong);
+	font-weight: 700;
+}
+.beleg__actrow .btn.is-sent .ic { color: var(--primary); }
+/* Self-service public-link panel, tucked into a popup behind the "Link" action
+   button (native <details> — the house pattern, CSP-safe). The panel drops
+   below the button; on phones it docks as a fixed sheet above the tab bar. */
+.sharemenu { position: relative; }
+.sharemenu > summary { list-style: none; width: 100%; }
+.sharemenu > summary::-webkit-details-marker { display: none; }
+.sharemenu[open] > summary { background: var(--surface-2); color: var(--text); }
+.sharemenu__pop {
+	/* right-anchored to the button so it can never clip at the viewport edge
+	   (the action grid ends near the content edge; centring overflowed there) */
+	position: absolute; top: calc(100% + 6px); right: 0;
+	z-index: 45; width: min(92vw, 400px); text-align: left;
+	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+	box-shadow: 0 12px 36px rgba(0, 0, 0, .28);
+	padding: .7rem .8rem; display: flex; flex-direction: column; gap: .55rem;
+}
+/* Narrow screens: dock as a fixed sheet above the tab bar — anchor math can't
+   win against a 2-column action grid on a phone. */
+@media (max-width: 720px) {
+	.sharemenu__pop {
+		position: fixed; left: .8rem; right: .8rem; top: auto; width: auto;
+		bottom: calc(76px + env(safe-area-inset-bottom));
+	}
+}
+.sharemenu__pop p { margin: 0; }
+.sharemenu__h { font-family: var(--font-mono); font-size: .62rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.sharemenu__once { font-size: .74rem; color: var(--accent-text); font-weight: 600; }
+.sharemenu__row { display: flex; gap: .4rem; }
+.sharemenu__row .input { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: .8rem; }
+.sharemenu__item { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; border-top: 1px solid var(--card-hairline); padding-top: .55rem; }
+.sharemenu__meta { flex: 1 1 auto; min-width: 0; font-size: .8rem; color: var(--muted); }
+.sharemenu__meta b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sharemenu__del { margin: 0; flex: 0 0 auto; }
+.sharemenu__item--create { align-items: flex-end; }
+.sharemenu__days { flex: 0 1 11rem; }
+.sharemenu__item--create .btn { flex: 0 0 auto; }
+.recur__acts { display: flex; gap: .3rem; align-items: center; justify-content: flex-end; }
+.recur__acts form { display: inline; }
+.beleg__sent { display: flex; align-items: center; gap: .4rem; margin: .5rem 0 0; }
+.beleg__sent .ic { width: 1em; height: 1em; flex: none; }
+
+/* Invoice corrections (Storno / Gutschrift) + document history, screen only. */
+.beleg__invacts { gap: .5rem; padding-top: .5rem; margin-top: .2rem; border-top: 1px solid var(--card-hairline); }
+.beleg__doclist { display: flex; flex-direction: column; gap: .1rem; }
+.beleg__doclist-h { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: .1rem .1rem .25rem; }
+.beleg__docrow { display: grid; grid-template-columns: 1fr auto 5rem; gap: .5rem; align-items: baseline; padding: .18rem .1rem; border-top: 1px solid var(--card-hairline); }
+.beleg__docno { font-family: var(--font-mono); font-size: .82rem; font-weight: 600; }
+.beleg__dockind { font-size: .78rem; color: var(--muted); }
+.beleg__docrow .beleg__r { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .82rem; text-align: right; }
+.beleg__gform { display: grid; grid-template-columns: minmax(8rem, 11rem) 1fr auto; gap: .5rem; align-items: center;
+	padding: .7rem .8rem; border: 1px solid var(--card-hairline); border-radius: 12px; background: var(--surface); }
+.beleg__gform-h { grid-column: 1 / -1; font-family: var(--font-mono); font-size: .62rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+/* No opacity here: muted at 80 % lands at 3.83:1 on the sheet surface and fails
+   WCAG AA — plain muted passes. (Latent violation, visible only with an issued
+   invoice; caught by the F-round validation seed.) */
+.beleg__gform-h span { color: var(--muted); }
+.beleg__gform .input { min-width: 0; }
+.beleg__gform .btn { white-space: nowrap; }
+@media (max-width: 34rem) { .beleg__gform { grid-template-columns: 1fr; } }
+
+/* "Festgeschrieben" lock chip next to the invoice number + integrity hash line. */
+.beleg__inv-lock { font-size: .6rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; vertical-align: middle;
+	color: var(--primary); background: var(--primary-tint); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+	border-radius: 999px; padding: .1rem .45rem; margin-left: .35rem; }
+.beleg__inv-hash { font-family: var(--font-mono); font-size: .62rem; color: var(--muted); padding: .15rem .9rem 0; letter-spacing: .02em; }
+
+/* Invoice confirmation page: §11 checklist + snapshot preview. */
+.cfm-h { font-family: var(--font-mono); font-size: .64rem; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-bottom: .5rem; }
+.cfm-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cfm-check { display: grid; grid-template-columns: 1.4rem 1fr auto; gap: .5rem; align-items: baseline; padding: .4rem 0; border-top: 1px solid var(--card-hairline); }
+.cfm-check:first-child { border-top: 0; }
+.cfm-mk { width: 1.15rem; height: 1.15rem; border-radius: 6px; display: grid; place-items: center; font-size: .72rem; font-weight: 800; align-self: center; }
+.cfm-check--ok .cfm-mk { background: var(--primary); color: var(--on-primary, #fff); }
+.cfm-check--bad .cfm-mk { background: var(--danger); color: #fff; }
+.cfm-lbl { font-weight: 600; font-size: .9rem; }
+.cfm-check--bad .cfm-lbl { color: var(--danger); }
+.cfm-det { font-family: var(--font-mono); font-size: .8rem; color: var(--muted); text-align: right; }
+.cfm-prev { display: flex; flex-direction: column; gap: .1rem; }
+.cfm-prev-row { display: flex; justify-content: space-between; gap: 1rem; padding: .22rem 0; }
+.cfm-prev-row--mut { color: var(--muted); font-size: .9rem; }
+.cfm-prev-row--tot { border-top: 1px solid var(--hairline-strong, var(--border)); margin-top: .2rem; padding-top: .4rem; font-weight: 700; font-size: 1.05rem; }
+.cfm-prev-row .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Payment instruction on the issued invoice (IBAN + reference), part of the
+   printed document. Distinct from .beleg__pay (the live Zahlungen section). */
+.beleg__payinfo { display: flex; align-items: flex-start; gap: .8rem; padding: .5rem .9rem .2rem; }
+.beleg__payinfo-txt { display: flex; flex-direction: column; gap: .12rem; flex: 1; min-width: 0; }
+.beleg__payinfo-k { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.beleg__payinfo-v { font-size: .82rem; }
+.beleg__epcqr { flex: 0 0 auto; width: 118px; height: 118px; image-rendering: pixelated;
+	border: 1px solid var(--card-hairline); border-radius: 8px; background: #fff; padding: 4px; }
+[data-beleg-grund][aria-pressed="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+[data-beleg-grund][aria-pressed="true"] .ic { color: var(--on-primary); }
+[data-beleg-rechnung][aria-pressed="true"] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+[data-beleg-rechnung][aria-pressed="true"] .ic { color: var(--on-primary); }
+
+/* Invoice (Rechnung) mode — sender/recipient block + tax note, shown only when
+   the Rechnung toggle is on (.beleg--rechnung). */
+.beleg__invoice, .beleg__invtax { display: none; }
+.beleg--rechnung .beleg__invoice, .beleg--rechnung .beleg__invtax { display: block; }
+/* Hide the informal payments/Offener-Rest block in invoice mode — the invoice
+   reconciliation (Rechnungsbetrag → bezahlt → Restbetrag) replaces it. */
+.beleg--rechnung .beleg__pay { display: none; }
+/* The informal Verrechnung subtotal is restated inside the invoice
+   reconciliation, so drop the duplicate in Rechnung mode (line items stay). */
+.beleg--rechnung .beleg__ver-sum { display: none; }
+/* Hero summary: the informal Saldo / Offener-Rest headline is replaced by the
+   formal "Restbetrag zu zahlen" (brutto) once the Rechnung toggle is on. */
+.beleg__sum-invoice { display: none; }
+.beleg--rechnung .beleg__sum-invoice { display: block; }
+.beleg--rechnung .beleg__sum-informal { display: none; }
+.beleg__invoice { padding: .85rem .9rem; border-bottom: 1px solid var(--border); }
+.beleg__inv-top { display: flex; justify-content: space-between; gap: .5rem; font-family: var(--font-mono); font-size: .8rem; margin-bottom: .55rem; }
+.beleg__inv-no { font-weight: 700; }
+.beleg__inv-due { font-family: var(--font-mono); font-size: .76rem; color: var(--muted); margin: -.25rem 0 .55rem; }
+.beleg__inv-due strong { color: var(--text); font-weight: 700; }
+.beleg__inv-due--over { color: var(--danger); }
+.beleg__inv-due--over strong { color: var(--danger); }
+.beleg__inv-pp { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; font-size: .84rem; align-items: start; }
+.beleg__inv-k { font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: .1rem; }
+.beleg__inv-addr { white-space: pre-line; }
+.beleg__invtax { padding-top: .3rem; }
+.beleg__inv-note { font-size: .74rem; color: var(--muted); font-style: italic; padding: .5rem .9rem .2rem; }
+/* Soft § 11 reminder: recipient UID missing on an invoice over €10,000 gross. */
+.beleg__inv-warn { margin: .2rem .9rem 0; padding: .5rem .65rem; border-radius: 8px; font-size: .78rem; line-height: 1.4;
+	background: #fbf3df; border: 1px solid #e6cf93; color: #6b4d0e; }
+
+.beleg-toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom)); transform: translate(-50%, 12px);
+	background: var(--text); color: var(--bg); font-weight: 600; font-size: .88rem; padding: .6rem 1rem; border-radius: 12px;
+	box-shadow: var(--card-shadow); opacity: 0; transition: opacity .2s, transform .2s; z-index: 60; pointer-events: none; max-width: 90vw; text-align: center; }
+.beleg-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+@page { size: A4; margin: 14mm; }
+@media print {
+	.beleg-page .backlink, .beleg__actions { display: none !important; }
+	/* A4 document: full width, no rounded frame, and keep logical blocks/rows from
+	   splitting across a page break. */
+	.beleg { max-width: none; margin: 0; border-radius: 0; }
+	.beleg__hero, .beleg__invoice, .beleg__invtax, .beleg__payinfo { break-inside: avoid; }
+	.beleg__lsub, .beleg__li, .beleg__docrow, .beleg__gm, .beleg__gt { break-inside: avoid; }
+	/* print backgrounds (hero, header/subtotal bands) — off by default in print */
+	/* A printed/PDF Beleg is a document to hand over, so pin the theme tokens to
+	   their light values: on screen the Beleg stays theme-aware (dark in dark
+	   mode), but the export must never be dark-on-dark. print-color-adjust:exact
+	   would otherwise carry the dark theme surface into the PDF under #111 text. */
+	.beleg {
+		--surface: #ffffff; --surface-2: #f2f4ef;
+		--text: #191c1a; --muted: #5b655d; --border: #dfe4dd;
+		--card-hairline: rgba(20, 40, 30, .07);
+		--owe: #c05635; --danger: #b4442f;
+		background: #ffffff !important;
+		border: 0; box-shadow: none; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+	}
+	.beleg, .beleg * { color: #111 !important; }
+	.beleg__hero { background: #e9efe9 !important; }
+	.beleg__hero * { color: #10241a !important; }
+	.beleg__lhead, .beleg__lsub { background: #f4f4f4 !important; }
+	.beleg__b--neg { color: #b04a2a !important; }
+	/* keep dates/sub-labels muted so the hierarchy survives the flat #111 rule */
+	.beleg__d, .beleg__sec, .beleg__lhead, .beleg__foot, .beleg__grund-sub, .beleg__lsub-h, .beleg__t small,
+	.beleg__gt--head, .beleg__gm--head, .beleg__gt-id small, .beleg__gt-bl small { color: #666 !important; }
+}
+
+/* ---- Empty states ------------------------------------------------------ */
+/* A dashed invitation instead of a grey sentence: small illustration, one
+   line of text, and (where a next step exists) a direct CTA. */
+.empty { display: flex; flex-direction: column; align-items: center; gap: .45rem;
+	padding: 1.3rem .8rem; background: var(--surface); border: 1px dashed var(--border);
+	border-radius: var(--radius); text-align: center; }
+.empty svg { width: 76px; height: 44px; color: var(--muted); opacity: .85; }
+.empty__title { font-weight: 700; font-size: .9rem; }
+.empty__sub { font-size: .78rem; color: var(--muted); margin-top: -.25rem; }
+.empty .btn { margin-top: .35rem; }
+.empty--slim { padding: .8rem; }
+
+/* ---- Neighbor history as year cards ------------------------------------ */
+.yearcards { display: flex; flex-direction: column; gap: .5rem; }
+.yearcard { display: flex; align-items: center; gap: .6rem; background: var(--surface);
+	border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .75rem;
+	box-shadow: var(--shadow); color: var(--text); text-decoration: none; min-height: var(--tap); }
+.yearcard:hover { background: var(--surface-2); }
+.yearcard__year { font-weight: 800; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
+.yearcard__meta { flex: 1 1 auto; min-width: 0; font-size: .74rem; color: var(--muted); }
+.yearcard__value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- Toast (server flash, shown above the tab bar) --------------------- */
+/* Same server flash mechanism, repositioned near the thumb: accent edge +
+   glyph per kind, slides up once. Inline info boxes keep using .flash. */
+.toast { position: fixed; left: .8rem; right: .8rem; z-index: 40;
+	bottom: calc(64px + env(safe-area-inset-bottom));
+	max-width: calc(var(--maxw) - 2rem); margin: 0 auto;
+	display: flex; gap: .55rem; align-items: center;
+	background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--pay);
+	border-radius: 12px; padding: .6rem .75rem; font-size: .88rem; font-weight: 600;
+	box-shadow: 0 10px 26px rgba(0, 0, 0, .22);
+	animation: toast-in .22s ease-out; }
+.toast__msg { flex: 1 1 auto; min-width: 0; }
+.toast__close { flex: 0 0 auto; width: 26px; height: 26px; border: 0; border-radius: 6px; padding: 0;
+	background: transparent; color: inherit; font-size: .95rem; line-height: 1; cursor: pointer; opacity: .65; }
+.toast__close:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
+.toast::before { content: "✓"; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+	display: grid; place-items: center; font-size: .75rem; font-weight: 800;
+	background: color-mix(in srgb, var(--pay) 18%, transparent); color: var(--pay); }
+.toast--error { border-left-color: var(--danger); }
+.toast--error::before { content: "!"; background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.toast--info { border-left-color: var(--accent); }
+.toast--info::before { content: "i"; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* Small derivation line under a collapsed cost item (Grundlagen · vor dem
+   Aufklappen) — screenshot-friendly. */
+.calcline { display: block; font-size: .76rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: .1rem; }
+.disclosure > summary .list__main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+
+/* Subtle typographic lift for the headline figures (restrained — no display
+   webfont): tabular digits and a touch of negative tracking give them presence
+   without shouting. */
+.summary-card__value { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
+/* ---- First-run onboarding checklist ---------------------------------- */
+.onboard { display: flex; flex-direction: column; gap: .55rem; }
+.onboard__eyebrow { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .09em; font-weight: 800; color: var(--accent-text); }
+.onboard__title { font-size: var(--fs-lg); font-weight: 800; letter-spacing: -.01em; margin: 0; }
+.steps { display: flex; flex-direction: column; gap: .5rem; }
+.step { display: flex; align-items: center; gap: .6rem; background: var(--surface);
+	border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .5rem .6rem; box-shadow: var(--shadow); }
+.step__n { width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto; display: grid; place-items: center;
+	font-weight: 800; font-size: .8rem; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.step__t { flex: 1; min-width: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text); text-decoration: none; }
+.step__t small { display: block; font-weight: 400; color: var(--muted); font-size: var(--fs-xs); }
+.step__go { color: var(--muted); font-size: 1.1rem; line-height: 1; flex: 0 0 auto; }
+.step--done .step__n { background: var(--pay); color: #fff; border-color: var(--pay); }
+.step--now { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--surface)); }
+.step--now .step__n { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+/* ---- Skip link (WCAG 2.4.1) ------------------------------------------- */
+/* First focusable element; off-screen until focused, then jumps to #main. */
+.skip { position: absolute; left: 8px; top: -60px; z-index: 100;
+	background: var(--primary); color: #fff; font-weight: 700; text-decoration: none;
+	padding: .55rem .9rem; border-radius: 8px; transition: top .15s ease; }
+.skip:focus { top: 8px; }
+/* The skip link moves focus to <main> (a programmatic, non-:focus-visible
+   focus) — suppress the outline only there, so it doesn't box the whole content
+   area. A genuine keyboard :focus-visible on main still shows the global ring. */
+.main:focus:not(:focus-visible) { outline: none; }
+@media (prefers-reduced-motion: reduce) { .skip { transition: none; } }
+
+/* ---- Print: drop the app chrome so a page (e.g. recovery codes, a Beleg)
+   prints as a clean document. ------------------------------------------- */
+@media print {
+	.appbar, .yearbar, .tabbar, .drawer, .drawer__scrim, .toast, .fab, .skip { display: none !important; }
+	.no-print { display: none !important; }
+	.main { max-width: none; padding: 0; }
+	body { background: #fff; }
+}
+
+/* ---- Audit log as cards (replaces the 6-column sideways table) -------- */
+.logcards { display: flex; flex-direction: column; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.logcard { background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius);
+	padding: .55rem .7rem; display: flex; flex-direction: column; gap: .3rem; box-shadow: var(--card-shadow);
+	transition: transform .14s ease, box-shadow .14s ease; }
+.logcard__top { display: flex; align-items: center; gap: .5rem; }
+.logcard__time { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.logcard__detail { font-size: var(--fs-sm); line-height: 1.4; overflow-wrap: break-word; }
+.logcard__meta { font-size: var(--fs-xs); color: var(--muted); overflow-wrap: break-word; }
+
+/* ---- Backup status panel (admin) -------------------------------------- */
+.bkp__head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.bkp__dot { width: .85rem; height: .85rem; border-radius: 50%; flex: 0 0 auto; background: var(--muted);
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 18%, transparent); }
+.bkp--ok .bkp__dot { background: var(--pay); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pay) 20%, transparent); }
+.bkp--stale .bkp__dot { background: #e0a03a; box-shadow: 0 0 0 4px color-mix(in srgb, #e0a03a 22%, transparent); }
+.bkp--failed .bkp__dot { background: var(--owe); box-shadow: 0 0 0 4px color-mix(in srgb, var(--owe) 22%, transparent); }
+.bkp__state { font-size: 1.1rem; font-weight: 800; }
+/* Status overview as small tiles (matches the panel mockup). */
+.bkp__meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: .5rem; margin: .9rem 0 0; }
+.bkp__meta > div { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: .5rem .6rem; }
+.bkp__meta dt { font-family: var(--font-mono); font-size: .56rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 .15rem; }
+.bkp__meta dd { margin: 0; font-weight: 600; font-size: .88rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.bkp__hint, .bkp__note { color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.bkp__hint { margin: .6rem 0 0; }
+.bkp__note { margin: .2rem .2rem 0; font-size: .8rem; }
+.bkp__badge { margin-left: auto; font-family: var(--font-mono); font-size: .66rem; font-weight: 700; letter-spacing: .04em;
+	padding: .18rem .55rem; border-radius: 999px; background: var(--primary-tint); color: var(--primary);
+	border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent); }
+.bkp__warn { color: #b04a2a; font-weight: 600; }
+.bkp__do { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.bkp__cmd { margin: 0; padding: .6rem .75rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px;
+	overflow-x: auto; font-family: var(--font-mono); font-size: .8rem; }
+.bkp__cmd code { background: none; padding: 0; }
+.bkp__sec { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase;
+	color: var(--muted); margin: 0 0 .6rem; }
+.bkp__files { list-style: none; margin: .2rem 0 0; padding: 0; }
+.bkp__files li { display: grid; grid-template-columns: 1fr auto auto; gap: .2rem .9rem; align-items: baseline;
+	padding: .5rem 0; border-top: 1px solid var(--card-hairline); }
+.bkp__files li:first-child { border-top: 0; }
+.bkp__fn { font-family: var(--font-mono); font-size: .8rem; overflow-wrap: anywhere; }
+.bkp__fm { font-family: var(--font-mono); font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.bkp__files a.link { font-size: .82rem; font-weight: 700; white-space: nowrap; }
+.bkp__more { margin-top: .5rem; border-top: 1px solid var(--card-hairline); }
+.bkp__more > summary { list-style: none; cursor: pointer; padding: .55rem 0 .1rem; font-size: .8rem;
+	font-weight: 600; color: var(--accent-text); user-select: none; }
+.bkp__more > summary::-webkit-details-marker { display: none; }
+.bkp__more > summary::before { content: "▾ "; }
+.bkp__more[open] > summary::before { content: "▴ "; }
+.bkp__more > summary:hover { text-decoration: underline; }
+.bkp__more .bkp__files li:first-child { border-top: 1px solid var(--card-hairline); }
+.bkp__auto { display: inline-flex; align-items: center; gap: .45rem; font-size: .82rem; font-weight: 600;
+	color: var(--muted); margin: .1rem 0 .55rem; cursor: pointer; user-select: none; }
+.bkp__auto input { width: 1rem; height: 1rem; accent-color: var(--primary); }
+.bkp__off .bkp__seg,
+.bkp__off .bkp__cron-rows,
+.bkp__off .bkp__lbl,
+.bkp__off .bkp__cron-input,
+.bkp__off .bkp__tlbl,
+.bkp__off .bkp__timeline,
+.bkp__off .bkp__next,
+.bkp__off .input--num { display: none !important; }
+.bkp__s3-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.bkp__files a.bkp__dl { flex: 0 0 auto; white-space: nowrap; }
+.bkp__files--compact a.bkp__dl { min-height: 30px; padding: .22rem .6rem; font-size: .78rem; }
+.bkp--restore .field span code, .bkp__do code { font-size: .82em; }
+.bkp__sec--danger { color: var(--owe); }
+.bkp__restore-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.bkp__restore-file { flex: 1 1 15rem; min-width: 0; }
+.bkp__restore-key { flex: 0 1 13rem; }
+.bkp__restore-confirm { max-width: 13rem; font-family: var(--font-mono); letter-spacing: .06em; }
+[data-validate-result] { margin-top: 1rem; }
+/* Danger box: even internal rhythm via gap (inline margins are CSP-stripped). */
+.bkp__danger { display: flex; flex-direction: column; gap: .85rem; }
+.bkp__danger > * { margin: 0; }
+.bkp__danger .bkp__btnrow { margin-top: 0; }
+.bkp__danger { margin-top: 1rem; padding: .9rem; border: 1px solid color-mix(in srgb, var(--owe) 40%, var(--border));
+	border-radius: 11px; background: color-mix(in srgb, var(--owe) 7%, transparent); }
+/* (The former owe-filled .btn--danger override lived here and silently made
+   EVERY danger button a filled orange — removed; the canonical crimson outline
+   in the Buttons section now applies app-wide, including the backup danger zone.) */
+.bkp__sched { display: grid; grid-template-columns: 1fr; gap: .8rem; }
+@media (min-width: 560px) { .bkp__sched { grid-template-columns: 1fr 1fr; } }
+.bkp__sched-col { border: 1px solid var(--border); border-radius: 10px; padding: .7rem .8rem; background: var(--surface-2); }
+.bkp__sec .ic { color: var(--primary); vertical-align: -1px; margin-right: .1rem; }
+.bkp__sched-h { font-weight: 700; font-size: .95rem; margin-bottom: .6rem; }
+.bkp__muted { color: var(--muted); font-weight: 400; font-size: .8rem; }
+.bkp__lbl { display: block; font-size: .72rem; color: var(--muted); margin: .55rem 0 .2rem; letter-spacing: .01em; }
+.bkp__lbl:first-of-type { margin-top: 0; }
+.input--mono { font-family: var(--font-mono); font-size: .88rem; letter-spacing: .02em; }
+.input--num { width: 100%; max-width: 7rem; text-align: right; font-variant-numeric: tabular-nums; }
+.bkp__desc { margin-top: .5rem; font-size: .82rem; line-height: 1.4; color: var(--primary); background: var(--primary-tint);
+	border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent); border-radius: 8px; padding: .42rem .55rem; }
+.bkp__desc--bad { color: var(--owe); background: color-mix(in srgb, var(--owe) 8%, transparent);
+	border-color: color-mix(in srgb, var(--owe) 35%, transparent); }
+.bkp__next { font-family: var(--font-mono); font-size: .72rem; color: var(--muted); margin-top: .4rem; }
+.bkp__next strong { color: var(--text); }
+.bkp__hide { display: none !important; }
+/* Backup panel: buttons keep their natural width (the global .btnrow stretches
+   them, which looks oversized next to the compact schedule fields). */
+/* Button rows: real margin (the CSP blocks inline style attributes, so spacing
+   MUST live in a class) and no glow that would bleed into the element above. */
+.bkp__btnrow { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: 1.3rem; }
+.bkp__btnrow .btn { flex: 0 0 auto; box-shadow: none; }
+/* "Jetzt sichern" RUNS a backup — push it away from the save button so two
+   same-styled neighbours can't be confused into an accidental run. */
+.bkp__btnrow .bkp__runnow { margin-left: auto; }
+.bkp__seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); margin-bottom: .6rem; }
+.bkp__seg button { font-family: var(--font-body); font-size: .72rem; font-weight: 600; padding: .34rem .55rem; border: 0;
+	border-right: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+.bkp__seg button:last-child { border-right: 0; }
+.bkp__seg button.on { background: var(--primary); color: var(--on-primary); }
+.bkp__arow { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .55rem; font-size: .84rem; color: var(--muted); }
+.bkp__arow input[type="time"], .bkp__arow input[type="number"] { width: auto; min-width: 4.5rem; }
+.bkp__arow .input--num { width: 4rem; }
+.bkp__tlbl { font-family: var(--font-mono); font-size: .58rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: .6rem 0 .3rem; }
+.bkp__timeline { display: flex; gap: .35rem; flex-wrap: wrap; }
+.bkp__tl { font-family: var(--font-mono); font-size: .68rem; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: .24rem .45rem; color: var(--text); }
+.bkp__tl:first-child { border-color: color-mix(in srgb, var(--primary) 45%, transparent); color: var(--primary); font-weight: 700; }
+.bkp__s3-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.bkp__files--compact li { padding: .32rem 0; }
+.bkp__files--compact .bkp__fn { font-size: .74rem; }
+.bkp__files--compact .bkp__fm { font-size: .7rem; }
+.logcard__meta .ip { font-variant-numeric: tabular-nums; }
+.abadge { display: inline-flex; align-items: center; font-size: var(--fs-xs); font-weight: 800;
+	padding: .12rem .5rem; border-radius: 999px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); white-space: nowrap; }
+
+/* ---- Per-year stats as cards (replaces the 8-column Jahresübersicht) -- */
+.yearstats { display: flex; flex-direction: column; gap: .5rem; }
+.yearstat { position: relative; overflow: hidden; background: var(--card-grad); border: 1px solid var(--card-hairline);
+	border-radius: var(--radius); padding: .7rem .8rem .8rem; box-shadow: var(--card-shadow); }
+.yearstat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sacc, var(--primary)); }
+.yearstat--open { --sacc: var(--accent); }
+.yearstat--done { --sacc: var(--primary); }
+.yearstat--sum { --sacc: var(--primary-strong); background: var(--surface-2); }
+.yearstat__head { display: flex; align-items: center; gap: .5rem; }
+.yearstat__yr { font-weight: 800; font-size: var(--fs-md); font-variant-numeric: tabular-nums; text-decoration: none; }
+.yearstat__net { margin-left: auto; font-weight: 800; font-size: var(--fs-lg); font-variant-numeric: tabular-nums; letter-spacing: -.01em; white-space: nowrap; }
+.yearstat__sub { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--muted); font-size: var(--fs-sm);
+	margin: .35rem 0 .55rem; font-variant-numeric: tabular-nums; }
+.yearstat__sub b { color: var(--text); font-weight: 700; }
+.yearstat__pay { display: flex; flex-direction: column; gap: .2rem; }
+.paybar { display: block; width: 100%; height: 8px; }
+.paybar__track { fill: color-mix(in srgb, var(--accent) 24%, var(--surface-2)); }
+.paybar__paid { fill: var(--primary); }
+.paybar__l { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--muted); }
+.paybar__l b { color: var(--text); font-weight: 700; }
+.paybar__l .paybar__open { color: var(--accent-text); }
+
+/* ---- Price comparison as rows (replaces the 5-column Vergleich table) - */
+.cmprows { display: flex; flex-direction: column; gap: .45rem; }
+.cmprow { background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius); padding: .55rem .7rem; box-shadow: var(--card-shadow); transition: transform .14s ease, box-shadow .14s ease; }
+.cmprow__top { display: flex; align-items: baseline; gap: .5rem; }
+.cmprow__pos { font-weight: 700; font-size: var(--fs-sm); }
+.cmprow__new { margin-left: auto; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cmprow__meta { display: flex; gap: .6rem; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; margin-top: .15rem; }
+
+/* ---- Desktop: use the width -----------------------------------------------
+   Placed at the end so it wins the cascade over the single-column base rules
+   (.list/.bookcards/… are display:flex above). The content area widens and the
+   stacked card lists flow into two columns; mobile stays single-column. */
+@media (min-width: 900px) {
+	.main { max-width: 940px; padding: 1.25rem; }
+	.list, .bookcards, .logcards, .yearcards, .yearstats {
+		display: grid; grid-template-columns: 1fr 1fr; align-items: start;
+	}
+	/* Opt back out of two columns (admin users list, audit log): these read
+	   better as a single top-to-bottom column. Placed after the rule above so
+	   it wins the cascade. */
+	.list--onecol, .logcards--onecol { grid-template-columns: 1fr; }
+}
+
+/* ---- Account security flows (2FA setup, password, backup codes) -------- */
+.setup-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1.1rem; }
+.setup-steps > li { counter-increment: step; position: relative; padding-left: 2.6rem; }
+.setup-steps > li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 1.8rem; height: 1.8rem;
+	display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: var(--on-primary); font-weight: 800; font-size: .85rem; }
+.setup-step__t { font-weight: 700; font-size: var(--fs-md); margin-bottom: .3rem; }
+.copyrow { display: flex; gap: .5rem; align-items: stretch; }
+.copyrow .secretkey { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.copyrow .btn { flex: 0 0 auto; white-space: nowrap; }
+
+.pwwrap { position: relative; display: flex; }
+.pwwrap .input { flex: 1; padding-right: 2.9rem; }
+.pw-toggle { position: absolute; right: 4px; top: 4px; bottom: 4px; width: 2.3rem; display: grid; place-items: center;
+	border: 0; background: transparent; color: var(--muted); cursor: pointer; border-radius: 7px; }
+.pw-toggle:hover { color: var(--text); background: var(--surface-2); }
+.pw-toggle .ic { width: 18px; height: 18px; }
+.pw-match { display: block; font-size: var(--fs-xs); font-weight: 700; margin-top: .15rem; min-height: 1em; }
+.pw-match--ok { color: var(--pay); } .pw-match--ok::before { content: "\2713\00a0"; }
+.pw-match--no { color: var(--danger); } .pw-match--no::before { content: "\2715\00a0"; }
+
+.savedcheck { margin: .4rem 0 .6rem; }
+.btn.is-disabled { opacity: .5; pointer-events: none; }
+
+/* ---- Two-factor status page: header chip, action rows, danger zone ----
+   The two management actions are native <details> restyled as tappable
+   settings rows (icon + label + subtext + chevron); the destructive one is
+   demoted into a separate, tinted danger zone. No JS — CSP-safe. */
+.chip2--ok { color: var(--pay); background: color-mix(in srgb, var(--pay) 14%, transparent); border-color: color-mix(in srgb, var(--pay) 30%, transparent); }
+.chip2 .ic { width: .9em; height: .9em; }
+
+.tfa-head { display: flex; align-items: center; gap: .55rem; margin-bottom: .3rem; }
+.tfa-head__ic { color: var(--primary); display: inline-flex; }
+.tfa-head__ic .ic { width: 1.5em; height: 1.5em; }
+.tfa-head__t { margin: 0; flex: 1 1 auto; min-width: 0; }
+.tfa-head .chip2 { margin-left: auto; flex: 0 0 auto; }
+
+.tfa-rows { display: flex; flex-direction: column; gap: .6rem; margin-top: 1rem; }
+.arow-d { border: 0; }
+.arow-d > summary.arow { list-style: none; cursor: pointer; }
+.arow-d > summary.arow::-webkit-details-marker { display: none; }
+.arow { display: flex; align-items: center; gap: .7rem; padding: .8rem .85rem;
+	border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+	transition: border-color .12s, background .12s; }
+.arow:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.arow-d > summary.arow:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.arow__ic { color: var(--primary); display: inline-flex; flex: 0 0 auto; }
+.arow__ic .ic { width: 1.4em; height: 1.4em; }
+.arow__txt { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.arow__t { font-weight: 700; font-size: var(--fs-md); }
+.arow__s { color: var(--muted); font-size: var(--fs-xs); }
+.arow__end { margin-left: auto; display: flex; align-items: center; gap: .5rem; flex: 0 0 auto; }
+.arow__end .chev { color: var(--muted); transition: transform .15s; }
+.arow-d[open] > summary.arow .chev { transform: rotate(90deg); }
+.arow__body { padding: .85rem .1rem .2rem; }
+.arow__body .form { margin: 0; }
+
+.dangerzone { margin-top: 1.15rem; padding-top: 1rem;
+	border-top: 1px dashed color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.dangerzone__lbl { display: flex; align-items: center; gap: .35rem; font-size: var(--fs-xs); font-weight: 800;
+	letter-spacing: .05em; text-transform: uppercase; color: var(--danger); margin-bottom: .55rem; }
+.dangerzone__lbl .ic { width: 1em; height: 1em; }
+.arow-d--danger > summary.arow { background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+	border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); }
+.arow-d--danger > summary.arow:hover { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); }
+.arow-d--danger .arow__ic { color: var(--danger); }
+
+/* ---- Settings overview: page header w/ back button, account rows, passkeys -
+   The Einstellungen page unifies account, 2FA and passkey management; sub-pages
+   (password, 2FA setup) share the same header so a back button exists app-wide. */
+.pagehead { display: flex; align-items: center; gap: .8rem; }
+.backbtn { width: 2.4rem; height: 2.4rem; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%;
+	background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+.backbtn:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); color: var(--primary); }
+.backbtn .ic { width: 1.3em; height: 1.3em; }
+.pagehead__t { font-size: var(--fs-xl); font-weight: 800; letter-spacing: -.02em; margin: 0; }
+.pagehead__action { margin-left: auto; }
+
+.kv { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+	padding: .55rem 0; border-bottom: 1px solid var(--border); }
+.card > .kv:first-child { padding-top: 0; }
+.kv--last { border-bottom: 0; }
+.kv__k { color: var(--muted); font-size: .92rem; }
+.kv__v { font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.kv__v--mail { color: var(--primary); }
+.card-cta { margin-top: .9rem; }
+
+.pklist { display: flex; flex-direction: column; margin-top: .3rem; }
+.pkrow { display: flex; align-items: center; gap: .7rem; padding: .7rem 0; border-bottom: 1px solid var(--border); }
+.pkrow:last-child { border-bottom: 0; }
+.pkrow__ic { color: var(--primary); display: inline-flex; flex: 0 0 auto; }
+.pkrow__ic .ic { width: 1.25em; height: 1.25em; }
+.pkrow__txt { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.pkrow__t { font-weight: 700; overflow-wrap: anywhere; }
+.pkrow__s { color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.pkrow form { margin-left: auto; flex: 0 0 auto; margin-bottom: 0; }
+
+/* ---- Recalc as cards (replaces the 6-column sideways table) ----------- */
+.rcards { display: flex; flex-direction: column; gap: .5rem; }
+.rcard { background: var(--card-grad); border: 1px solid var(--card-hairline); border-radius: var(--radius); padding: .6rem .75rem; box-shadow: var(--card-shadow); transition: transform .14s ease, box-shadow .14s ease; }
+.rcard__top { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.rcard__date { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rcard__task { color: var(--muted); font-size: var(--fs-sm); }
+.rcard__nb { margin-left: auto; font-size: var(--fs-xs); color: var(--muted); }
+.rcard__grid { display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; margin-top: .4rem;
+	padding-top: .35rem; border-top: 1px dashed var(--border); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.rcard__k { color: var(--muted); }
+.rcard__v .old { color: var(--muted); }
+.rcard__v .arr { color: var(--muted); margin: 0 .15rem; }
+.rsum { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: .7rem .8rem;
+	display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.rsum__diff { font-weight: 800; color: var(--accent-text); }
+.rsum__tot .old { color: var(--muted); } .rsum__tot .arr { color: var(--muted); margin: 0 .15rem; }
+
+/* ============================================================================
+   Werkblatt finish — ported from the design artifacts.
+   ========================================================================== */
+/* Noir dark: the hero cards stay deep obsidian-green with light text; the
+   vibrant mint --primary is reserved for links/accents. (The top stack is
+   chassis-constant in both themes, so it needs no dark override anymore.) */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) .summary-card,
+	:root:not([data-theme="light"]) .rate-preview {
+		background: linear-gradient(135deg, #1e402d, #13251b); color: #fff; border: 1px solid rgba(133, 215, 169, .16);
+	}
+}
+:root[data-theme="dark"] .summary-card,
+:root[data-theme="dark"] .rate-preview {
+	background: linear-gradient(135deg, #1e402d, #13251b); color: #fff; border: 1px solid rgba(133, 215, 169, .16);
+}
+
+/* Card list rows get a subtle left accent stripe (dashboard neighbours, etc.). */
+.list__row.card, .disclosure--row.card { position: relative; overflow: hidden; background: var(--surface); }
+.list__row.card::before, .disclosure--row.card::before {
+	content: ""; position: absolute; left: 9px; top: 13px; bottom: 13px; width: 3px;
+	border-radius: 999px; background: var(--primary);
+}
+/* Give the label room so it clears the inset accent bar. */
+.list__row.card > .list__main, .disclosure--row.card > summary { padding-left: .55rem; }
+
+/* Eyebrow / KPI labels in the mono face, uppercase — the "technical" tag look. */
+.summary-card__label, .kpi__label, .onboard__eyebrow {
+	font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .04em; font-weight: 700;
+}
+
+/* (Year pills need no dark override anymore: the chassis bar is dark in both
+   themes, so the single white-based treatment above serves both.) */
+
+/* Login — brand lockup above the card, gradient logo tile (rotating machine
+   mark), mono kicker + field labels, and an "oder" divider before passkey. */
+.auth { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+.auth__brand { margin-bottom: 1.4rem; }
+.auth__logo { width: 64px; height: 64px; border-radius: 14px; display: grid; place-items: center;
+	background: var(--brand-grad); color: var(--on-signal); box-shadow: 0 14px 30px -14px rgba(224,89,16,.6); margin-bottom: .4rem; }
+.auth__logo svg { width: 34px; height: 34px; display: block; }
+.auth__brand h1 { font-size: 1.9rem; color: var(--primary); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .auth__brand h1 { color: var(--text); } }
+:root[data-theme="dark"] .auth__brand h1 { color: var(--text); }
+.auth__kick { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .2em; font-size: .7rem; font-weight: 700; color: var(--muted); margin: 0; }
+.auth__head { margin-bottom: .2rem; }
+.auth__head h2 { font-size: 1.55rem; letter-spacing: -.01em; }
+.auth__head p { margin: .3rem 0 0; font-size: .9rem; }
+/* (.auth .field > span dropped — the plate-label treatment is app-wide now.) */
+.auth__or { display: flex; align-items: center; gap: 12px; margin: .2rem 0 -.2rem; color: var(--muted);
+	font-family: var(--font-mono); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; }
+.auth__or::before, .auth__or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+/* Keyboard-shortcut cheatsheet overlay (toggled by "?"). Token-based → theme-aware. */
+.kbd-help { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+	background: rgba(0, 0, 0, .45); padding: 1rem; }
+.kbd-help__card { background: var(--surface); color: var(--text); border: 1px solid var(--border);
+	border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.1rem 1.2rem; min-width: 15rem;
+	max-width: 22rem; width: 100%; }
+.kbd-help__h { margin: 0 0 .7rem; font-size: 1rem; }
+.kbd-help__row { display: flex; align-items: center; gap: .8rem; padding: .28rem 0; }
+.kbd-help__row span { color: var(--muted); font-size: .92rem; }
+.kbd-help kbd { min-width: 2.6rem; text-align: center; font-family: var(--font-mono); font-size: .8rem;
+	padding: .15rem .45rem; border: 1px solid var(--border); border-bottom-width: 2px;
+	border-radius: 7px; background: var(--surface-2); color: var(--text); }
+@media (prefers-reduced-motion: no-preference) { .kbd-help { animation: kbd-fade .12s ease-out; } }
+@keyframes kbd-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Print helpers: hide app chrome so ANY page prints as a clean document, and a
+   print-only header for the per-neighbor multi-year account statement. */
+.print-only { display: none; }
+.statement-head { margin-bottom: .3rem; }
+.statement-head__meta { color: var(--muted); font-size: .82rem; }
+@media print {
+	.appbar, .tabbar, .drawer, .drawer__scrim, .no-print { display: none !important; }
+	.print-only { display: block; }
+	body { background: #fff; }
+	/* Pin light tokens for the statement so it never prints dark-on-dark (mirrors
+	   the Beleg print treatment). */
+	.stack--statement {
+		--surface: #fff; --surface-2: #f4f6f2; --text: #191c1a; --muted: #5b655d; --border: #dfe4dd;
+		-webkit-print-color-adjust: exact; print-color-adjust: exact;
+	}
+	.stack--statement, .stack--statement * { color: #111 !important; }
+	.stack--statement .statement-head__meta, .stack--statement .muted { color: #666 !important; }
+	.stack--statement .yearcard, .stack--statement .summary-card { break-inside: avoid; box-shadow: none; }
+	.stack--statement .yearcard { background: #fff !important; border-color: #dfe4dd !important; }
+}
+
+/* Standalone error page (404/500). Token-based; follows system theme. */
+.errpage-body { min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; background: var(--bg); }
+.errpage { width: 100%; max-width: 26rem; }
+.errpage__card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+	box-shadow: var(--card-shadow); padding: 2rem 1.6rem; text-align: center; }
+.errpage__code { font-family: var(--font-mono); font-size: 2.6rem; font-weight: 800; color: var(--muted); line-height: 1; }
+.errpage__title { margin: .6rem 0 .3rem; font-size: 1.15rem; }
+.errpage__msg { color: var(--muted); font-size: .9rem; margin: 0 0 1.2rem; }
+
+/* First-run onboarding checklist (dashboard). Auto-hides when all steps done. */
+.onboard { padding: .9rem 1rem; }
+.onboard__h { font-weight: 700; font-size: .9rem; margin-bottom: .5rem; }
+.onboard__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+.onboard__item { display: flex; align-items: center; gap: .55rem; font-size: .92rem; min-height: var(--tap); }
+/* --accent-text (not the raw --accent) is the AA-contrast variant for text on a
+   light background: #8a5e12 passes 4.5:1 where #c8891f is only 2.97:1. */
+.onboard__item a { color: var(--accent-text, var(--text)); }
+.onboard__item.is-done { color: var(--muted); }
+.onboard__mark { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; flex: 0 0 auto;
+	border: 1.5px solid var(--border); border-radius: 50%; }
+.onboard__item.is-done .onboard__mark { border-color: var(--good, #3f8f5f); color: var(--good, #3f8f5f); }
+.onboard__mark svg { width: .8rem; height: .8rem; }
+
+/* Command palette (Ctrl/Cmd+K). Token-based → theme-aware. */
+.cmdk { position: fixed; inset: 0; z-index: 70; display: flex; justify-content: center;
+	align-items: flex-start; padding: 12vh 1rem 1rem; background: rgba(0, 0, 0, .45); }
+.cmdk__box { width: 100%; max-width: 34rem; background: var(--surface); border: 1px solid var(--border);
+	border-radius: var(--radius); box-shadow: var(--card-shadow); overflow: hidden; }
+.cmdk__input { border: 0; border-bottom: 1px solid var(--border); border-radius: 0;
+	font-size: 1rem; padding: .85rem 1rem; }
+.cmdk__input:focus { outline: none; box-shadow: none; }
+.cmdk__list { list-style: none; margin: 0; padding: .3rem; max-height: 55vh; overflow-y: auto; }
+.cmdk__item { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border-radius: var(--radius-sm);
+	cursor: pointer; }
+.cmdk__item.is-sel { background: var(--surface-2); }
+/* Werkblatt F4: result-kind type stamps — green ink plates; nav jumps are the
+   one orange margin note. */
+.cmdk__ic {
+	flex: 0 0 auto; width: 34px; height: 22px;
+	display: inline-grid; place-items: center;
+	font-family: var(--font-mono); font-size: .6rem; font-weight: 700; letter-spacing: .06em;
+	color: var(--primary); background: var(--surface);
+	border: 1px solid var(--line-strong, var(--border)); border-radius: 4px;
+}
+.cmdk__ic--nav { color: var(--signal-text); border-color: var(--signal-text); }
+/* Hide the raw WebKit search-clear chrome inside the palette input. */
+.cmdk__input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.cmdk__tx { display: flex; flex-direction: column; min-width: 0; }
+.cmdk__lb { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmdk__sub { color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Undo action inside a flash toast. */
+.toast__undo { margin: 0 .2rem 0 .6rem; }
+.toast__undobtn { background: transparent; border: 1px solid currentColor; color: inherit;
+	border-radius: 8px; padding: .2rem .6rem; font-size: .82rem; font-weight: 600; cursor: pointer; }
+.toast__undobtn:hover { background: rgba(255, 255, 255, .18); }
+
+/* Offline pending-count badge in the appbar. */
+.appbar__offline { font-size: .72rem; font-weight: 700; padding: .18rem .5rem; border-radius: 999px;
+	background: var(--owe, #c05635); color: #fff; white-space: nowrap; }
+
+/* Photo receipts attached to a booking (edit page). */
+.photogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .5rem; }
+.photogrid__item { position: relative; margin: 0; }
+.photogrid__item img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-sm);
+	border: 1px solid var(--border); background: var(--surface-2); }
+.photogrid__del { position: absolute; top: .25rem; right: .25rem; display: grid; place-items: center;
+	width: 1.7rem; height: 1.7rem; border: 0; border-radius: 50%; background: rgba(0, 0, 0, .55);
+	color: #fff; cursor: pointer; }
+.photogrid__del svg { width: .95rem; height: .95rem; }
+
+/* ---- Desktop nav rail (Werkblatt, ≥1024px) ----------------------------- */
+/* The bottom tab bar docks LEFT as a chassis rail — a pure CSS repositioning
+   of the same DOM (same links, handlers, e2e selectors). It fuses with the
+   chassis app bar into one machine frame; items are numbered like the sections
+   of a Werkblatt sheet via CSS counters. Placed last to win the cascade. */
+@media (min-width: 1024px) {
+	body.has-nav { padding-left: 212px; padding-bottom: 0; }
+	.tabbar {
+		top: 0; right: auto; bottom: 0; left: 0; width: 212px;
+		flex-direction: column; justify-content: flex-start; gap: .15rem;
+		background: var(--chassis);
+		-webkit-backdrop-filter: none; backdrop-filter: none;
+		border-top: 0; border-right: 1px solid var(--chassis-line);
+		box-shadow: none;
+		padding: 4.6rem .55rem 1rem; /* below the sticky app-bar row */
+		counter-reset: navno;
+		z-index: 15; /* under the sticky topstack, over content */
+	}
+	.tabbar__item {
+		flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: .55rem;
+		width: 100%; padding: .55rem .6rem; border-radius: 8px;
+		font-size: .85rem;
+		counter-increment: navno;
+		border-left: 3px solid transparent;
+	}
+	/* Sheet number replaces the mobile top-marker ::before. */
+	.tabbar__item::before,
+	.tabbar__item.is-active::before {
+		content: "0" counter(navno);
+		position: static; transform: none; width: auto; height: auto;
+		background: none; border-radius: 0;
+		font-size: .62rem; font-weight: 700; letter-spacing: .08em;
+		color: var(--chassis-muted);
+	}
+	.tabbar__item.is-active { background: rgba(255, 255, 255, .05); border-left-color: var(--chassis-active); color: #fff; }
+	.tabbar__item.is-active::before { color: var(--chassis-active); }
+	.tabbar__pill { width: auto; height: auto; }
+	.tabbar__item.is-active .tabbar__pill { background: none; box-shadow: none; }
+	/* No bottom bar on desktop: dock FAB and toasts to the viewport bottom. */
+	.fab { bottom: 1.25rem; }
+	.toast { left: calc(212px + .8rem); bottom: 1rem; }
+	.beleg-toast { bottom: 1.25rem; }
+}
+@media print {
+	body.has-nav { padding-left: 0; }
+}

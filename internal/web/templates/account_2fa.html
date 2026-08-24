@@ -1,35 +1,64 @@
 {{define "content"}}
 <section class="stack">
+	{{if .NewCodes}}
 	<div class="card">
-		<h2 class="section-title">Zwei‑Faktor‑Authentifizierung</h2>
-		{{if .Enabled}}
-		<p>2FA ist <strong>aktiviert</strong>. Zum Anmelden benötigst du zusätzlich den
-			6‑stelligen Code deiner Authenticator‑App.</p>
-		<form method="post" action="/account/2fa/disable" class="form"
-			data-confirm="Zwei‑Faktor wirklich deaktivieren?">
-			<label class="field"><span>Passwort bestätigen</span>
-				<input class="input" type="password" name="password" autocomplete="current-password" required></label>
-			<button class="btn btn--danger btn--sm" type="submit">2FA deaktivieren</button>
-		</form>
-		{{else}}
-		<p class="muted">Richte eine Authenticator‑App (z. B. Aegis, FreeOTP, Google Authenticator)
-			mit folgendem Schlüssel ein und bestätige anschließend mit einem Code.</p>
-		<div class="field">
-			<span>Geheimer Schlüssel (manuell eingeben)</span>
-			<code class="secretkey">{{.Secret}}</code>
+		<h2 class="section-title">Wiederherstellungscodes</h2>
+		{{if .Notice}}<div class="flash flash--info">{{.Notice}}</div>{{end}}
+		<p class="muted">Bewahre diese Codes sicher auf (z. B. Passwortmanager oder ausgedruckt).
+			Jeder Code funktioniert <strong>einmal</strong>, falls du keinen Zugriff auf deine
+			Authenticator‑App hast. Sie werden <strong>nur jetzt</strong> angezeigt.</p>
+		<ul class="codes" data-codes>
+			{{range .NewCodes}}<li><code>{{.}}</code></li>{{end}}
+		</ul>
+		<div class="btnrow">
+			<button class="btn btn--primary btn--sm" type="button" data-copy-codes>Kopieren</button>
+			<button class="btn btn--ghost btn--sm" type="button" data-print>Drucken</button>
 		</div>
-		<details class="disclosure disclosure--plain">
-			<summary>otpauth‑URL anzeigen</summary>
-			<code class="secretkey small">{{.URI}}</code>
-		</details>
-		<form method="post" action="/account/2fa/confirm" class="form">
-			<label class="field"><span>Code aus der App</span>
-				<input class="input" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
-					autocomplete="one-time-code" placeholder="123456" required></label>
-			<button class="btn btn--primary" type="submit">2FA aktivieren</button>
-		</form>
-		{{end}}
+		<label class="check savedcheck">
+			<input type="checkbox" data-gate-check>
+			<span>Ich habe die Codes an einem sicheren Ort gespeichert.</span>
+		</label>
+		<a class="btn btn--primary btn--block" href="/profile" data-gate-done>Fertig</a>
 	</div>
-	<p class="muted center"><a class="link" href="/profile">Zurück zum Profil</a></p>
+	{{else}}
+	<div class="pagehead">
+		<a class="backbtn" href="/profile" aria-label="Zurück zu den Einstellungen">{{template "ic-back"}}</a>
+		<h1 class="pagehead__t">Zwei‑Faktor einrichten</h1>
+	</div>
+	<div class="card">
+		<ol class="setup-steps">
+			<li>
+				<div class="setup-step__t">Mit einer Authenticator‑App scannen</div>
+				<p class="muted small">z. B. Aegis, FreeOTP oder Google Authenticator.</p>
+				<div class="qrwrap"><img class="qr" src="/account/2fa/qr.png" alt="QR‑Code zum Einrichten" width="220" height="220"></div>
+				<div class="field">
+					<span>Kann nicht scannen? Schlüssel manuell eingeben:</span>
+					<div class="copyrow">
+						<code class="secretkey" id="totp-secret">{{.Secret}}</code>
+						<button class="btn btn--ghost btn--sm" type="button" data-copy="#totp-secret" aria-label="Schlüssel kopieren">{{template "ic-copy"}} Kopieren</button>
+					</div>
+				</div>
+				<details class="disclosure disclosure--plain">
+					<summary>otpauth‑URL anzeigen</summary>
+					<code class="secretkey small">{{.URI}}</code>
+				</details>
+			</li>
+			<li>
+				<div class="setup-step__t">6‑stelligen Code eingeben &amp; aktivieren</div>
+				<form method="post" action="/account/2fa/confirm" class="form">
+					<label class="field"><span>Code aus der App</span>
+						<input class="input" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+							autocomplete="one-time-code" placeholder="123456" required></label>
+					<label class="field"><span>Passwort zur Bestätigung</span>
+						<input class="input" name="password" type="password" autocomplete="current-password"
+							placeholder="Aktuelles Passwort" required></label>
+					<button class="btn btn--primary" type="submit">2FA aktivieren</button>
+				</form>
+			</li>
+		</ol>
+	</div>
+	{{end}}
 </section>
 {{end}}
+
+{{define "scripts"}}<script src="/static/js/recovery.js" defer></script>{{end}}

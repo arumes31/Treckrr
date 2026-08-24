@@ -11,6 +11,8 @@ import (
 	"io/fs"
 	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 //go:embed templates/*.html
@@ -93,7 +95,25 @@ func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"money": Money,
 		"num":   Num,
-		"date":  Date,
+		// numInput formats a decimal for an <input type="number"> value: a plain
+		// period-decimal with trailing zeros trimmed. Num() emits the German comma,
+		// which HTML number inputs reject (the field would render empty), so form
+		// prefills must use this instead.
+		"numInput": func(d decimal.Decimal) string {
+			s := d.StringFixed(3)
+			if strings.Contains(s, ".") {
+				s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+			}
+			return s
+		},
+		"date": Date,
+		// pdate formats an optional time (nil -> ""), e.g. a passkey's LastUsed.
+		"pdate": func(t *time.Time) string {
+			if t == nil {
+				return ""
+			}
+			return Date(*t)
+		},
 		"dateInput": func(t time.Time) string {
 			if t.IsZero() {
 				return ""
@@ -101,6 +121,35 @@ func funcMap() template.FuncMap {
 			return t.Format("2006-01-02")
 		},
 		"dict": dict,
+		// pct returns |v|/max as a percentage string (clamped 0–100) for an SVG
+		// width/x attribute — CSP-safe (a presentation attribute, not inline style).
+		"pct": func(v, max decimal.Decimal) string {
+			if !max.IsPositive() {
+				return "0%"
+			}
+			p := v.Abs().Div(max).Mul(decimal.NewFromInt(100))
+			if p.GreaterThan(decimal.NewFromInt(100)) {
+				p = decimal.NewFromInt(100)
+			}
+			return p.StringFixed(1) + "%"
+		},
+		// initials returns the first two runes of a name, uppercased — the
+		// drawer's avatar badge.
+		"initials": func(s string) string {
+			r := []rune(strings.TrimSpace(s))
+			if len(r) > 2 {
+				r = r[:2]
+			}
+			return strings.ToUpper(string(r))
+		},
+		// split breaks a string on sep — used to render multi-part audit details
+		// (fields joined by " · ") on separate lines.
+		"split": func(sep, s string) []string {
+			if s == "" {
+				return nil
+			}
+			return strings.Split(s, sep)
+		},
 		"seq": func(n int) []int {
 			out := make([]int, n)
 			for i := range out {
@@ -127,12 +176,12 @@ func funcMap() template.FuncMap {
 }
 
 // Money formats a value as German-style currency, e.g. 1234.5 -> "1.234,50 €".
-func Money(v float64) string {
+func Money(v decimal.Decimal) string {
 	return formatDecimal(v, 2) + " €"
 }
 
 // Num formats a number with up to three decimals, German style, no trailing zeros.
-func Num(v float64) string {
+func Num(v decimal.Decimal) string {
 	s := formatDecimal(v, 3)
 	// Trim trailing zeros after the decimal comma.
 	if strings.Contains(s, ",") {
@@ -152,8 +201,8 @@ func Date(t time.Time) string {
 
 // formatDecimal renders v with the given decimals using "." as thousands
 // separator and "," as decimal separator (de-DE).
-func formatDecimal(v float64, decimals int) string {
-	s := fmt.Sprintf("%.*f", decimals, v)
+func formatDecimal(v decimal.Decimal, decimals int32) string {
+	s := v.StringFixed(decimals)
 	neg := strings.HasPrefix(s, "-")
 	if neg {
 		s = s[1:]
