@@ -135,8 +135,8 @@ func TestHandleAccountPasswordSubmitValidation(t *testing.T) {
 		if rr.Code != http.StatusSeeOther {
 			t.Errorf("expected status SeeOther, got %v", rr.Code)
 		}
-		flashCookie := rr.Header().Get("Set-Cookie")
-		if !strings.Contains(flashCookie, url.QueryEscape("Das neue Passwort darf nicht mit dem aktuellen Passwort übereinstimmen.")) {
+		flashCookie := flashText(t, s, rr)
+		if !strings.Contains(flashCookie, "Das neue Passwort darf nicht mit dem aktuellen Passwort übereinstimmen.") {
 			t.Errorf("expected identical password warning, got cookie: %q", flashCookie)
 		}
 	})
@@ -163,9 +163,39 @@ func TestHandleAccountPasswordSubmitValidation(t *testing.T) {
 		if rr.Code != http.StatusSeeOther {
 			t.Errorf("expected status SeeOther, got %v", rr.Code)
 		}
-		flashCookie := rr.Header().Get("Set-Cookie")
-		if !strings.Contains(flashCookie, url.QueryEscape("Passwort geändert. Andere Sitzungen wurden beendet.")) {
+		flashCookie := flashText(t, s, rr)
+		if !strings.Contains(flashCookie, "Passwort geändert. Andere Sitzungen wurden beendet.") {
 			t.Errorf("expected success password change, got cookie: %q", flashCookie)
+		}
+	})
+}
+
+func TestHandleSessionRevokeValidation(t *testing.T) {
+	s := testAccountServer(t)
+
+	t.Run("oversized session token is rejected", func(t *testing.T) {
+		form := url.Values{}
+		form.Set("token", strings.Repeat("a", maxNameLen+1))
+
+		req := httptest.NewRequest(http.MethodPost, "/account/sessions/revoke", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		ctx := context.WithValue(req.Context(), userCtxKey, &models.User{
+			ID:       123,
+			Username: "testuser",
+			Role:     "editor",
+		})
+		req = req.WithContext(ctx)
+
+		s.handleSessionRevoke(rr, req)
+
+		if rr.Code != http.StatusSeeOther {
+			t.Errorf("expected status SeeOther, got %v", rr.Code)
+		}
+		flashCookie := flashText(t, s, rr)
+		if !strings.Contains(flashCookie, "Token darf höchstens 100 Zeichen lang sein.") {
+			t.Errorf("expected over-limit token warning, got cookie: %q", flashCookie)
 		}
 	})
 }

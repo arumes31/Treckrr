@@ -18,8 +18,9 @@
  *
  * Good-citizen rendering: the static layer (grid / dots) is drawn once to an
  * offscreen canvas and blitted each frame; only the pulse / sun / drill overlay
- * animates. Honours prefers-reduced-motion (a single static frame, no loop),
- * pauses when the tab is hidden, DPR-capped, opaque context. Purely decorative:
+ * animates. Runs regardless of prefers-reduced-motion (see the note at start()
+ * in login-bg.js), pauses when the tab is hidden, DPR-capped, opaque context.
+ * Purely decorative:
  * aria-hidden, pointer-inert; degrades to the plain --bg background when JS is
  * off or the 2D context is unavailable. CSP-safe — no inline code.
  */
@@ -116,14 +117,29 @@
 	};
 	// Keep the surface stable on F5 / in-app navigation and re-roll it only on a
 	// hard reload — which bypasses the service worker, so the page loads with no
-	// controller (the one signal that separates it from an F5). Without a SW
-	// (plain-HTTP IP origin) fall back to once-per-session. Excludes the previous
-	// pick so a hard reload always lands on a different surface, cycling through
-	// the three over successive hard reloads.
+	// controller. A missing controller alone is NOT proof of that: on a first visit,
+	// and whenever registration is blocked (private window, blocked site data,
+	// policy), there is never a controller and every plain F5 would look "hard". So
+	// only trust the signal once the worker has actually controlled this browser at
+	// least once, and otherwise degrade to once-per-session — the same rule used
+	// when the browser has no service worker at all. Excludes the previous pick so
+	// a hard reload always lands on a different surface.
+	var HARD = (function () {
+		var SEEN = "treckrr-sw-ctrl", SESS = "treckrr-appbg-s";
+		if ("serviceWorker" in navigator) {
+			var controlled = false;
+			try { controlled = !!navigator.serviceWorker.controller; } catch (x) { }
+			if (controlled) { try { localStorage.setItem(SEEN, "1"); } catch (e) { } return false; }
+			try { if (localStorage.getItem(SEEN) === "1") return true; } catch (e) { }
+		}
+		try {
+			var fresh = !sessionStorage.getItem(SESS);
+			if (fresh) sessionStorage.setItem(SESS, "1");
+			return fresh;
+		} catch (x) { return true; }
+	})();
 	function pickVariant(store, keys) {
-		var hard;
-		if ("serviceWorker" in navigator) { try { hard = !navigator.serviceWorker.controller; } catch (x) { hard = true; } }
-		else { try { hard = !sessionStorage.getItem(store + "-s"); sessionStorage.setItem(store + "-s", "1"); } catch (x) { hard = true; } }
+		var hard = HARD;
 		var last = null; try { last = localStorage.getItem(store); } catch (e) { }
 		if (last && keys.indexOf(last) >= 0 && !hard) return last;
 		var pool = keys.filter(function (k) { return k !== last; }); if (!pool.length) pool = keys;
@@ -137,17 +153,48 @@
 	/* ---- driver: cached static layer + animated overlay ------------------ */
 	var DPR = Math.min(1.5, window.devicePixelRatio || 1);
 	var stat = document.createElement("canvas"), sctx = stat.getContext("2d", { alpha: false });
-	var reduce = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
-	var W = 0, H = 0, pal = palette(), t = Math.random() * 8, prev = 0, running = false, raf = 0;
+	// t is read off the wall clock rather than a random phase, so the travelling
+	// light / sun / drill picks up where the previous page left it instead of
+	// jumping on a reload that deliberately kept the same surface.
+	var W = 0, H = 0, pal = palette(), t = Date.now() / 1000, prev = 0, running = false, raf = 0;
+	var lastRaf = 0, fallback = 0;
+	// Whether the visible canvas has ever been composed. The ground is only handed
+	// over to it (see markActive) once this is true.
+	var painted = false;
+
+	// The canvas sits at z-index:-1, which paints BELOW body's own background — so
+	// body's opaque --bg fill and its blueprint grid would hide it completely.
+	// Hand the paper over to the canvas only once we can actually paint: this
+	// class makes body transparent (see .has-appbg in app.css), while no-JS and
+	// no-2d-context keep the static CSS grid as the fallback.
+	function markActive() { try { document.documentElement.classList.add("has-appbg"); } catch (e) { } }
 
 	function size() {
 		var r = canvas.getBoundingClientRect();
 		if (!r.width || !r.height) return false;
 		W = r.width; H = r.height;
-		canvas.width = stat.width = Math.round(W * DPR);
-		canvas.height = stat.height = Math.round(H * DPR);
-		sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-		v.build(sctx, W, H, pal);
+		var cw = Math.round(W * DPR), ch = Math.round(H * DPR);
+		// Assigning canvas.width/height runs "set bitmap dimensions", which clears
+		// the bitmap — and for an {alpha:false} context it clears to OPAQUE BLACK —
+		// even when the value is unchanged. So only touch it on a real size change
+		// (that also skips a full rebuild per ResizeObserver tick).
+		var resized = cw !== canvas.width || ch !== canvas.height;
+		if (resized) {
+			canvas.width = stat.width = cw;
+			canvas.height = stat.height = ch;
+		}
+		// Repaint whenever the bitmap was just cleared, and also when nothing has
+		// ever been painted: a first layout of exactly the default bitmap size
+		// (300x150 at DPR 1) leaves `resized` false, and skipping the paint there
+		// would hand the ground over to a canvas still in its opaque-black
+		// initial state.
+		if (resized || !painted) {
+			sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+			v.build(sctx, W, H, pal);
+			compose(0);
+			painted = true;
+		}
+		markActive(); // unreachable until painted === true
 		return true;
 	}
 	function compose(dt) {
@@ -155,22 +202,50 @@
 		ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 		v.overlay(ctx, W, H, t, dt, pal);
 	}
+	// See login-bg.js for the reasoning: requestAnimationFrame stops being delivered
+	// when Chrome considers the window occluded — a remote-desktop session does that
+	// routinely — while document.hidden stays false, so nothing notices and the loop
+	// dies silently. lastRaf is stamped only here; the fallback timer below never
+	// touches it, so it cannot mask a stall and keep itself running.
 	function frame(now) {
 		if (!running) return;
+		// Must happen here, not at the watchdog's next tick: this path and the
+		// fallback both advance `t`, so any overlap runs the backdrop at double
+		// speed until the watchdog gets round to noticing.
+		if (fallback) { clearInterval(fallback); fallback = 0; }
+		lastRaf = Date.now();
 		var dt = Math.min(0.05, (now - prev) / 1000 || 0.016); prev = now; t += dt;
 		compose(dt); raf = requestAnimationFrame(frame);
 	}
-	function start() { if (running || reduce.matches || document.hidden || !W) return; running = true; prev = performance.now(); raf = requestAnimationFrame(frame); }
-	function stop() { running = false; if (raf) cancelAnimationFrame(raf); raf = 0; }
+	// Deliberately not gated on prefers-reduced-motion; the reasoning is written out
+	// at start() in login-bg.js. The CSS animations elsewhere still honour it.
+	function start() {
+		if (running || document.hidden || !W) return;
+		running = true; prev = performance.now(); lastRaf = Date.now(); raf = requestAnimationFrame(frame);
+	}
+	function stop() {
+		running = false;
+		if (raf) cancelAnimationFrame(raf); raf = 0;
+		if (fallback) clearInterval(fallback); fallback = 0;
+	}
+	setInterval(function () {
+		if (!running || document.hidden || !W) return;
+		var stalled = Date.now() - lastRaf > 800;
+		if (stalled && !fallback) fallback = setInterval(function () { t += 0.04; compose(0.04); }, 40);
+		else if (!stalled && fallback) { clearInterval(fallback); fallback = 0; }
+	}, 500);
 	function retheme() { pal = palette(); if (W) { v.build(sctx, W, H, pal); if (!running) compose(0); } }
 
 	v.reset();
-	if (size()) { if (reduce.matches) compose(0); else start(); }
+	// size() paints the first frame itself, so a hidden load (background tab,
+	// session restore, prerender) never sits on an unpainted canvas. start() is
+	// idempotent, and the resize paths call it too so a first size() that failed
+	// (canvas not laid out yet) still gets the loop going once it succeeds.
+	if (size()) start();
 
-	if (window.ResizeObserver) new ResizeObserver(function () { if (size() && !running) compose(0); }).observe(canvas);
-	else window.addEventListener("resize", function () { if (size() && !running) compose(0); });
+	if (window.ResizeObserver) new ResizeObserver(function () { if (size()) start(); }).observe(canvas);
+	else window.addEventListener("resize", function () { if (size()) start(); });
 	document.addEventListener("visibilitychange", function () { if (document.hidden) stop(); else start(); });
-	if (reduce.addEventListener) reduce.addEventListener("change", function () { if (reduce.matches) { stop(); compose(0); } else start(); });
 	var dark = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
 	if (dark && dark.addEventListener) dark.addEventListener("change", retheme);
 	if (window.MutationObserver) new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
