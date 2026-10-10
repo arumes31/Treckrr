@@ -2,7 +2,7 @@
 # Usage: `make check` before committing; `make run` to start the app.
 
 IMG    := golang:1.27.2-alpine
-LINT   := golangci/golangci-lint:v2.13.1
+LINT   := golangci/golangci-lint:v2.14.0
 GO     := docker run --rm -v "$(CURDIR):/src" -v treckrr-gomod:/go/pkg/mod -w /src -e GOTOOLCHAIN=go1.27.2 $(IMG) sh -c
 GOTEST := docker run --rm --network treckrr-itest -v "$(CURDIR):/src" -v treckrr-gomod:/go/pkg/mod -w /src -e GOTOOLCHAIN=go1.27.2 -e TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(IMG) sh -c
 
