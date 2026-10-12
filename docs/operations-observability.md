@@ -89,3 +89,33 @@ Legacy and current recurring-helper formats intentionally differ when a master
 person has been removed; merging those paths would silently change history.
 No compatibility path is removed: a zero count in development does not prove
 that production data or old encrypted backups no longer need it.
+
+### Read-only invoice source check
+
+From the inventory, select **Rechnungszuordnung prüfen** to compare active
+invoice snapshots with their current, non-voided service entries. The check is
+opt-in (`/admin/legacy-inventory?invoice_sources=1`), admin-only, and uses a
+read-only repeatable-read transaction. It does not assign entries, issue or
+cancel invoices, change payments, or apply a migration.
+
+The report compares source line order, dates, labels, units, quantities, rates,
+costs and the cent-rounded net total. Current issuer/recipient master data is
+deliberately excluded, and canceled historical invoices are not remapped.
+Only counts, internal record IDs and reason codes are returned, not customer
+names, line text or monetary values. The optional JSON export includes the
+source check; the ordinary inventory JSON remains unchanged.
+
+A mismatch requires investigation against the original records, not rewriting
+a frozen invoice to make the check pass. A matching report is a point-in-time
+source comparison, not approval of the tax calculation, proof that a future
+migration is safe, or a reservation against later changes. Rerun after any data
+change. Historical snapshots do not contain source IDs; a match does not prove
+original row identity or revalidate the stored content hash.
+Multiple invoices per neighbor/year are **not enabled** by this check;
+the existing issuance and payment behavior stays in force.
+
+The recurring-format consolidation shares only the person-existence lookup.
+Legacy single-helper templates still skip a removed person; current helper-list
+templates keep their frozen name/rate and clear the missing optional person ID.
+Characterization tests cover both the scheduled and immediate runners, including
+empty/null lists and retries, without rewriting stored templates.
