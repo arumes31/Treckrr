@@ -3,6 +3,7 @@
 package backup
 
 import (
+	"context"
 	"database/sql"
 	"io"
 	"log/slog"
@@ -85,10 +86,49 @@ func TestRehearsalScheduleRestoresAndPersistsSuccessIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() { _ = pool.Close() })
 	if err := appdb.Migrate(t.Context(), pool); err != nil {
 		t.Fatal(err)
 	}
+	var paymentID, neighborID, yearID, baseID int64
+	if err := pool.QueryRowContext(t.Context(), `
+		WITH base AS (
+			INSERT INTO price_bases (year,name)
+			SELECT COALESCE(max(year),3000)+1,'Synthetic rehearsal basis' FROM price_bases
+			RETURNING id,year
+		), year AS (
+			INSERT INTO billing_years (year,base_id)
+			SELECT GREATEST(base.year,(SELECT COALESCE(max(year),3000)+1 FROM billing_years)),base.id FROM base
+			RETURNING id,base_id
+		), neighbor AS (
+			INSERT INTO neighbors (name)
+			SELECT 'Synthetic rehearsal neighbor ' || id FROM year RETURNING id
+		), payment AS (
+			INSERT INTO payments (billing_year_id,neighbor_id,amount,note)
+			SELECT year.id,neighbor.id,12.34,'Synthetic rehearsal payment' FROM year,neighbor
+			RETURNING id,billing_year_id,neighbor_id
+		)
+		SELECT payment.id,payment.neighbor_id,payment.billing_year_id,year.base_id
+		FROM payment JOIN year ON year.id=payment.billing_year_id`).Scan(&paymentID, &neighborID, &yearID, &baseID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, fixture := range []struct {
+			table, query string
+			id           int64
+		}{
+			{"payments", "DELETE FROM payments WHERE id=$1", paymentID},
+			{"neighbors", "DELETE FROM neighbors WHERE id=$1", neighborID},
+			{"billing_years", "DELETE FROM billing_years WHERE id=$1", yearID},
+			{"price_bases", "DELETE FROM price_bases WHERE id=$1", baseID},
+		} {
+			if _, err := pool.ExecContext(ctx, fixture.query, fixture.id); err != nil {
+				t.Errorf("cleanup %s fixture: %v", fixture.table, err)
+			}
+		}
+	})
 	if _, err := pool.ExecContext(t.Context(), `UPDATE backup_scheduler_state SET rehearsal_last_success=NULL,rehearsal_attempt_at=NULL,rehearsal_retry_at=NULL WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +168,34 @@ func TestRehearsalScheduleRestoresAndPersistsSuccessIntegration(t *testing.T) {
 	if err := root.WriteFile("treckrr-schedule-fixture.dump.enc", enc, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The archive has the old amount. Restoring over the source would revert
+	// this later payment correction, even if all source row counts stayed equal.
+	if _, err := pool.ExecContext(t.Context(), `UPDATE payments SET amount=98.76 WHERE id=$1`, paymentID); err != nil {
+		t.Fatal(err)
+	}
+	generatedScratchNames := func() map[string]bool {
+		t.Helper()
+		// Match scratchName's timestamp/hex grammar and the older bare-hex
+		// format, not operator databases that merely share the prefix.
+		rows, err := pool.QueryContext(t.Context(), `SELECT datname FROM pg_database WHERE datname ~ '^treckrr_rehearsal_([0-9]+_)?[0-9a-f]{32}$'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		names := make(map[string]bool)
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			names[name] = true
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return names
+	}
+	existingScratch := generatedScratchNames()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s.runScheduledRehearsal(t.Context(), logger, time.Now())
 	var last, attempt, retry sql.NullTime
@@ -140,6 +208,18 @@ func TestRehearsalScheduleRestoresAndPersistsSuccessIntegration(t *testing.T) {
 	}
 	if after := countSourceRows(); after != before {
 		t.Fatalf("source billing row count changed: before=%d after=%d", before, after)
+	}
+	var paymentAmount string
+	if err := pool.QueryRowContext(t.Context(), `SELECT amount::text FROM payments WHERE id=$1`, paymentID).Scan(&paymentAmount); err != nil {
+		t.Fatal(err)
+	}
+	if paymentAmount != "98.7600" {
+		t.Fatalf("rehearsal overwrote the source payment: amount=%s", paymentAmount)
+	}
+	for name := range generatedScratchNames() {
+		if !existingScratch[name] {
+			t.Errorf("rehearsal left a new scratch database behind: %s", name)
+		}
 	}
 	// A fresh process observes the durable successful run and does not restore
 	// again before the next configured monthly occurrence.

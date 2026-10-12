@@ -115,7 +115,7 @@ func TestStaleRehearsalDatabasesAreFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
+	t.Cleanup(func() { _ = admin.Close() })
 	nonce := func() string {
 		var b [16]byte
 		if _, err := rand.Read(b[:]); err != nil {
@@ -133,7 +133,9 @@ func TestStaleRehearsalDatabasesAreFound(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			dropScratch(ctx, admin, name)
+			if _, err := admin.ExecContext(ctx, `DROP DATABASE "`+name+`" WITH (FORCE)`); err != nil {
+				t.Errorf("cleanup scratch database: %v", err)
+			}
 		})
 	}
 	found, err := listStaleScratch(t.Context(), admin, now)
