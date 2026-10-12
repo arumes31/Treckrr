@@ -262,13 +262,14 @@ func TestNeighborOverviewShowsCreditBalanceSeparateFromCost(t *testing.T) {
 	t.Parallel()
 	d := decimal.RequireFromString
 	page := html.UnescapeString(execPage(t, "neighbor_overview", map[string]any{
-		"Title":      "Bio-Hof Steiner · Verlauf",
-		"Neighbor":   models.Neighbor{ID: 2, Name: "Bio-Hof Steiner"},
-		"TotalCost":  d("100"),
-		"TotalHours": decimal.Zero,
+		"Title":          "Bio-Hof Steiner · Verlauf",
+		"Neighbor":       models.Neighbor{ID: 2, Name: "Bio-Hof Steiner"},
+		"TotalCost":      d("100"),
+		"TotalRemaining": d("-5"),
+		"TotalHours":     decimal.Zero,
 		"Rows": []map[string]any{{
 			"Year": 2026, "YearID": int64(1), "Cost": d("100"),
-			"Hours": decimal.Zero, "Remaining": d("-5"),
+			"Hours": decimal.Zero, "Remaining": d("-5"), "PaidAmount": d("105"),
 			"Paid": false, "Credit": true, "Completed": true,
 		}},
 		"Today": time.Now(),
@@ -784,7 +785,7 @@ func TestDashboardShowsCreditAsOwedNotPaid(t *testing.T) {
 		"Summaries": []map[string]any{{
 			"Neighbor": models.Neighbor{ID: 9, Name: "Demo-Hof Leitner"},
 			"Cost":     d(-60), "Hours": decimal.Zero, "Entries": 0,
-			"Paid": false, "Credit": true, "Remaining": d(-60),
+			"Paid": false, "Credit": true, "Remaining": d(-60), "PaidAmount": decimal.Zero,
 		}},
 	})
 	for _, want := range []string{
@@ -809,7 +810,7 @@ func TestDashboardDueRowsTargetMatchingTiles(t *testing.T) {
 		return map[string]any{
 			"Neighbor": models.Neighbor{ID: id, Name: "Hof " + strconv.FormatInt(id, 10)},
 			"Cost":     d(rest), "Hours": decimal.Zero, "Entries": 1,
-			"Paid": paid, "Credit": credit, "Remaining": d(rest),
+			"Paid": paid, "Credit": credit, "Remaining": d(rest), "PaidAmount": decimal.Zero,
 		}
 	}
 	page := execPage(t, "dashboard", map[string]any{
@@ -835,7 +836,7 @@ func TestDashboardDueRowsTargetMatchingTiles(t *testing.T) {
 	if n := strings.Count(page, `data-due="credit"`); n != 1 {
 		t.Errorf(`data-due="credit" tiles = %d, want 1`, n)
 	}
-	if !strings.Contains(page, "Als bezahlt markieren") {
-		t.Error("completed-year open balance lacks the explicit mark-paid action label")
+	if !strings.Contains(page, "Zahlung verbuchen") {
+		t.Error("completed-year open balance lacks the explicit payment action label")
 	}
 }

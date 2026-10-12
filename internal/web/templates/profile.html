@@ -10,6 +10,12 @@
 		<div class="kv kv--last"><span class="kv__k">Rolle</span><span class="kv__v">{{.User.RoleLabel}}</span></div>
 		<a class="btn btn--ghost btn--block card-cta" href="/account/password">Passwort ändern</a>
 	</div>
+	<details class="card disclosure" data-favorite-settings>
+		<summary>Favoriten auf PC und Smartphone</summary>
+		<p class="muted small">Optional: Nachbarn und Gespanne mit deinem Konto abgleichen. Beim Aktivieren werden die Favoriten dieses Geräts übernommen. Entwürfe bleiben auf diesem Gerät. Bei gleichzeitigen Änderungen desselben Favoriten gilt die zuletzt empfangene Änderung.</p>
+		<label class="check"><input type="checkbox" data-favorite-sync disabled><span>Favoriten zwischen Geräten synchronisieren</span></label>
+		<p class="muted small" data-favorite-sync-status role="status">Einstellung wird geladen …</p>
+	</details>
 
 	<div class="card">
 		<div class="tfa-head">

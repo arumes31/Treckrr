@@ -38,3 +38,14 @@ node_modules/
 /tmp/
 /.tmp/
 /temp/
+/mockups/
+/screenshots/
+/artifacts/
+*-snapshots/
+playwright-report/
+test-results/
+blob-report/
+
+# Local build outputs are not inputs to the container build.
+/treckrr
+/treckrr.exe

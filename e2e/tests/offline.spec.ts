@@ -254,6 +254,68 @@ test("an online save whose connection dies is queued instead of lost", async ({ 
   expect(await page.locator('[name="idempotency_key"]').inputValue()).not.toBe(key);
 });
 
+test("pending online capture freezes controls and queues the exact submitted snapshot", async ({ page }) => {
+  let reply!: () => void;
+  const release = new Promise<void>(resolve => { reply = resolve; });
+  let submitted: URLSearchParams | undefined;
+  await page.route("**/entries", async route => {
+    submitted = new URLSearchParams(route.request().postData()!);
+    await release;
+    await route.abort("internetdisconnected");
+  });
+  await page.getByRole("button", { name: "Buchung speichern", exact: true }).click();
+  await expect.poll(() => submitted?.get("hours")).toBe("2");
+  await expect(page.locator('[name="hours"]')).toBeDisabled();
+  await expect(page.locator('[name="task_label"]')).toBeDisabled();
+  // Even a script changing disabled controls cannot corrupt the replay payload.
+  await page.locator('[name="hours"]').evaluate((input: HTMLInputElement) => { input.value = "99"; });
+  reply();
+  await expect.poll(async () => (await queue(page)).length).toBe(1);
+  const saved = (await queue(page))[0];
+  expect(queuedValue(saved, "hours")).toBe("2");
+  expect(queuedValue(saved, "idempotency_key")).toBe(submitted!.get("idempotency_key"));
+  await expect(page.locator('[name="hours"]')).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Buchung speichern", exact: true })).toBeEnabled();
+});
+
+for (const mode of ["offline", "lost-response"] as const) {
+  test(`${mode} save stays locked until IndexedDB commits`, async ({ page, context }) => {
+    // An open write transaction delays the real queue transaction, without
+    // substituting a mock for IndexedDB's durability semantics.
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("treckrr-offline", 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      let hold = true;
+      const transaction = db.transaction("queue", "readwrite");
+      const store = transaction.objectStore("queue");
+      function keepAlive() { store.get("not-a-booking").onsuccess = () => { if (hold) keepAlive(); }; }
+      keepAlive();
+      (window as any).releaseQueueTransaction = () => { hold = false; };
+      transaction.oncomplete = () => db.close();
+      (window as any).queuedEvents = 0;
+      document.querySelector("[data-entry-form]")!.addEventListener("treckrr:booking-queued", () => { (window as any).queuedEvents++; });
+    });
+    if (mode === "offline") await context.setOffline(true);
+    else await page.route("**/entries", route => route.abort("internetdisconnected"));
+    const save = page.getByRole("button", { name: "Buchung speichern", exact: true });
+    await save.click();
+    await expect(page.locator('[name="hours"]')).toBeDisabled();
+    await expect(save).toBeDisabled();
+    await expect(page.locator("[data-entry-form]")).toHaveAttribute("aria-busy", "true");
+    // Even another submit event cannot create a second item while commit waits.
+    await page.locator("[data-entry-form]").evaluate(form => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(await page.evaluate(() => (window as any).queuedEvents)).toBe(0);
+    await page.evaluate(() => (window as any).releaseQueueTransaction());
+    await expect.poll(async () => (await queue(page)).length).toBe(1);
+    await expect(save).toBeEnabled();
+    await expect(page.locator('[name="hours"]')).toBeEnabled();
+    expect(await page.evaluate(() => (window as any).queuedEvents)).toBe(1);
+  });
+}
+
 test("an unreachable precheck queues the booking without attempting the POST", async ({ page }) => {
   let posts = 0;
   await page.route("**/api/entries/precheck?*", route => route.abort("internetdisconnected"));

@@ -12,7 +12,8 @@
 	var preview = form.querySelector("[data-booking-preview]");
 	var locked = form.hasAttribute("data-booking-locked");
 	var drafts = Object.create(null), lastKey = "", machineCost = null, machineRate = null, machineAdjustment = null, serial = 0;
-	var storagePrefix = "treckrr:booking-defaults:v2:" + value("neighbor_id") + ":";
+	var user = document.querySelector('meta[name="user-id"]');
+	var storagePrefix = "treckrr:booking-defaults:v3:" + (user ? user.content : "anonymous") + ":" + value("year_id") + ":" + value("neighbor_id") + ":";
 	var remembered = ["mode", "gespann_id", "tractor_id", "load_level_id", "machine_ids", "unit", "unit_custom", "task_label"];
 	var immutable = ["booking_kind", "booking_direction", "entry_date", "year_id", "neighbor_id", "csrf_token", "idempotency_key", "booking_form_version", "copy_mode"];
 	var controls = Array.from(form.querySelectorAll("input[name], select[name]")).filter(function (el) { return !el.closest("[data-person-row]") && immutable.indexOf(el.name) === -1; });

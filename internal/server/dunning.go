@@ -62,6 +62,13 @@ func dunningStageParam(r *http.Request) (int, bool) {
 // msgInvalidDunningStage is the 400 text for a stage outside 0-2.
 const msgInvalidDunningStage = "Ungültige Mahnstufe — erlaubt sind nur Zahlungserinnerung, 1. und 2. Mahnung."
 
+// dunningYearParam accepts only positive billing-year IDs, including a checked
+// parse so an overflowing value cannot become a saturated, apparently valid ID.
+func dunningYearParam(r *http.Request) (int64, bool) {
+	yearID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("year")), 10, 64)
+	return yearID, err == nil && yearID > 0
+}
+
 // noOpenAmountMsg explains why a reminder for a settled account is refused.
 func noOpenAmountMsg(name string) string {
 	return "Für " + name + " ist kein Betrag offen — es wird keine Mahnung versendet oder vermerkt."
@@ -260,8 +267,8 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	yearID := formInt64(r, "year")
-	if yearID == 0 {
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
@@ -323,12 +330,17 @@ func (s *Server) handleMahnungPDF(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
 	stage, ok := dunningStageParam(r)
 	if !ok {
 		s.badRequest(w, msgInvalidDunningStage)
 		return
 	}
-	v, ok, err := s.buildMahnungData(r, neighborID, formInt64(r, "year"), stage)
+	v, ok, err := s.buildMahnungData(r, neighborID, yearID, stage)
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
@@ -355,7 +367,11 @@ func (s *Server) handleMahnungEmail(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	yearID := formInt64(r, "year")
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
 	stage, ok := dunningStageParam(r)
 	if !ok {
 		s.badRequest(w, msgInvalidDunningStage)
@@ -489,8 +505,8 @@ func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	yearID := formInt64(r, "year")
-	if yearID == 0 {
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
 		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
 		return
 	}
@@ -551,7 +567,11 @@ func (s *Server) handleMahnungMarkSent(w http.ResponseWriter, r *http.Request) {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	yearID := formInt64(r, "year")
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
 	back := fmt.Sprintf("/mahnwesen?year=%d", yearID)
 	stage, ok := dunningStageParam(r)
 	if !ok {
@@ -595,7 +615,11 @@ func (s *Server) handleMahnwesenBatchEmail(w http.ResponseWriter, r *http.Reques
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	yearID := formInt64(r, "year")
+	yearID, validYear := dunningYearParam(r)
+	if !validYear {
+		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+		return
+	}
 	stage, ok := dunningStageParam(r)
 	if !ok {
 		s.badRequest(w, msgInvalidDunningStage)

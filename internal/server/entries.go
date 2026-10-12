@@ -184,6 +184,17 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	view.Gespanne = gespanne
 	view.Today = time.Now().Format("2006-01-02")
 	bookingValues := newBookingValues()
+	if view.Section == "booking" {
+		query := r.URL.Query()
+		next := bookingContinuation(query.Get("next_kind"), query.Get("next_direction"), query.Get("next_date"))
+		for param, field := range map[string]string{
+			"next_kind": "booking_kind", "next_direction": "booking_direction", "next_date": "entry_date",
+		} {
+			if value := next.Get(param); value != "" {
+				bookingValues[field] = value
+			}
+		}
+	}
 	if raw := r.URL.Query().Get("machine"); raw != "" {
 		if machineID, err := strconv.ParseInt(raw, 10, 64); err == nil && machineID > 0 {
 			for _, machine := range machines {
@@ -203,6 +214,14 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	view.BookingLocked = view.HasInvoice
 	view.BookingAction = "/entries"
 	view.bind(data)
+	if len(ledger) > 0 {
+		targets, err := s.store.LedgerTransferTargets(r.Context(), year.ID, neighbor.ID)
+		if err != nil {
+			s.serverError(w, "neighbor: transfer links", err)
+			return
+		}
+		data["TransferTargets"] = targets
+	}
 	s.render(w, r, "neighbor", data)
 }
 
@@ -239,30 +258,33 @@ func (s *Server) handleNeighborOverview(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	type yearRow struct {
-		Year      int
-		YearID    int64
-		Cost      decimal.Decimal
-		Hours     decimal.Decimal
-		Remaining decimal.Decimal
-		Paid      bool
-		Credit    bool
-		Completed bool
+		Year       int
+		YearID     int64
+		Cost       decimal.Decimal
+		Hours      decimal.Decimal
+		Remaining  decimal.Decimal
+		PaidAmount decimal.Decimal
+		Paid       bool
+		Credit     bool
+		Completed  bool
 	}
 	rows := make([]yearRow, 0, len(history))
-	var totalCost, totalHours decimal.Decimal
+	var totalCost, totalHours, totalRemaining decimal.Decimal
 	for _, h := range history {
 		rows = append(rows, yearRow{
-			Year:      h.Year,
-			YearID:    h.YearID,
-			Cost:      h.Net,
-			Hours:     h.Hours,
-			Remaining: h.Remaining,
-			Paid:      h.Paid,
-			Credit:    h.Credit,
-			Completed: h.Status == models.YearCompleted,
+			Year:       h.Year,
+			YearID:     h.YearID,
+			Cost:       h.Net,
+			Hours:      h.Hours,
+			Remaining:  h.Remaining,
+			PaidAmount: h.PaidAmount,
+			Paid:       h.Paid,
+			Credit:     h.Credit,
+			Completed:  h.Status == models.YearCompleted,
 		})
 		totalCost = totalCost.Add(h.Net)
 		totalHours = totalHours.Add(h.Hours)
+		totalRemaining = totalRemaining.Add(h.Remaining)
 	}
 	company, _ := s.store.GetCompany(r.Context())
 	// The heading promised a Zahlungshistorie and rendered only year tiles
@@ -281,6 +303,7 @@ func (s *Server) handleNeighborOverview(w http.ResponseWriter, r *http.Request) 
 	data["Rows"] = rows
 	data["TotalCost"] = totalCost
 	data["TotalHours"] = totalHours
+	data["TotalRemaining"] = totalRemaining
 	data["Payments"] = payments
 	data["PaidTotal"] = paidTotal
 	communication, err := s.store.NeighborCommunication(r.Context(), neighbor.ID, 200)

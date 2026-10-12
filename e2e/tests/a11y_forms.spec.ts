@@ -200,7 +200,7 @@ test("native form controls and optional sections remain usable without JavaScrip
 /** Reproduces poisoned remembered defaults while protecting both edit and copy source values. */
 test("remembered new-booking defaults never overwrite an edited or copied record", async ({ page }) => {
   await page.evaluate(() => {
-    localStorage.setItem("treckrr:booking-defaults:v2:1:quantity:out",
+    localStorage.setItem("treckrr:booking-defaults:v3:1:1:1:quantity:out",
       JSON.stringify({ unit: "Ballen", task_label: "Unrelated remembered task" }));
   });
   for (const action of ["edit", "copy"]) {

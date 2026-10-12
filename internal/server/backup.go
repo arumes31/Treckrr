@@ -17,10 +17,6 @@ import (
 	"github.com/d0linger/treckrr/internal/models"
 )
 
-// backupMaxAge is how old the last successful backup may be before the panel
-// flags it stale (a little over a daily cadence).
-const backupMaxAge = 26 * time.Hour
-
 // backupStatus is the admin-panel view of the backup status.json.
 type backupStatus struct {
 	Enabled         bool   // a BACKUP_ENCRYPTION_KEY is configured (on-demand available)
@@ -35,12 +31,16 @@ type backupStatus struct {
 	RestoreTested   time.Time
 	ArchiveVerified time.Time
 	S3              string
+	VolumeHealth    backup.ScheduleHealth
+	S3Health        backup.ScheduleHealth
+	RehearsalNote   string
+	RehearsalFailed bool
 }
 
 // readBackupStatus loads and classifies the backup status file. Any problem
 // (path empty, file missing, malformed) is reported as an unconfigured state
 // rather than an error — the panel is informational.
-func readBackupStatus(path string) backupStatus {
+func readBackupStatus(path string, schedules ...backup.Settings) backupStatus {
 	if path == "" {
 		return backupStatus{State: "none"}
 	}
@@ -75,6 +75,8 @@ func readBackupStatus(path string) backupStatus {
 		SchemaVersion:   d.SchemaVersion,
 		RestoreTested:   d.RestoreTested,
 		ArchiveVerified: d.ArchiveVerified,
+		RehearsalNote:   d.RehearsalNote,
+		RehearsalFailed: d.RehearsalOK != nil && !*d.RehearsalOK,
 	}
 	if d.OffhostOK != nil {
 		if *d.OffhostOK {
@@ -90,7 +92,14 @@ func readBackupStatus(path string) backupStatus {
 			st.S3 = "fehlgeschlagen"
 		}
 	}
-	age := time.Since(d.LastBackup)
+	set := backup.Settings{VolumeCron: "0 3 * * *"}
+	if len(schedules) > 0 {
+		set = schedules[0]
+	}
+	now := time.Now()
+	st.VolumeHealth = backup.CheckSchedule(set.VolumeCron, d.LastBackup, !d.OK, now)
+	st.S3Health = backup.CheckSchedule(set.S3Cron, d.LastS3, d.S3OK != nil && !*d.S3OK, now)
+	age := now.Sub(d.LastBackup)
 	// A future timestamp (clock skew or a bad write) is not trustworthy: clamp the
 	// reported age to zero and treat it as stale rather than silently "ok".
 	future := age < 0
@@ -98,13 +107,43 @@ func readBackupStatus(path string) backupStatus {
 		age = 0
 	}
 	st.AgeHours = int(age.Hours())
-	switch {
-	case !d.OK:
-		st.State = "failed"
-	case d.LastBackup.IsZero() || future || age > backupMaxAge:
-		st.State = "stale"
-	default:
-		st.State = "ok"
+	st.State = backupOverallState(st.VolumeHealth.State, st.S3Health.State)
+	return st
+}
+
+// backupOverallState keeps inactive destinations neutral and failures dominant.
+func backupOverallState(states ...string) string {
+	result := "none"
+	for _, state := range states {
+		if state == "failed" {
+			return "failed"
+		}
+		if state == "stale" || state == "never" || state == "invalid" {
+			result = "stale"
+		}
+		if state == "ok" && result == "none" {
+			result = "ok"
+		}
+	}
+	return result
+}
+
+// currentBackupStatus uses the configured cadence, with a bounded settings read.
+func (s *Server) currentBackupStatus() backupStatus {
+	if s.backup == nil {
+		return readBackupStatus(s.cfg.BackupStatusFile)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	set := s.backup.Schedule(ctx)
+	if !s.backup.S3Enabled() {
+		set.S3Cron = ""
+	}
+	st := readBackupStatus(s.cfg.BackupStatusFile, set)
+	if !st.Configured {
+		st.VolumeHealth = backup.CheckSchedule(set.VolumeCron, time.Time{}, false, time.Now())
+		st.S3Health = backup.CheckSchedule(set.S3Cron, time.Time{}, false, time.Now())
+		st.State = backupOverallState(st.VolumeHealth.State, st.S3Health.State)
 	}
 	return st
 }
@@ -164,8 +203,11 @@ func (s *Server) backupHealth() backupHealthView {
 	if s.backup == nil || !s.backup.Enabled() {
 		return backupHealthView{Tone: "warn", Title: "Backups nicht aktiviert"}
 	}
-	st := readBackupStatus(s.cfg.BackupStatusFile)
+	st := s.currentBackupStatus()
 	if !st.Configured {
+		if st.State == "none" {
+			return backupHealthView{Tone: "warn", Title: "Backup-Zeitpläne deaktiviert"}
+		}
 		return backupHealthView{Tone: "warn", Title: "Noch kein automatisches Backup"}
 	}
 	v := backupHealthView{
@@ -180,20 +222,26 @@ func (s *Server) backupHealth() backupHealthView {
 		v.Tone, v.Title = "warn", "Backup veraltet"
 	case "failed":
 		v.Tone, v.Title = "bad", "Letztes Backup fehlgeschlagen"
+	case "none":
+		v.Tone, v.Title = "warn", "Backup-Zeitpläne deaktiviert"
 	default:
 		v.Tone, v.Title = "warn", "Backup-Status unklar"
+	}
+	if st.RehearsalFailed {
+		v.Tone, v.Title = "bad", "Restore-Probe fehlgeschlagen"
 	}
 	return v
 }
 
 // handleBackupStatus renders the admin Backup panel from status.json.
 func (s *Server) handleBackupStatus(w http.ResponseWriter, r *http.Request) {
-	st := readBackupStatus(s.cfg.BackupStatusFile)
+	st := s.currentBackupStatus()
 	st.Enabled = s.backup != nil && s.backup.Enabled()
 	data := s.newPage(w, r, "Backup", "backup")
 	data["Backup"] = st
 	s3on := st.Enabled && s.backup.S3Enabled()
 	data["S3Enabled"] = s3on
+	data["RehearsalCron"] = backup.DescribeCron(s.cfg.BackupRehearseCron)
 	if st.Enabled {
 		if files, err := s.backup.List(); err == nil {
 			data["Files"], data["FilesMore"] = headTail(toFileViews(files), backupListLimit)

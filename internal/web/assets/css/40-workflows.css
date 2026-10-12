@@ -307,7 +307,11 @@
 .yearcard:hover { background: var(--surface-2); }
 .yearcard__year { font-weight: 800; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .yearcard__meta { flex: 1 1 auto; min-width: 0; font-size: .74rem; color: var(--muted); }
-.yearcard__value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.yearcard__value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: normal; margin-left: auto; text-align: right; }
+.yearcard__value small { display: block; }
+.yearcard { flex-wrap: wrap; }
+.yearcard > .chip2 { max-width: 100%; white-space: normal; flex-wrap: wrap; }
+.yearcard__payment { flex-basis: 100%; }
 
 /* ---- Toast (server flash, shown above the tab bar) --------------------- */
 /* Same server flash mechanism, repositioned near the thumb: accent edge +

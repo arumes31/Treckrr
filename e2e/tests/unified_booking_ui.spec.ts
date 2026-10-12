@@ -423,7 +423,7 @@ test("remembered defaults ignore incoming, labor and fixed drafts", async ({ pag
   await form.locator('[name="unit"]').selectOption("Ballen");
   await form.locator('[name="task_label"]').fill("Eigene Ballen");
   await form.locator('[name="task_label"]').press("Tab");
-  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("treckrr:booking-defaults:v2:22:quantity:out") || "{}"));
+  const read = () => page.evaluate(() => JSON.parse(localStorage.getItem("treckrr:booking-defaults:v3:7:11:22:quantity:out") || "{}"));
   await expect.poll(async () => (await read()).task_label).toBe("Eigene Ballen");
   const own = await read();
   await form.locator('[name="booking_direction"][value="in"]').check();

@@ -1,0 +1,16 @@
+# Allowlist the browser fixture context; no environment, backup or working data.
+*
+!e2e/
+e2e/*
+!e2e/package.json
+!e2e/package-lock.json
+!e2e/playwright.config.ts
+!e2e/tests/
+# Machine-local review artifact, deliberately absent from clean Git checkouts.
+e2e/tests/audit_report.spec.ts
+!internal/
+internal/*
+!internal/web/
+internal/web/*
+!internal/web/static/
+!internal/web/templates/

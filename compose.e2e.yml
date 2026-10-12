@@ -1,0 +1,61 @@
+# Disposable test stack. Never combine this with the normal compose files.
+# The runner supplies a random project name; no service inherits .env settings,
+# host database ports, external volumes, or production credentials.
+services:
+  db:
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    environment:
+      POSTGRES_USER: treckrr_e2e
+      POSTGRES_PASSWORD: disposable-test-password
+      POSTGRES_DB: treckrr_e2e
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treckrr_e2e -d treckrr_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://treckrr_e2e:disposable-test-password@db:5432/treckrr_e2e?sslmode=disable
+      SESSION_SECRET: e2e-session-secret-at-least-32-bytes!!
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: e2e-admin-password-123
+      COOKIE_SECURE: "false"
+      ALLOW_INSECURE_HTTP: "true"
+      TRUST_PROXY: "false"
+      RP_ID: localhost
+      RP_ORIGIN: http://localhost:8080
+    tmpfs:
+      - /backups:uid=10001,gid=10001
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  browser:
+    build:
+      context: .
+      dockerfile: e2e/Dockerfile
+    # localhost is a secure context for the PWA/service-worker tests. Sharing the
+    # disposable app's network avoids browser flags that weaken origin security.
+    network_mode: service:app
+    environment:
+      BASE_URL: http://localhost:8080
+      E2E_ADMIN_USER: admin
+      E2E_ADMIN_PASS: e2e-admin-password-123
+      CI: "true"
+    ipc: private
+    shm_size: 1gb
+    volumes:
+      - ${TRECKRR_E2E_REPORT_DIR:-./e2e/playwright-report}:/work/e2e/playwright-report
+      - ${TRECKRR_E2E_RESULTS_DIR:-./e2e/test-results}:/work/e2e/test-results
+    depends_on:
+      app:
+        condition: service_healthy

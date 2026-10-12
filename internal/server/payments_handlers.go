@@ -203,10 +203,32 @@ func (s *Server) handleNeighborSettle(w http.ResponseWriter, r *http.Request) {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
+	back := dashboardURL(yearID)
+	if r.FormValue("origin") == "payments" {
+		back = neighborPaymentsURL(neighborID, yearID)
+	}
+	when := time.Now()
+	if raw := strings.TrimSpace(r.FormValue("paid_on")); raw != "" {
+		var err error
+		when, err = time.Parse("2006-01-02", raw)
+		if err != nil {
+			s.setFlash(w, r, "error", "Bitte ein gültiges Zahlungsdatum eingeben.")
+			redirect(w, r, back)
+			return
+		}
+	}
+	note := trimmed(r, "note")
+	if s.tooLong(w, r, "Notiz", note, maxNoteLen) {
+		redirect(w, r, back)
+		return
+	}
+	if note == "" {
+		note = "Restbetrag beglichen"
+	}
 	// The amount is derived from the balance, so it must be read and written in
 	// one locked transaction — see store.SettleRemaining. Reading it here and
 	// passing it down let two concurrent clicks book the same rest twice.
-	booked, err := s.store.SettleRemaining(r.Context(), yearID, neighborID, time.Now(), "Restbetrag beglichen")
+	booked, err := s.store.SettleRemainingWithMethod(r.Context(), yearID, neighborID, when, note, paymentMethod(r))
 	switch {
 	case err != nil:
 		s.setFlash(w, r, "error", "Zahlung konnte nicht verbucht werden.")
@@ -215,7 +237,7 @@ func (s *Server) handleNeighborSettle(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.setFlash(w, r, "success", "Restbetrag als bezahlt verbucht.")
 	}
-	redirect(w, r, dashboardURL(yearID))
+	redirect(w, r, back)
 }
 
 // handleNeighborCarryForward optionally moves the open balance into the next
@@ -239,6 +261,14 @@ func (s *Server) handleNeighborCarryForward(w http.ResponseWriter, r *http.Reque
 	year, err := s.store.GetBillingYear(r.Context(), yearID)
 	if err != nil {
 		s.serverError(w, "carry: year", err)
+		return
+	}
+	previewURL := "/neighbors/" + itoa64(neighborID) + "/carry-forward?year=" + itoa64(yearID)
+	expectedSource, sourceOK := parseGermanDecimalOK(r.FormValue("expected_source"))
+	expectedTarget, targetOK := parseGermanDecimalOK(r.FormValue("expected_target"))
+	if !sourceOK || !targetOK || models.HasSubCent(expectedSource) || models.HasSubCent(expectedTarget) {
+		s.setFlash(w, r, "info", "Bitte die aktuellen Salden prüfen und den Übertrag bestätigen.")
+		redirect(w, r, previewURL)
 		return
 	}
 	// Advisory fast path only: it spares the year/membership lookups below when
@@ -277,8 +307,13 @@ func (s *Server) handleNeighborCarryForward(w http.ResponseWriter, r *http.Reque
 	}
 	fromDesc := "Ins Folgejahr übertragen (" + itoa(year.Year+1) + ")"
 	toDesc := "Übertrag aus " + itoa(year.Year)
-	moved, err := s.store.CarryForwardRemaining(r.Context(), neighborID, yearID, nextID, time.Now(), fromDesc, toDesc)
+	moved, err := s.store.CarryForwardConfirmed(r.Context(), neighborID, yearID, nextID, time.Now(), fromDesc, toDesc,
+		&store.CarryPreview{Source: expectedSource, Target: expectedTarget})
 	switch {
+	case errors.Is(err, store.ErrCarryPreviewChanged):
+		s.setFlash(w, r, "info", "Ein Saldo hat sich geändert. Nichts übertragen — bitte die neue Vorschau prüfen.")
+		redirect(w, r, previewURL)
+		return
 	case errors.Is(err, store.ErrCarryTargetCompleted):
 		s.setFlash(w, r, "error", "Das Folgejahr "+itoa(year.Year+1)+" ist bereits abgeschlossen — ein Übertrag dorthin ist nicht möglich.")
 	case err != nil:
@@ -287,6 +322,8 @@ func (s *Server) handleNeighborCarryForward(w http.ResponseWriter, r *http.Reque
 		s.setFlash(w, r, "info", "Kein offener Rest zum Übernehmen.")
 	default:
 		s.setFlash(w, r, "success", "Rest ins Folgejahr übernommen.")
+		redirect(w, r, previewURL)
+		return
 	}
 	redirect(w, r, neighborPaymentsURL(neighborID, yearID))
 }

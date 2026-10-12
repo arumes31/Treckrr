@@ -122,11 +122,12 @@ func TestDashboardCoreWorkflow(t *testing.T) {
 		"PaidCost":     decimal.Zero,
 		"OpenCost":     decimal.NewFromInt(120),
 		"Summaries": []map[string]any{{
-			"Neighbor":  models.Neighbor{ID: 9, Name: "Demo-Hof Leitner"},
-			"Cost":      decimal.NewFromInt(120),
-			"Hours":     decimal.NewFromInt(3),
-			"Entries":   4,
-			"Remaining": decimal.NewFromInt(120),
+			"Neighbor":   models.Neighbor{ID: 9, Name: "Demo-Hof Leitner"},
+			"Cost":       decimal.NewFromInt(120),
+			"Hours":      decimal.NewFromInt(3),
+			"Entries":    4,
+			"Remaining":  decimal.NewFromInt(120),
+			"PaidAmount": decimal.Zero,
 		}},
 	})
 	if strings.Contains(page, "workpath") {
@@ -137,7 +138,7 @@ func TestDashboardCoreWorkflow(t *testing.T) {
 	}
 	for _, want := range []string{
 		"summary-card", "Gesamtsaldo", "Abschluss prüfen", "Weitere Aktionen",
-		"neighbor-account-grid", "Jahressaldo", "Zahlungsstand",
+		"neighbor-account-grid", "Leistungssaldo", "Zahlungsstand", "Zahlung verbuchen",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("simplified dashboard missing %q", want)
@@ -146,8 +147,8 @@ func TestDashboardCoreWorkflow(t *testing.T) {
 	if !strings.Contains(page, `href="/neighbors/9?year=7&amp;view=booking">Buchen</a>`) {
 		t.Error("open-year neighbor has no direct booking entry")
 	}
-	if strings.Contains(page, "favorite-toggle") {
-		t.Error("dashboard still exposes an unnecessary neighbor favorite control")
+	if !strings.Contains(page, `data-favorite-list="neighbors"`) {
+		t.Error("dashboard does not expose optional neighbor favorites")
 	}
 }
 

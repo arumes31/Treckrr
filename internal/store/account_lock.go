@@ -314,6 +314,12 @@ func (s *Store) AccountRemaining(ctx context.Context, yearID, neighborID int64) 
 // The amount is recomputed under the account lock rather than passed in, so two
 // concurrent "Rest als bezahlt" clicks cannot both book the same balance.
 func (s *Store) SettleRemaining(ctx context.Context, yearID, neighborID int64, when time.Time, note string) (decimal.Decimal, error) {
+	return s.SettleRemainingWithMethod(ctx, yearID, neighborID, when, note, "")
+}
+
+// SettleRemainingWithMethod records a full settlement with the operator's
+// payment method; the amount is still computed under the account lock.
+func (s *Store) SettleRemainingWithMethod(ctx context.Context, yearID, neighborID int64, when time.Time, note, method string) (decimal.Decimal, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return decimal.Zero, err
@@ -333,14 +339,13 @@ func (s *Store) SettleRemaining(ctx context.Context, yearID, neighborID int64, w
 	// invoice_id via subselect: 0044 added the attribution column and updated
 	// two of the three payment INSERTs — settle-generated payments stayed
 	// unlinked and showed a blank Rechnung column in the Zahlungshistorie.
-	// method stays '': how the money arrived is genuinely unknown here.
 	var paymentID int64
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, invoice_id)
-		 VALUES ($1,$2,$3,$4,$5,
+		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method, invoice_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,
 		         (SELECT id FROM invoices WHERE billing_year_id=$1 AND neighbor_id=$2
 		           AND kind='invoice' AND status='issued'))
-		 RETURNING id`, yearID, neighborID, remaining, when, note).Scan(&paymentID); err != nil {
+		 RETURNING id`, yearID, neighborID, remaining, when, note, method).Scan(&paymentID); err != nil {
 		return decimal.Zero, err
 	}
 	if err := addAuditTx(
@@ -349,7 +354,7 @@ func (s *Store) SettleRemaining(ctx context.Context, yearID, neighborID int64, w
 		"payment_settle",
 		"payment",
 		strconv.FormatInt(paymentID, 10),
-		paymentAuditState(remaining, when, ""),
+		paymentAuditState(remaining, when, method),
 	); err != nil {
 		return decimal.Zero, err
 	}
@@ -371,6 +376,12 @@ func (s *Store) SettleRemaining(ctx context.Context, yearID, neighborID int64, w
 // with settlement or invoicing on either side without introducing lock-ordering
 // deadlocks.
 func (s *Store) CarryForwardRemaining(ctx context.Context, neighborID, fromYearID, toYearID int64, when time.Time, fromDesc, toDesc string) (decimal.Decimal, error) {
+	return s.CarryForwardConfirmed(ctx, neighborID, fromYearID, toYearID, when, fromDesc, toDesc, nil)
+}
+
+// CarryForwardConfirmed refuses a stale preview while both account locks are
+// held. A nil expected value retains the legacy internal API's atomic behavior.
+func (s *Store) CarryForwardConfirmed(ctx context.Context, neighborID, fromYearID, toYearID int64, when time.Time, fromDesc, toDesc string, expected *CarryPreview) (decimal.Decimal, error) {
 	tid, err := randToken()
 	if err != nil {
 		return decimal.Zero, err
@@ -400,6 +411,15 @@ func (s *Store) CarryForwardRemaining(ctx context.Context, neighborID, fromYearI
 	remaining, err := remainingLocked(ctx, tx, fromYearID, neighborID)
 	if err != nil {
 		return decimal.Zero, err
+	}
+	if expected != nil {
+		target, err := remainingLocked(ctx, tx, toYearID, neighborID)
+		if err != nil {
+			return decimal.Zero, err
+		}
+		if !remaining.Equal(expected.Source) || !target.Equal(expected.Target) {
+			return decimal.Zero, ErrCarryPreviewChanged
+		}
 	}
 	if remaining.IsZero() {
 		return decimal.Zero, tx.Commit()

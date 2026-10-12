@@ -1,0 +1,22 @@
+{{define "content"}}
+<section class="stack">
+	<a class="link" href="/admin/backup">‹ Backup &amp; Betrieb</a>
+	<header class="card"><h1>Historische Datenformate</h1><p>Lesender Bestandsbericht. Vorhandene Altformate bleiben unterstützt; es werden keine Daten verändert oder gelöscht.</p></header>
+	<div class="card">
+	{{with .Inventory}}
+	<dl class="bkp__meta">
+		<div><dt>Leistungsbuchungen insgesamt</dt><dd>{{.Entries}}</dd></div>
+		<div><dt>Ältere Wiederholungskennungen ohne Fingerabdruck</dt><dd>{{.LegacyReplayEntries}}</dd></div>
+		<div><dt>Maschinen als historischer Text ohne Katalogverknüpfung</dt><dd>{{.LabelOnlyMachines}}</dd></div>
+		<div><dt>Manuelle Verrechnung ohne strukturierte Buchung</dt><dd>{{.ManualLedger}}</dd></div>
+		<div><dt>Frühere nachbarspezifische Geräte-Snapshots</dt><dd>{{.LegacyEquipment}}</dd></div>
+		<div><dt>Früheres Einzelpersonenformat in Verrechnungen</dt><dd>{{.LegacyPeople}}</dd></div>
+		<div><dt>Serien mit früherem Einzelhelferformat</dt><dd>{{.LegacyRecurring}}</dd></div>
+		<div><dt>Rechnungen ohne vollständigen Snapshot</dt><dd>{{.InvoiceSnapshotsMissing}}</dd></div>
+	</dl>
+	{{end}}
+	<p class="muted">Diese Formen sind nicht automatisch Fehler. Auch manuelle Verrechnungen und reine Maschinenbezeichnungen sind weiterhin zulässig. Eine Anzahl von 0 in dieser Datenbank beweist nicht, dass ein Lesepfad in historischen Backups unbenutzt ist.</p>
+	<a class="btn btn--ghost" href="/admin/legacy-inventory?format=json" download="treckrr-bestandsbericht.json">Bericht als JSON</a>
+	</div>
+</section>
+{{end}}

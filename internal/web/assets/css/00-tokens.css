@@ -53,11 +53,10 @@
 	--pay: #2f8457;
 	--owe: #c05635;
 	--on-status: #fff;
-	/* Text variants: the fills above sit at ~4.0:1 on the page ground, which is
-	   fine for a bar but under AA's 4.5:1 for text. Measured 4.84 / 4.77 on the
-	   page and better on cards. */
+	/* Text variants: fills are for charts, not small status text. The owe text
+	   also clears AA on its tinted chip/hover backgrounds (not just paper). */
 	--pay-text: #28734b;
-	--owe-text: #ac4d2f;
+	--owe-text: #994128;
 	/* Chassis — the machine frame: app bar + nav rail/tab bar stay this dark
 	   green-black in BOTH themes (a deliberate constant, like the white appbar
 	   icons); the orange marker is the only moving part. */
@@ -91,4 +90,3 @@
 	--bk-ok: #1f6b47;
 	--bk-warn: #8a5510;
 	--bk-bad: #b03a20;
-	

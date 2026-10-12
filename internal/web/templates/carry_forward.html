@@ -1,0 +1,24 @@
+{{define "content"}}
+<section class="stack">
+	<a class="backlink" href="{{.Back}}">‹ Zahlungen {{.Year.Year}}</a>
+	<header class="pagehead"><h2 class="pagehead__t">Jahresübertrag prüfen · {{.Neighbor.Name}}</h2></header>
+	<div class="card stack">
+		<p><strong>Interner Übertrag – kein Zahlungseingang</strong></p>
+		<p class="muted">Der Rest wird im Quelljahr ausgeglichen und im Folgejahr als zusammengehörende Gegenbuchung erfasst. Es fließt kein Geld.</p>
+		<div class="tablewrap" role="region" aria-label="Salden vor und nach dem Übertrag" tabindex="0">
+			<table class="dtable"><thead><tr><th>Jahreskonto</th><th class="num">Vorher</th><th class="num">Nachher</th></tr></thead>
+			<tbody><tr><td><a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings">{{.Year.Year}} · Quelljahr</a></td><td class="num">{{money .Preview.Source}}</td><td class="num">0,00 €</td></tr>
+			<tr><td><a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.NextID}}&amp;view=bookings">{{.NextYear}} · Zieljahr</a></td><td class="num">{{money .Preview.Target}}</td><td class="num">{{money .Preview.TargetAfter}}</td></tr></tbody></table>
+		</div>
+		<p class="muted small">Positive Werte sind offene Forderungen. Negative Werte sind Guthaben des Nachbarn.</p>
+		{{if .Preview.Source.IsZero}}<p>Kein offener Rest zum Übernehmen.</p>{{else}}
+		<form method="post" action="/neighbors/{{.Neighbor.ID}}/carry-forward" class="form">
+			<input type="hidden" name="year_id" value="{{.Year.ID}}">
+			<input type="hidden" name="expected_source" value="{{.Preview.Source.StringFixed 2}}">
+			<input type="hidden" name="expected_target" value="{{.Preview.Target.StringFixed 2}}">
+			<div class="btnrow"><button class="btn btn--primary" type="submit">{{money .Preview.Source}} übertragen</button><a class="btn btn--ghost" href="{{.Back}}">Abbrechen</a></div>
+			<p class="muted small">Ändert sich einer der Salden vor dem Speichern, wird nichts übertragen. Du erhältst eine neue Vorschau.</p>
+		</form>{{end}}
+	</div>
+</section>
+{{end}}

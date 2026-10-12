@@ -149,6 +149,7 @@ func Render(b *strings.Builder) {
 	fmt.Fprintf(b, "treckrr_http_request_duration_seconds_bucket{le=\"+Inf\"} %d\n", cum)
 	fmt.Fprintf(b, "treckrr_http_request_duration_seconds_sum %g\n", sum)
 	fmt.Fprintf(b, "treckrr_http_request_duration_seconds_count %d\n", cum)
+	renderOperations(b)
 }
 
 func splitKey(k string) (base, label, value string) {

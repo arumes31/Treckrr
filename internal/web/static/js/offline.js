@@ -33,8 +33,8 @@
 			return new Promise(function (res, rej) {
 				var t = db.transaction(STORE, "readwrite");
 				t.objectStore(STORE).put(item);
-				t.oncomplete = function () { res(); };
-				t.onerror = function () { rej(t.error); };
+				t.oncomplete = function () { db.close(); res(); };
+				t.onabort = t.onerror = function () { db.close(); rej(t.error); };
 			});
 		});
 	}
@@ -351,40 +351,71 @@
 	/** Booking history shown after a successful booking form submission. */
 	function accountURL(f) {
 		var n = f.querySelector('[name="neighbor_id"]'), y = f.querySelector('[name="year_id"]');
-		return "/neighbors/" + encodeURIComponent(n ? n.value : "") +
-			(y && y.value ? "?year=" + encodeURIComponent(y.value) + "&view=bookings" : "?view=bookings");
+		var next = f.querySelector('[name="continue_booking"]'), view = next && next.value === "1" ? "booking" : "bookings";
+		var target = "/neighbors/" + encodeURIComponent(n ? n.value : "") +
+			(y && y.value ? "?year=" + encodeURIComponent(y.value) + "&view=" + view : "?view=" + view);
+		if (view === "booking") {
+			var kind = f.querySelector('[name="booking_kind"]'), direction = f.querySelector('[name="booking_direction"]:checked'), date = f.querySelector('[name="entry_date"]');
+			if (kind) target += "&next_kind=" + encodeURIComponent(kind.value);
+			if (direction) target += "&next_direction=" + encodeURIComponent(direction.value);
+			if (date) target += "&next_date=" + encodeURIComponent(date.value);
+		}
+		return target;
 	}
 	function rotateKeys(f) {
 		f.querySelectorAll('[name="idempotency_key"], [data-quick-key]').forEach(function (k) { k.value = uuid(); });
+	}
+	var pendingForms = new WeakSet();
+	/** Prevents edits and duplicate submissions until HTTP/IndexedDB settles. */
+	function freezeForm(f) {
+		var controls = Array.from(f.querySelectorAll("input, select, textarea, button"));
+		var disabled = controls.map(function (control) { return control.disabled; });
+		var busy = f.getAttribute("aria-busy"), locked = true;
+		controls.forEach(function (control) { control.disabled = true; });
+		f.setAttribute("aria-busy", "true");
+		return function () {
+			if (!locked) return;
+			locked = false;
+			controls.forEach(function (control, index) { control.disabled = disabled[index]; });
+			if (busy === null) f.removeAttribute("aria-busy"); else f.setAttribute("aria-busy", busy);
+		};
 	}
 	/**
 	 * Stores the form's successful controls in the queue. The capture time is kept
 	 * and fills an empty date, so a replay days later never books "today" instead.
 	 */
-	function capture(f, path, message) {
-		if (path === "/entries/quick") stampKeys();
-		var capturedAt = new Date(), day = localDate(capturedAt);
+	function capture(f, path, message, submission, release) {
+		if (!release && pendingForms.has(f)) return Promise.resolve();
+		pendingForms.add(f);
+		if (path === "/entries/quick" && !submission) stampKeys();
+		var capturedAt = submission ? submission.at : new Date(), day = localDate(capturedAt);
 		// Repeated field names must survive: FormData keeps every row and every
 		// machine_id, a plain object would keep only the last one. The replay posts
 		// them back with URLSearchParams, which handles repeats the same way.
 		var pairs = [];
-		new FormData(f).forEach(function (v, key) {
+		var source = submission ? submission.body : new FormData(f);
+		source.forEach(function (v, key) {
 			if (key === "csrf_token") return;
 			var value = String(v);
 			if ((key === "entry_date" || key === "q_date") && !value.trim()) value = day;
 			pairs.push([String(key), value]);
 		});
 		var data = { __pairs: pairs };
+		var unlock = release || freezeForm(f);
 		// A single booking keeps its replay key as queue id; a quick batch carries
 		// one key per row and gets its own id.
 		var id = path === "/entries" ? (queuedField(data, "idempotency_key") || uuid()) : uuid();
-		releaseSubmitLock(f);
 		return put({ id: id, data: data, user: currentUser(), path: path, created: capturedAt.getTime() }).then(function () {
+			f.dispatchEvent(new CustomEvent("treckrr:booking-queued"));
 			rotateKeys(f);
 			refreshBadge();
 			toast(message || "Offline gespeichert – wird bei Verbindung gesendet.");
 		}, function () {
 			toast("Offline-Speicherung fehlgeschlagen — die Buchung ist NICHT gespeichert. Bitte die Eingaben nicht verwerfen und später erneut speichern.");
+		}).finally(function () {
+			pendingForms.delete(f);
+			unlock();
+			releaseSubmitLock(f);
 		});
 	}
 
@@ -415,14 +446,30 @@
 	}
 
 	function sendOnline(f, path) {
+		if (pendingForms.has(f)) return Promise.resolve();
+		pendingForms.add(f);
 		if (path === "/entries/quick") stampKeys();
 		var body = new URLSearchParams();
 		new FormData(f).forEach(function (v, key) { body.append(key, String(v)); });
+		// The exact submitted payload and keys must survive a lost response.
+		// Reading the live form again could queue different work under the key of
+		// an already-committed request. Lock editing until this attempt settles.
+		var submission = { body: body, at: new Date() };
+		var unlock = freezeForm(f);
+		var headers = { "Content-Type": "application/x-www-form-urlencoded" };
+		if (f.hasAttribute("data-unified-booking")) headers["X-Booking-Response"] = "json";
 		return timedFetch(path, {
 			method: "POST", credentials: "same-origin", redirect: "manual",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			headers: headers,
 			body: body.toString()
 		}).then(function (r) {
+			if (r.ok && headers["X-Booking-Response"] && /application\/json/.test(r.headers.get("Content-Type") || "")) {
+				return r.json().then(function (result) {
+					if (result.saved !== true) throw new Error("unconfirmed booking");
+					f.dispatchEvent(new CustomEvent("treckrr:booking-saved"));
+					window.location.assign(accountURL(f));
+				});
+			}
 			// Every outcome of a booking form is a 303 to the account page, whose
 			// flash cookie the redirect has already set.
 			if (r.type === "opaqueredirect") { window.location.assign(accountURL(f)); return; }
@@ -436,8 +483,8 @@
 				showResponse(body, r.headers.get("Content-Type") || "");
 			});
 		}).catch(function () {
-			return capture(f, path, "Keine stabile Verbindung – offline gespeichert, wird bei Verbindung gesendet.");
-		});
+			return capture(f, path, "Keine stabile Verbindung – offline gespeichert, wird bei Verbindung gesendet.", submission, unlock);
+		}).finally(function () { pendingForms.delete(f); unlock(); });
 	}
 
 	// Hook the booking form so an offline submit is queued instead of failing.

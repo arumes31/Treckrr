@@ -133,6 +133,7 @@ proxy trust, and requires `TRUSTED_PROXIES`. Pin a release rather than tracking
 | **BACKUP_KEEP** | Dumps to retain — seeds the GUI value on first boot only, after that Admin → Backup wins | `7` | No |
 | **BACKUP_ENCRYPTION_KEY_OLD** | Previous key, for `rotate-key` (see below) | — | No |
 | **BACKUP_REHEARSE_URL** | Postgres URL allowed to create/drop a scratch DB; enables real restore rehearsals | — | No |
+| **BACKUP_REHEARSE_CRON** | Optional 5-field cron for isolated restore rehearsals; requires rehearsal URL, backup key and a local dump. Empty keeps manual-only operation | — | No |
 | **S3_ENDPOINT** / **S3_BUCKET** | Off-box backup target; empty disables it | — | No |
 | **S3_KEEP** | Objects to keep in the bucket, 0 = all; seeds the GUI value on first boot only | `0` | No |
 | **S3_ACCESS_KEY** / **S3_SECRET_KEY** / **S3_PREFIX** | S3 credentials and mandatory installation-unique key prefix when S3 is enabled | — | No |

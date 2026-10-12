@@ -80,3 +80,16 @@ updates:
       - "docker"
     commit-message:
       prefix: "docker"
+
+  # Keep the browser runtime digest refreshed. Its version must match the exact
+  # @playwright/test version in e2e/package.json when accepting an update.
+  - package-ecosystem: "docker"
+    directory: "/e2e"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "e2e"
+    commit-message:
+      prefix: "e2e"

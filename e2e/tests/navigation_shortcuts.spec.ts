@@ -100,7 +100,7 @@ test("dashboard neighbor cards keep totals and payment status in a stable respon
   const grid = page.locator(".neighbor-account-grid");
   const cards = grid.locator(".neighbor-account-card");
   await expect(cards.first()).toBeVisible();
-  await expect(cards.first().getByText("Jahressaldo", { exact: true })).toBeVisible();
+  await expect(cards.first().getByText("Leistungssaldo", { exact: true })).toBeVisible();
   await expect(cards.first().getByText("Zahlungsstand:", { exact: true })).toHaveCount(1);
   expect(await grid.evaluate((node) => getComputedStyle(node).alignItems)).toBe("stretch");
   expect(await cards.first().evaluate((node) => getComputedStyle(node).display)).toBe("grid");

@@ -24,6 +24,7 @@ type neighborSummary struct {
 	Paid          bool // fully settled (nothing remaining)
 	Credit        bool // negative rest: the neighbor holds a Guthaben (I owe them)
 	Remaining     decimal.Decimal
+	PaidAmount    decimal.Decimal
 	QualityIssues int
 }
 
@@ -64,6 +65,7 @@ type dashboardView struct {
 	StaleCount    int
 	WorkItems     []dashboardWorkItem
 	Onboarding    []dashboardOnboardingItem
+	ArchiveCount  int
 }
 
 // bind adds the typed dashboard contract to the legacy common template map.
@@ -87,6 +89,7 @@ func (v dashboardView) bind(data pageData) {
 	data["StaleCount"] = v.StaleCount
 	data["WorkItems"] = v.WorkItems
 	data["Onboarding"] = v.Onboarding
+	data["ArchiveCount"] = v.ArchiveCount
 }
 
 // handleDashboard renders the selected year's totals, setup state and central
@@ -111,7 +114,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		summaries = append(summaries, neighborSummary{
 			Neighbor: models.Neighbor{ID: row.NeighborID, Name: row.Name},
 			Cost:     row.Cost, Hours: row.Hours, Entries: row.Entries,
-			Paid: row.Paid, Credit: row.Credit, Remaining: row.Remaining,
+			Paid: row.Paid, Credit: row.Credit, Remaining: row.Remaining, PaidAmount: row.PaidAmount,
 		})
 		grandCost = grandCost.Add(row.Cost)
 		grandHours = grandHours.Add(row.Hours)
@@ -156,6 +159,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		OpenCount:     openCount,
 		CreditCost:    creditCost,
 		CreditCount:   creditCount,
+	}
+	if year.Completed() {
+		documents, err := s.store.ListInvoiceJournal(r.Context(), year.ID)
+		if err != nil {
+			s.serverError(w, "dashboard: archive documents", err)
+			return
+		}
+		view.ArchiveCount = len(documents)
 	}
 	// Offer "carry over neighbors from the previous year" when one exists and
 	// there are members not yet in this year.

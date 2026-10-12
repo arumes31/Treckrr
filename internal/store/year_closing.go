@@ -12,12 +12,19 @@ import (
 // rows fall through, and the names behind them. Blocking is deliberately not a
 // field — the checklist informs the operator, it does not decide for them.
 type ClosingCheck struct {
-	Key    string // stable id, for the template
-	Label  string
-	Detail string   // what "open" means for this check
-	Count  int      // 0 = clean
-	Names  []string // at most a handful, for the hint line
-	Amount decimal.Decimal
+	Key       string // stable id, for the template
+	Label     string
+	Detail    string   // what "open" means for this check
+	Count     int      // 0 = clean
+	Names     []string // at most a handful, for the hint line
+	Amount    decimal.Decimal
+	Neighbors []ClosingNeighbor
+}
+
+// ClosingNeighbor identifies an affected account without relying on its name.
+type ClosingNeighbor struct {
+	ID   int64
+	Name string
 }
 
 // Clean reports whether nothing is outstanding for this check.
@@ -29,25 +36,27 @@ func (c ClosingCheck) More() int { return c.Count - len(c.Names) }
 
 // namesQuery runs a "name" list query and returns count + the first few names,
 // so the checklist can say WHO is affected instead of only how many.
-func (s *Store) namesQuery(ctx context.Context, q string, args ...any) (int, []string, error) {
+func (s *Store) namesQuery(ctx context.Context, q string, args ...any) (int, []string, []ClosingNeighbor, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	defer rows.Close()
 	var names []string
+	var neighbors []ClosingNeighbor
 	n := 0
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return 0, nil, err
+		var neighbor ClosingNeighbor
+		if err := rows.Scan(&neighbor.ID, &neighbor.Name); err != nil {
+			return 0, nil, nil, err
 		}
+		neighbors = append(neighbors, neighbor)
 		n++
 		if len(names) < 5 {
-			names = append(names, name)
+			names = append(names, neighbor.Name)
 		}
 	}
-	return n, names, rows.Err()
+	return n, names, neighbors, rows.Err()
 }
 
 // YearClosingChecks reviews a billing year before it is closed: who still has
@@ -57,8 +66,8 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	out := make([]ClosingCheck, 0, 4)
 
 	// 1. Bookings but no frozen invoice — the classic "forgot someone".
-	n, names, err := s.namesQuery(ctx,
-		`SELECT n.name FROM neighbors n
+	n, names, neighbors, err := s.namesQuery(ctx,
+		`SELECT n.id, n.name FROM neighbors n
 		  WHERE EXISTS (SELECT 1 FROM entries e
 		                 WHERE e.neighbor_id = n.id AND e.billing_year_id = $1 AND NOT e.voided)
 		    AND NOT EXISTS (SELECT 1 FROM invoices iv
@@ -71,12 +80,12 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	out = append(out, ClosingCheck{
 		Key: "uninvoiced", Label: "Buchungen ohne festgeschriebene Rechnung",
 		Detail: "Diese Nachbarn haben Leistungen im Jahr, aber keine ausgestellte Rechnung.",
-		Count:  n, Names: names,
+		Count:  n, Names: names, Neighbors: neighbors,
 	})
 
 	// 2. Issued but never handed over (no beleg_send, no mail).
-	n, names, err = s.namesQuery(ctx,
-		`SELECT n.name FROM invoices iv JOIN neighbors n ON n.id = iv.neighbor_id
+	n, names, neighbors, err = s.namesQuery(ctx,
+		`SELECT DISTINCT n.id, n.name FROM invoices iv JOIN neighbors n ON n.id = iv.neighbor_id
 		  WHERE iv.billing_year_id = $1 AND iv.kind = 'invoice' AND iv.status = 'issued'
 		    AND NOT EXISTS (SELECT 1 FROM beleg_sends bs
 		                     WHERE bs.billing_year_id = iv.billing_year_id
@@ -88,7 +97,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	out = append(out, ClosingCheck{
 		Key: "unsent", Label: "Rechnungen nie versendet",
 		Detail: "Festgeschrieben, aber kein Versand vermerkt (E-Mail, Druck oder Übergabe).",
-		Count:  n, Names: names,
+		Count:  n, Names: names, Neighbors: neighbors,
 	})
 
 	// 3. Still unpaid: the invoice's own remaining, per neighbor. Same shape as
@@ -96,7 +105,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	// Shared fragment (see openAmountJoins in dunning.go) — the checklist and
 	// the Mahnwesen list must never disagree about what is still open.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.name, `+openAmountExpr+` AS rest
+		`SELECT n.id, n.name, `+openAmountExpr+` AS rest
 		   FROM invoices iv JOIN neighbors n ON n.id = iv.neighbor_id
 		  `+openAmountJoins+`
 		  WHERE iv.billing_year_id = $1 AND iv.kind = 'invoice' AND iv.status = 'issued'
@@ -111,8 +120,9 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	}
 	for rows.Next() {
 		var name string
+		var neighborID int64
 		var rest decimal.Decimal
-		if err := rows.Scan(&name, &rest); err != nil {
+		if err := rows.Scan(&neighborID, &name, &rest); err != nil {
 			return nil, err
 		}
 		// openAmountExpr is already rounded to cents (models.BalanceState), so
@@ -122,6 +132,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 			continue
 		}
 		open.Count++
+		open.Neighbors = append(open.Neighbors, ClosingNeighbor{ID: neighborID, Name: name})
 		open.Amount = open.Amount.Add(rest)
 		if len(open.Names) < 5 {
 			open.Names = append(open.Names, name)
@@ -134,8 +145,8 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 
 	// 4. Abschläge that never became a Schlussrechnung (Ausbaukarte 54): money
 	// was requested on account and the final document is missing.
-	n, names, err = s.namesQuery(ctx,
-		`SELECT DISTINCT n.name FROM invoices a JOIN neighbors n ON n.id = a.neighbor_id
+	n, names, neighbors, err = s.namesQuery(ctx,
+		`SELECT DISTINCT n.id, n.name FROM invoices a JOIN neighbors n ON n.id = a.neighbor_id
 		  WHERE a.billing_year_id = $1 AND a.kind = 'anzahlung' AND a.status = 'issued'
 		    AND NOT EXISTS (SELECT 1 FROM invoices iv
 		                     WHERE iv.neighbor_id = a.neighbor_id AND iv.billing_year_id = a.billing_year_id
@@ -147,7 +158,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 	out = append(out, ClosingCheck{
 		Key: "openanzahlung", Label: "Abschläge ohne Schlussrechnung",
 		Detail: "Es wurde eine Anzahlung angefordert, aber nie endabgerechnet.",
-		Count:  n, Names: names,
+		Count:  n, Names: names, Neighbors: neighbors,
 	})
 	return out, nil
 }

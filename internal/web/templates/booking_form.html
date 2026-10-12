@@ -6,6 +6,13 @@
 	<input type="hidden" name="booking_form_version" value="2">
 	<input type="hidden" name="year_id" value="{{.Year.ID}}">
 	<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+	{{if and (not .BookingEdit) (not .BookingCopy)}}
+	<input type="hidden" name="continue_booking" value="0">
+	<div class="flash flash--info" data-booking-draft-offer hidden>
+		<p>Auf diesem Gerät liegt ein ungespeicherter Entwurf für diesen Nachbarn und dieses Jahr vor.</p>
+		<div class="actions"><button class="btn btn--ghost btn--sm" type="button" data-booking-draft-restore>Entwurf fortsetzen</button><button class="btn btn--ghost btn--sm" type="button" data-booking-draft-discard>Entwurf verwerfen</button></div>
+	</div><p class="muted small" data-booking-draft-status role="status"></p>
+	{{end}}
 	{{if .BookingCopy}}<input type="hidden" name="copy_mode" value="1">{{end}}
 	{{if .BookingEdit}}
 	<input type="hidden" name="booking_kind" value="{{$kind}}"><input type="hidden" name="booking_direction" value="{{$direction}}">
@@ -36,7 +43,7 @@
 			<option value="manual" {{if eq $mode "manual"}}selected{{end}}>Frei zusammenstellen</option>
 			<option value="free" {{if eq $mode "free"}}selected{{end}}>Anderes Gefährt / Freitext</option>
 		</select></label>
-		<div data-mode-panel="gespann"><label class="field"><span>Gespann</span><select class="select" name="gespann_id" data-gespann-select><option value="">— wählen —</option>{{range .Gespanne}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) (index $v "gespann_id")}}selected{{end}}>{{.Name}}</option>{{end}}</select></label></div>
+		<div data-mode-panel="gespann"><label class="field"><span>Gespann</span><select class="select" name="gespann_id" data-gespann-select data-favorite-select="gespanne"><option value="">— wählen —</option>{{range .Gespanne}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) (index $v "gespann_id")}}selected{{end}}>{{.Name}}</option>{{end}}</select></label><button class="btn btn--ghost btn--xs" type="button" data-favorite-select-toggle="gespanne" aria-pressed="false"><span data-favorite-label>Merken</span></button></div>
 		<div class="equipment-grid" data-mode-panel="manual">
 			<label class="field"><span>Traktor / Gefährt</span><select class="select" name="tractor_id" data-tractor-select><option value="">— keiner —</option>{{range .Tractors}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) (index $v "tractor_id")}}selected{{end}}>{{.Label}}{{if not .Active}} (inaktiv){{end}}</option>{{end}}</select></label>
 			<label class="field"><span>Belastungsstufe</span><select class="select" name="load_level_id" data-load-select><option value="">— keine —</option>{{range .Loads}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) (index $v "load_level_id")}}selected{{end}}>{{.Name}}</option>{{end}}</select></label>
@@ -78,6 +85,7 @@
 	<div class="booking-preview" data-booking-preview role="status" aria-live="polite" aria-atomic="true"><p class="muted small">Leistung auswählen und positive Stunden oder Beträge eingeben.</p></div>
 	<p class="muted small" data-pricing-status role="status"></p>
 	<button class="btn btn--primary btn--block" type="submit" title="Strg + Enter" {{if or .BookingLocked .HasInvoice}}disabled{{end}}>{{if .BookingEdit}}Änderungen speichern{{else if .BookingCopy}}Kopie speichern{{else}}Buchung speichern{{end}}</button>
+	{{if and (not .BookingEdit) (not .BookingCopy)}}<button class="btn btn--ghost btn--block" type="submit" name="continue_next" value="1" data-booking-next {{if or .BookingLocked .HasInvoice}}disabled{{end}}>Speichern &amp; nächste Buchung</button>{{end}}
 	<template data-person-template>{{template "booking-person-row" (dict "Form" . "Existing" false "Primary" false)}}</template>
 </form>
 {{end}}

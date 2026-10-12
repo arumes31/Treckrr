@@ -38,7 +38,7 @@ func passwordPolicyError(pw string) string {
 	case errors.Is(err, auth.ErrPasswordTooShort):
 		return "Passwort muss mindestens 8 Zeichen haben."
 	case errors.Is(err, auth.ErrPasswordTooLong):
-		return "Passwort darf höchstens 72 Zeichen lang sein."
+		return "Passwort darf höchstens 72 Byte lang sein."
 	case errors.Is(err, auth.ErrPasswordComplexity):
 		return "Passwort muss Buchstaben und Ziffern enthalten."
 	case err != nil:

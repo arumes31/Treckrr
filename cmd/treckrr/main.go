@@ -100,6 +100,7 @@ func newBackup(cfg *config.Config, pool *sql.DB, st *store.Store, maxBytes int64
 		MaxBytes:           maxBytes,
 		SkipStartupCleanup: cli,
 		RehearseURL:        cfg.BackupRehearseURL,
+		RehearseCron:       cfg.BackupRehearseCron,
 		S3: backup.S3Options{
 			Endpoint:     cfg.S3Endpoint,
 			Bucket:       cfg.S3Bucket,

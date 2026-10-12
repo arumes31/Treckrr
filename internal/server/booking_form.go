@@ -410,6 +410,5 @@ func (s *Server) handleBookingCreateV2(w http.ResponseWriter, r *http.Request) {
 	} else if result.MainID == 0 {
 		msg = "Personen zur bereits erfassten Buchung erg\u00e4nzt."
 	}
-	s.setFlash(w, r, "success", msg)
-	redirect(w, r, neighborBookingsURL(formInt64(r, "neighbor_id"), formInt64(r, "year_id")))
+	s.bookingSuccess(w, r, msg)
 }

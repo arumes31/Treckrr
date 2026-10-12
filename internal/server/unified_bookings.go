@@ -269,6 +269,10 @@ func (s *Server) acceptRecordedReplay(w http.ResponseWriter, r *http.Request, re
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if r.Header.Get("X-Booking-Response") == "json" && trimmed(r, "booking_form_version") == "2" {
+		s.bookingSuccess(w, r, "Buchung war bereits erfasst.")
+		return
+	}
 	s.setFlash(w, r, "success", "Buchung war bereits erfasst.")
 	redirect(w, r, redirectTo)
 }

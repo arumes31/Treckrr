@@ -311,8 +311,9 @@
 	function releaseButton() {
 		form.dataset.checking = "";
 		form.dataset.submitting = "";
-		var b = form.querySelector("button.btn--primary[type='submit'], button[type='submit'].btn--primary");
-		if (b) { b.classList.remove("is-submitting"); b.removeAttribute("aria-busy"); b.disabled = false; }
+		form.querySelectorAll("button[type='submit'].is-submitting, button[type='submit'][aria-busy='true']").forEach(function (b) {
+			b.classList.remove("is-submitting"); b.removeAttribute("aria-busy"); b.disabled = form.hasAttribute("data-booking-locked");
+		});
 	}
 
 	// Ctrl/Cmd+Enter saves the booking from anywhere in the form. Routes through

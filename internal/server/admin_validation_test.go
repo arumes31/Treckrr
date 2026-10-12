@@ -94,10 +94,12 @@ func init() {
 }
 
 func testAdminServer(t *testing.T) *Server {
+	t.Helper()
 	db, err := sql.Open("mock_admin", "")
 	if err != nil {
 		t.Fatalf("failed to open mock db: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	st := store.New(db, "test-encryption-key-at-least-32-bytes!!")
 	cfg := &config.Config{
 		SessionSecret: "test-session-secret-at-least-16-bytes",
@@ -105,6 +107,79 @@ func testAdminServer(t *testing.T) *Server {
 	return &Server{
 		cfg:   cfg,
 		store: st,
+	}
+}
+
+// TestAdminPasswordByteLimit rejects oversized passwords before either write
+// path reaches the store, including multibyte values with fewer than 72 runes.
+func TestAdminPasswordByteLimit(t *testing.T) {
+	s := &Server{cfg: &config.Config{SessionSecret: "test-session-secret-at-least-16-bytes"}}
+	routes := []struct {
+		name    string
+		path    string
+		handler http.HandlerFunc
+	}{
+		{name: "create", path: "/admin/users", handler: s.handleUserCreate},
+		{name: "reset", path: "/admin/users/123/password", handler: s.handleUserPassword},
+	}
+	passwords := []struct {
+		name  string
+		value string
+	}{
+		{name: "73 ASCII bytes", value: strings.Repeat("a", 72) + "1"},
+		{name: "73 multibyte bytes", value: strings.Repeat("ä", 35) + "ab1"},
+		{name: "byte limit precedes complexity", value: strings.Repeat("1", 73)},
+	}
+	for _, route := range routes {
+		for _, password := range passwords {
+			t.Run(route.name+"/"+password.name, func(t *testing.T) {
+				form := url.Values{"username": {"validuser"}, "password": {password.value}, "role": {"editor"}}
+				req := httptest.NewRequest(http.MethodPost, route.path, strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "admin-session"})
+				req.Header.Set(csrfHeaderName, s.csrfToken(req))
+				req.SetPathValue("id", "123")
+				rr := httptest.NewRecorder()
+
+				s.csrf(route.handler).ServeHTTP(rr, req)
+
+				if rr.Code != http.StatusSeeOther || rr.Header().Get("Location") != "/admin/users" {
+					t.Fatalf("status = %d, location = %q; want admin redirect", rr.Code, rr.Header().Get("Location"))
+				}
+				if got := flashText(t, s, rr); got != "Passwort darf höchstens 72 Byte lang sein." {
+					t.Errorf("flash = %q, want byte-limit error", got)
+				}
+			})
+		}
+	}
+}
+
+// TestHandleUserCreatePasswordBoundary accepts exactly 72 bytes through the
+// regular creation path rather than incorrectly rejecting by character count.
+func TestHandleUserCreatePasswordBoundary(t *testing.T) {
+	s := testAdminServer(t)
+	for _, tc := range []struct {
+		name     string
+		password string
+	}{
+		{name: "ASCII", password: strings.Repeat("a", 71) + "1"},
+		{name: "multibyte", password: strings.Repeat("ä", 35) + "a1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			form := url.Values{"username": {"validuser"}, "password": {tc.password}, "role": {"editor"}}
+			req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rr := httptest.NewRecorder()
+
+			s.handleUserCreate(rr, req)
+
+			if rr.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want %d", rr.Code, http.StatusSeeOther)
+			}
+			if got := flashText(t, s, rr); got != "Benutzer angelegt." {
+				t.Errorf("flash = %q, want creation success", got)
+			}
+		})
 	}
 }
 

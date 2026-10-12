@@ -59,7 +59,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Backup health. status.json already carries all of this; not exporting it
 	// meant a backup that had been failing for weeks was only visible to someone
 	// who happened to open the admin panel.
-	bs := readBackupStatus(s.cfg.BackupStatusFile)
+	bs := s.currentBackupStatus()
 	okVal := func(b bool) float64 {
 		if b {
 			return 1

@@ -115,6 +115,7 @@ services:
       # Schedule (cron) is configured in the admin Backup panel, not here.
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_REHEARSE_URL: ${BACKUP_REHEARSE_URL:-}
+      BACKUP_REHEARSE_CRON: ${BACKUP_REHEARSE_CRON:-}
       S3_KEEP: ${S3_KEEP:-0}
       # Optional off-box S3/Backblaze destination for scheduled backups (3-2-1).
       # Empty S3_ENDPOINT/S3_BUCKET disables it. When enabled, S3_PREFIX is
