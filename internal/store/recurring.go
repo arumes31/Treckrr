@@ -523,20 +523,8 @@ func (s *Store) liveRefs(ctx context.Context, t models.RecurTemplate, ruleID int
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM persons WHERE id = ANY($1)`, ids)
+	live, err := s.existingPersonIDs(ctx, ids)
 	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	live := make(map[int64]bool, len(ids))
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, nil, err
-		}
-		live[id] = true
-	}
-	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 	comp, person := t.Companion, t.PersonID
