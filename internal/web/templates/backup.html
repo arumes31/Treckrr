@@ -1,6 +1,7 @@
 {{define "content"}}
 <section class="stack">
 	<h2 class="section-title">Backup &amp; Restore</h2>
+	<a class="link" href="/admin/legacy-inventory">Historische Datenformate prüfen</a>
 	{{with .Backup}}
 	<div class="card bkp bkp--{{.State}}">
 		<div class="bkp__head">
@@ -10,6 +11,8 @@
 		</div>
 		{{if .Configured}}
 		<dl class="bkp__meta">
+			<div><dt>Volume-Zeitplan</dt><dd>{{if eq .VolumeHealth.State "disabled"}}Deaktiviert{{else if .VolumeHealth.Expected.IsZero}}Noch nie erfolgreich{{else}}Erwarteter Lauf: {{.VolumeHealth.Expected.Format "02.01.2006 15:04 MST"}}{{if not .VolumeHealth.Deadline.IsZero}} · Warnung ab {{.VolumeHealth.Deadline.Format "02.01.2006 15:04 MST"}}{{end}}{{end}}</dd></div>
+			{{if $.S3Enabled}}<div><dt>S3-Zeitplan</dt><dd>{{if eq .S3Health.State "disabled"}}Deaktiviert{{else if .S3Health.LastSuccess.IsZero}}Noch nie erfolgreich{{else}}Letzter Erfolg: {{.S3Health.LastSuccess.Format "02.01.2006 15:04 MST"}} · Erwarteter Lauf: {{.S3Health.Expected.Format "02.01.2006 15:04 MST"}}{{end}}</dd></div>{{end}}
 			<div><dt>Letztes Volume-Backup</dt><dd>{{if .LastBackup.IsZero}}—{{else}}{{date .LastBackup}} · vor {{.AgeHours}} h{{end}}</dd></div>
 			<div><dt>Größe</dt><dd>{{.SizeLabel}}</dd></div>
 			<div><dt>Archiv geprüft</dt><dd>{{if .ArchiveVerified.IsZero}}<span class="bkp__warn">nie</span>{{else}}{{date .ArchiveVerified}}{{end}}</dd></div>
@@ -17,6 +20,7 @@
 			<div><dt>Schema-Stand</dt><dd>{{if .SchemaVersion}}{{.SchemaVersion}}{{else}}—{{end}}</dd></div>
 			{{if $.S3Enabled}}<div><dt>S3-Kopie</dt><dd>{{if .S3}}{{.S3}}{{else}}—{{end}}</dd></div>{{end}}
 		</dl>
+		{{if .RehearsalNote}}<p class="bkp__note">{{.RehearsalNote}}</p>{{end}}
 		{{else}}
 		<p class="bkp__hint">Noch kein Volume-Backup gelaufen. Zeitplan unten einstellen oder „Jetzt sichern“.</p>
 		{{end}}
@@ -46,6 +50,7 @@
 	{{end}}
 
 	{{if .Backup.Enabled}}
+	<details class="card"><summary>Regelmäßige Restore-Probe</summary><p>{{.RehearsalCron}}</p><p class="muted">Standardmäßig nur manuell. Die automatische Probe benötigt BACKUP_REHEARSE_URL, BACKUP_REHEARSE_CRON und ein vorhandenes lokales Backup. Sie erstellt ausschließlich eine separate temporäre Testdatenbank, prüft deren Inhalt und entfernt sie danach. Die laufende Datenbank wird nicht wiederhergestellt.</p></details>
 	<!-- Zeitplan (Cron) -->
 	{{with .Settings}}
 	<div class="card">

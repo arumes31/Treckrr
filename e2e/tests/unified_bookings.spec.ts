@@ -77,7 +77,26 @@ async function fillBooking(page: Page, account: Account, kind: Kind, direction: 
   return form;
 }
 
-/** Saves through all normal submit handlers and waits for the actual POST redirect. */
+let confirmationSequence = 0;
+
+/** Requires a confirmed JSON save before accepting the enhanced form's navigation. */
+async function submitConfirmedBooking(page: Page, form: Locator, button: Locator) {
+  let confirmed = 0;
+  const binding = `confirmedUnifiedBooking${++confirmationSequence}`;
+  await page.exposeFunction(binding, () => { confirmed++; });
+  await form.evaluate((node, binding) => {
+    node.addEventListener("treckrr:booking-saved", () => (window as any)[binding]());
+  }, binding);
+  const posted = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/entries");
+  await button.click();
+  const response = await posted;
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/json");
+  expect(response.request().headers()["x-booking-response"]).toBe("json");
+  await expect.poll(() => confirmed).toBe(1);
+}
+
+/** Saves through all normal submit handlers and waits for the confirmed booking. */
 async function saveBooking(page: Page, form: Locator, task: string) {
   const ledger = await form.locator('[name="booking_direction"]:checked').inputValue() === "in" ||
     await form.locator('[name="booking_kind"]').inputValue() === "fixed";
@@ -87,9 +106,7 @@ async function saveBooking(page: Page, form: Locator, task: string) {
     message: (control as HTMLInputElement).validationMessage,
   })));
   expect(invalid, JSON.stringify(invalid)).toEqual([]);
-  const posted = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/entries");
-  await form.getByRole("button", { name: "Buchung speichern", exact: true }).click();
-  expect((await posted).status()).toBe(303);
+  await submitConfirmedBooking(page, form, form.getByRole("button", { name: "Buchung speichern", exact: true }));
   // A linked helper also mentions the source task in its backlink. Match the
   // primary task heading, not any descendant text, for an own-service record.
   const card = ledger ? page.locator(".bcard").filter({ hasText: task }) :
@@ -151,6 +168,8 @@ test("own equipment can book independent helper hours as a linked position", asy
 
 /** Exercises structured ledger editing/copying with shared catalog pricing and independent helper time. */
 test("incoming equipment keeps its independent helper through edit and copy", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const account = await freshAccount(page), task = `E2E partner copy ${account.year}`;
   const form = await fillBooking(page, account, "equipment", "in", task);
   await reveal(form.locator("[data-person-details]"));
@@ -190,13 +209,12 @@ test("incoming equipment keeps its independent helper through edit and copy", as
   await expect(copy.locator('[data-rate]')).toHaveText(/46,00/);
   await expect(firstPersonRow(copy).locator('[name="person_hours"]')).toHaveValue("1.5");
   await copy.locator('[name="task_label"]').fill(task + " Kopie");
-  const copied = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/entries");
-  await copy.getByRole("button", { name: /speichern/i }).click();
-  expect((await copied).status()).toBe(303);
+  await submitConfirmedBooking(page, copy, copy.getByRole("button", { name: /speichern/i }));
   await expect(page.locator(".bcard").filter({ hasText: task })).toHaveCount(2);
   card = page.locator(".bcard").filter({ hasText: task + " Kopie" });
   await expect(card.locator(".bcard__cost")).toContainText("-165,00");
 	await expect(page.locator(".summary-card__value")).toContainText("330,00");
+  expect(pageErrors, "incoming edit and copy must not raise browser exceptions").toEqual([]);
 });
 
 /** Confirms counterclaims reduce settlement but never the outgoing invoice or revenue base. */
@@ -235,6 +253,8 @@ test("incoming work offsets the account without reducing own invoice net or stat
 
 /** Retains the person attribution and explicit rate when editing and copying own labor. */
 test("own labor remains attributed to its person after edit and copy", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const account = await freshAccount(page), task = `E2E labor attribution ${account.year}`;
   const form = await fillBooking(page, account, "labor", "out", task);
   await saveBooking(page, form, task);
@@ -255,12 +275,11 @@ test("own labor remains attributed to its person after edit and copy", async ({ 
   await expect(copiedPerson.locator('[name="person_id"]')).toHaveValue("1");
   await expect(copiedPerson.locator('[name="person_rate"]')).toHaveValue("18");
   await copy.locator('[name="task_label"]').fill(task + " Kopie");
-  const copied = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/entries");
-  await copy.getByRole("button", { name: "Kopie speichern", exact: true }).click();
-  expect((await copied).status()).toBe(303);
+  await submitConfirmedBooking(page, copy, copy.getByRole("button", { name: "Kopie speichern", exact: true }));
   await expect(page.locator(".bcard").filter({ hasText: task })).toHaveCount(2);
   const copyCard = page.locator(".bcard").filter({ hasText: task + " Kopie" });
   await expect(copyCard.locator(".bcard__cost")).toContainText("54,00");
   await copyCard.locator('a[href^="/entries/"][href$="/edit"]').click();
   await expect(firstPersonRow(page.locator('form[action$="/update"]')).locator('[name="person_id"]')).toHaveValue("1");
+  expect(pageErrors, "labor edit and copy must not raise browser exceptions").toEqual([]);
 });

@@ -53,11 +53,10 @@
 	--pay: #2f8457;
 	--owe: #c05635;
 	--on-status: #fff;
-	/* Text variants: the fills above sit at ~4.0:1 on the page ground, which is
-	   fine for a bar but under AA's 4.5:1 for text. Measured 4.84 / 4.77 on the
-	   page and better on cards. */
+	/* Text variants: fills are for charts, not small status text. The owe text
+	   also clears AA on its tinted chip/hover backgrounds (not just paper). */
 	--pay-text: #28734b;
-	--owe-text: #ac4d2f;
+	--owe-text: #994128;
 	/* Chassis — the machine frame: app bar + nav rail/tab bar stay this dark
 	   green-black in BOTH themes (a deliberate constant, like the white appbar
 	   icons); the orange marker is the only moving part. */
@@ -91,7 +90,7 @@
 	--bk-ok: #1f6b47;
 	--bk-warn: #8a5510;
 	--bk-bad: #b03a20;
-	/* Blueprint grid on the page ground — part of the Werkblatt identity. */
+/* Blueprint grid on the page ground — part of the Werkblatt identity. */
 	--grid-line: rgba(20, 40, 30, .05);
 	--radius: 10px;
 	--radius-sm: 6px;
@@ -1542,7 +1541,7 @@ a.paychip--credit:hover { background: color-mix(in srgb, var(--owe) 22%, transpa
 .chip2--void { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
 .chip2--stale { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .chip2--credit { color: var(--owe-text); background: color-mix(in srgb, var(--owe) 14%, transparent); border-color: color-mix(in srgb, var(--owe) 30%, transparent); }
-.chip2--owe { color: var(--owe); background: color-mix(in srgb, var(--owe) 14%, transparent); border-color: color-mix(in srgb, var(--owe) 30%, transparent); }
+.chip2--owe { color: var(--owe-text); background: color-mix(in srgb, var(--owe) 14%, transparent); border-color: color-mix(in srgb, var(--owe) 30%, transparent); }
 .chip2--prog { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 /* ---- Booking / ledger cards (mobile-first, replace the sideways table) - */
@@ -1978,7 +1977,11 @@ a.paychip--credit:hover { background: color-mix(in srgb, var(--owe) 22%, transpa
 .yearcard:hover { background: var(--surface-2); }
 .yearcard__year { font-weight: 800; font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .yearcard__meta { flex: 1 1 auto; min-width: 0; font-size: .74rem; color: var(--muted); }
-.yearcard__value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.yearcard__value { font-weight: 800; font-variant-numeric: tabular-nums; white-space: normal; margin-left: auto; text-align: right; }
+.yearcard__value small { display: block; }
+.yearcard { flex-wrap: wrap; }
+.yearcard > .chip2 { max-width: 100%; white-space: normal; flex-wrap: wrap; }
+.yearcard__payment { flex-basis: 100%; }
 
 /* ---- Toast (server flash, shown above the tab bar) --------------------- */
 /* Same server flash mechanism, repositioned near the thumb: accent edge +

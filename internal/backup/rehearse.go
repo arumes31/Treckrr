@@ -83,7 +83,7 @@ func (s *Service) RehearseRestore(ctx context.Context, enc []byte) (Rehearsal, e
 	dropStaleScratch(ctx, admin, time.Now())
 
 	// Never drop an existing database to recover from a name collision.
-	if _, err := admin.ExecContext(ctx, `CREATE DATABASE "`+scratch+`"`); err != nil {
+	if _, err := admin.ExecContext(ctx, `CREATE DATABASE "`+scratch+`"`); err != nil { // #nosec G701 -- scratchTarget generates only a fixed prefix, decimal timestamp and random hex
 		return rep, fmt.Errorf("rehearsal: create scratch db: %w", err)
 	}
 	defer func() {
@@ -106,7 +106,7 @@ func (s *Service) RehearseRestore(ctx context.Context, enc []byte) (Rehearsal, e
 	start := time.Now()
 	// No --clean here: the database is empty by construction. --single-transaction
 	// still applies, so a partial load cannot be mistaken for a success.
-	cmd := exec.CommandContext(ctx, "pg_restore", // #nosec G204
+	cmd := exec.CommandContext(ctx, "pg_restore", // #nosec G204 G702 -- fixed executable, separate argv, generated scratch database and private temp archive; no shell
 		"--no-owner", "--single-transaction", "--dbname="+dbURL, tmp)
 	cmd.Env = env
 	var errBuf bytes.Buffer
@@ -158,6 +158,8 @@ func (s *Service) recordRehearsal(rep Rehearsal) error {
 	defer s.mu.Unlock()
 	st := s.readStatus()
 	st.RestoreTested = rep.At
+	ok := true
+	st.RehearsalOK = &ok
 	st.RehearsalNote = fmt.Sprintf("Restored and queried %d tables in %s", rep.Tables, rep.Duration.Round(time.Millisecond))
 	b, err := json.Marshal(st)
 	if err != nil {
@@ -178,7 +180,7 @@ type Rehearsal struct {
 func dropScratch(ctx context.Context, admin *sql.DB, name string) {
 	// FORCE terminates leftover connections; without it a dangling probe
 	// connection makes the drop fail and the scratch database accumulates.
-	if _, err := admin.ExecContext(ctx, `DROP DATABASE IF EXISTS "`+name+`" WITH (FORCE)`); err != nil {
+	if _, err := admin.ExecContext(ctx, `DROP DATABASE IF EXISTS "`+name+`" WITH (FORCE)`); err != nil { // #nosec G701 -- generated scratch name or strict staleScratch decimal/hex allowlist, never arbitrary SQL input
 		slog.Warn("rehearsal: scratch database not dropped", "db", name, "err", err)
 	}
 }

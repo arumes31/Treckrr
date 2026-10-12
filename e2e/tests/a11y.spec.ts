@@ -149,33 +149,37 @@ for (const { scheme, width } of [
   { scheme: "light", width: 390 },
   { scheme: "dark", width: 390 },
 ] as const) {
-  /** Rejects failed page loads, ambiguous page headings, and blocking axe findings in each palette. */
-  test(`all authenticated pages pass in ${scheme} mode at ${width}px`, async ({ page }, testInfo) => {
-    test.slow(); // The full authenticated page matrix is well past the default timeout.
-    await page.setViewportSize({ width, height: 900 });
-    await page.emulateMedia({ colorScheme: scheme });
-    await login(page);
-    const failures: string[] = [];
-    for (const [path, name] of PAGES) {
-      const resp = await page.goto(path);
-      // A page that 404s is a broken link in the list, not an a11y pass.
-      expect(resp?.status(), `${name} (${path}) did not load`).toBeLessThan(400);
-      await page.waitForLoadState("networkidle");
-      await expect(page.locator("h1"), `${name} (${path}) needs one page-level heading`).toHaveCount(1);
-      const main = page.locator("body.has-nav main.main");
-      const background = await main.evaluate((node) => getComputedStyle(node).backgroundColor);
-      expect(background, `${name} (${path}) needs an opaque workspace background`).not.toBe("rgba(0, 0, 0, 0)");
-      const overflow = await main.evaluate((node) => node.scrollWidth - node.clientWidth);
-      expect(overflow, `${name} (${path}) overflows the main content`).toBeLessThanOrEqual(1);
-      if (process.env.TRECKRR_UI_REVIEW) {
-        await page.screenshot({ path: testInfo.outputPath(name.replace(/[^a-z0-9]+/gi, "-") + ".png"), fullPage: true });
+  // All 38 routes remain covered. A bounded batch avoids one huge 90-second
+  // deadline for an entire palette and limits retries to six expensive scans.
+  for (let start = 0; start < PAGES.length; start += 6) {
+    const routes = PAGES.slice(start, start + 6);
+    test(`authenticated pages ${start + 1}-${start + routes.length} pass in ${scheme} mode at ${width}px`, async ({ page }, testInfo) => {
+      test.slow();
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await login(page);
+      const failures: string[] = [];
+      for (const [path, name] of routes) {
+        const resp = await page.goto(path);
+        // A page that 404s is a broken link in the list, not an a11y pass.
+        expect(resp?.status(), `${name} (${path}) did not load`).toBeLessThan(400);
+        await page.waitForLoadState("networkidle");
+        await expect(page.locator("h1"), `${name} (${path}) needs one page-level heading`).toHaveCount(1);
+        const main = page.locator("body.has-nav main.main");
+        const background = await main.evaluate((node) => getComputedStyle(node).backgroundColor);
+        expect(background, `${name} (${path}) needs an opaque workspace background`).not.toBe("rgba(0, 0, 0, 0)");
+        const overflow = await main.evaluate((node) => node.scrollWidth - node.clientWidth);
+        expect(overflow, `${name} (${path}) overflows the main content`).toBeLessThanOrEqual(1);
+        if (process.env.TRECKRR_UI_REVIEW) {
+          await page.screenshot({ path: testInfo.outputPath(name.replace(/[^a-z0-9]+/gi, "-") + ".png"), fullPage: true });
+        }
+        const violations = await seriousViolations(page);
+        if (violations.length) {
+          failures.push(`${name} (${path}, ${scheme}): ${violations.map((v) => v.id).join(", ")}`);
+        }
       }
-      const violations = await seriousViolations(page);
-      if (violations.length) {
-        failures.push(`${name} (${path}, ${scheme}): ${violations.map((v) => v.id).join(", ")}`);
-      }
-    }
-    expect(failures, "serious a11y violations").toEqual([]);
-  });
+      expect(failures, "serious a11y violations").toEqual([]);
+    });
+  }
 }
 

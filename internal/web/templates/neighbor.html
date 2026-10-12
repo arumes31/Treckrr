@@ -1,6 +1,7 @@
 {{define "content"}}
 <section class="stack" data-base-id="{{.Base.ID}}">
 	<a class="backlink" href="/?year={{.Year.ID}}">‹ Nachbarn {{.Year.Year}}</a>
+	<a class="backlink" href="/years/{{.Year.ID}}/abschluss">Jahresabschluss prüfen</a>
 
 	<header class="summary-card card">
 		<div>
@@ -15,6 +16,7 @@
 		<div class="summary-card__meta">
 			<span>Eigene Maschinenstunden {{num .TotalHours}} h · {{.BookingCount}} Positionen gesamt</span>
 			<span class="btnrow">
+				{{if .User.CanWrite}}<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
 				<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Beleg</a>
 				<a class="btn btn--ghost btn--sm" href="/export/neighbor/{{.Neighbor.ID}}?year={{.Year.ID}}">CSV Export</a>
 			</span>
@@ -30,6 +32,7 @@
 	</nav>
 
 	{{if eq .Section "overview"}}
+	{{if .HasInvoice}}<div class="flash flash--info">Rechnung festgeschrieben: Die abgerechneten Inhalte sind unveränderbar; neue Leistungen dieses Nachbarn im Jahr sind gesperrt. <a class="link" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Rechnung ansehen</a> · <a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a></div>{{end}}
 	<section class="account-overview" aria-labelledby="account-overview-title">
 		<div class="account-overview__heading">
 			<div><h2 id="account-overview-title">Stand {{.Year.Year}}</h2><p class="muted small">Die wichtigsten Werte auf einen Blick.</p></div>
@@ -251,6 +254,7 @@
 				{{else}}
 				<span class="bcard__detail">{{if .Description}}{{.Description}}{{else}}—{{end}}{{if .VoidReason}} · Storno: {{.VoidReason}}{{end}}</span>
 				{{end}}
+				{{with $.TransferTargets}}{{with index . $lid}}<a class="link small" href="/neighbors/{{$.Neighbor.ID}}?year={{.YearID}}&amp;view=bookings#ledger-{{.LedgerID}}">Gegenbuchung {{.Year}} ansehen</a>{{end}}{{end}}
 				{{if not $.Completed}}
 				<span class="bcard__acts">
 					{{if .Voided}}
@@ -345,16 +349,18 @@
 		{{end}}
 	</div>
 	<div class="bcard__summary"><span class="muted">Bezahlt</span><span>{{money .PaidSum}}</span></div>
-	<div class="bcard__summary"><span>Offener Rest</span><span>{{money .Remaining}}</span></div>
+	<div class="bcard__summary"><span>{{if .Remaining.IsNegative}}Guthaben{{else if .Remaining.IsZero}}Ausgeglichen{{else}}Offen{{end}}</span><span>{{if .Remaining.IsNegative}}{{money .CreditAmount}}{{else}}{{money .Remaining}}{{end}}</span></div>
 
-	<details class="card disclosure">
-		<summary>+ Zahlung erfassen</summary>
+	<details class="card disclosure" id="zahlung-erfassen" open>
+		<summary>Zahlung verbuchen</summary>
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/payments" class="form">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
+			<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
+			<input type="hidden" name="origin" value="payments">
 			<input type="hidden" name="idempotency_key" value="{{formKey}}">
 			<div class="form__grid">
 				<label class="field"><span>Betrag (€)</span>
-					<input class="input" type="number" step="0.01" min="0" name="amount" required></label>
+					<input class="input" type="number" step="0.01" min="0.01" name="amount"{{if .Remaining.IsPositive}} value="{{.Remaining.StringFixed 2}}"{{end}} required></label>
 				<label class="field"><span>Datum</span>
 					<input class="input" type="date" name="paid_on" value="{{.Today}}"></label>
 				<label class="field"><span>Zahlungsart</span>
@@ -372,7 +378,11 @@
 				{{end}}
 			</div>
 			{{if .HasInvoice}}<p class="muted small">Ein Skonto erzeugt automatisch eine § 16-Gutschrift auf die Rechnung (Netto und USt werden korrekt gemindert).</p>{{end}}
-			<button class="btn btn--primary btn--sm" type="submit">Zahlung erfassen</button>
+			<div class="btnrow">
+				<button class="btn btn--primary btn--sm" type="submit">Zahlung erfassen</button>
+				{{if .Remaining.IsPositive}}<button class="btn btn--ghost btn--sm" type="submit" formaction="/years/mark-paid" formnovalidate>Gesamten Rest bezahlen</button>{{end}}
+			</div>
+			<p class="muted small">Teilzahlung: Betrag anpassen und „Zahlung erfassen“ wählen. „Gesamten Rest bezahlen“ verbucht den beim Speichern offenen Betrag ohne Skonto, mit Datum und Zahlungsart.</p>
 		</form>
 	</details>
 
@@ -418,11 +428,7 @@
 	{{end}}
 
 	{{if .Remaining.IsPositive}}
-	<form method="post" action="/neighbors/{{.Neighbor.ID}}/carry-forward" class="form"
-		data-confirm="Offenen Rest ({{money .Remaining}}) ins Folgejahr übernehmen? Das aktuelle Jahr wird damit ausgeglichen.">
-		<input type="hidden" name="year_id" value="{{.Year.ID}}">
-		<button class="btn btn--ghost btn--sm" type="submit">Rest ins Folgejahr übernehmen</button>
-	</form>
+	<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/carry-forward?year={{.Year.ID}}">Rest ins Folgejahr übernehmen</a>
 	{{else if .Remaining.IsNegative}}
 	<div class="btnrow">
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/credit-payout" class="form"
@@ -430,11 +436,7 @@
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
 			<button class="btn btn--ghost btn--sm" type="submit">Guthaben ({{money .CreditAmount}}) als ausbezahlt verbuchen</button>
 		</form>
-		<form method="post" action="/neighbors/{{.Neighbor.ID}}/carry-forward" class="form"
-			data-confirm="Guthaben ({{money .CreditAmount}}) ins Folgejahr übernehmen?">
-			<input type="hidden" name="year_id" value="{{.Year.ID}}">
-			<button class="btn btn--ghost btn--sm" type="submit">Guthaben ins Folgejahr übernehmen</button>
-		</form>
+		<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/carry-forward?year={{.Year.ID}}">Guthaben ins Folgejahr übernehmen</a>
 	</div>
 	{{end}}
 	{{end}}

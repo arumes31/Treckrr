@@ -12,6 +12,9 @@
 		<strong>Dieses Jahr ist bereits abgeschlossen.</strong>
 		<p class="muted small">Rechnungen, Storni, Gutschriften und Abschläge sind gesperrt. Für eine Korrektur muss das Jahr mit Begründung wieder geöffnet werden. Zahlungen bleiben jederzeit erfassbar.</p>
 		<a class="btn btn--primary btn--sm" href="/years/{{.Year.ID}}/wechsel">Geführten Jahreswechsel starten</a>
+		{{if .ArchiveCount}}<a class="btn btn--ghost btn--sm" href="/rechnungsjournal/archiv.zip?year={{.Year.ID}}">Jahresunterlagen herunterladen</a>
+		<p class="muted small">{{.ArchiveCount}} Dokument(e) als PDF, vorhandene E-Rechnungen und das Rechnungsjournal als CSV. Noch nicht ausgestellte Rechnungen sind nicht enthalten.</p>
+		{{else}}<p class="muted small">Für dieses Jahr sind noch keine Rechnungsunterlagen vorhanden.</p>{{end}}
 	</div>
 	{{end}}
 
@@ -26,6 +29,13 @@
 					{{range $i, $n := .Names}}{{if $i}}, {{end}}{{$n}}{{end}}{{if .More}} … und {{.More}} weitere{{end}}
 					{{if .Amount.IsPositive}} · Summe {{money .Amount}}{{end}}
 				</span>
+				{{ $key := .Key }}
+				{{if eq (len .Neighbors) 1}}
+				{{range .Neighbors}}<a class="link" href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if eq $key "unpaid"}}&amp;view=payments{{end}}">{{.Name}} prüfen</a>{{end}}
+				{{else if .Neighbors}}
+				<details class="disclosure disclosure--plain"><summary>Betroffene Konten prüfen ({{len .Neighbors}})</summary>
+				<div class="action-list">{{range .Neighbors}}<a href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if eq $key "unpaid"}}&amp;view=payments{{end}}"><span>{{.Name}}</span><span>Prüfen ›</span></a>{{end}}</div></details>
+				{{end}}
 			</div>
 			<span class="status status--neutral">{{.Count}} offen</span>
 		</div>

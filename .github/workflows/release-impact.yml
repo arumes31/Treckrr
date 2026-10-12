@@ -1,0 +1,25 @@
+name: Release impact
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Test report classifier
+        run: node --test .github/scripts/release-impact.test.mjs
+      - name: Generate unreviewed impact report
+        env:
+          BASE_COMMIT: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node .github/scripts/release-impact.mjs --base "$BASE_COMMIT" --head "$HEAD_COMMIT" >> "$GITHUB_STEP_SUMMARY"

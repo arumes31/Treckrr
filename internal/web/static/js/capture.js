@@ -90,6 +90,9 @@
 		// Only the explicit new-booking form may restore or write remembered defaults.
 		var form = document.querySelector("[data-entry-form][data-entry-defaults]");
 		if (!form) return;
+		// The unified editor owns user/year-scoped defaults. The legacy bridge
+		// must not restore another user's values or create a draft on page load.
+		if (form.hasAttribute("data-unified-booking")) return;
 		var fields = ["unit", "gespann_id", "task_label", "mode"];
 		var unified = form.hasAttribute("data-unified-booking");
 		/** Counterparty prices/tasks must never become a new own-service default. */

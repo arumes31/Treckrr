@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/robfig/cron/v3"
 )
 
 // Documented Compose placeholders that must never reach a running instance
@@ -70,6 +72,8 @@ type Config struct {
 	// default) leaves rehearsals off — they need CREATE DATABASE rights, which
 	// is not something to switch on behind an operator's back.
 	BackupRehearseURL string
+	// BackupRehearseCron opts in to scheduled rehearsals; empty keeps them manual.
+	BackupRehearseCron string
 	// BackupKeep is how many encrypted dumps to retain (older ones are pruned).
 	// The schedule itself is cron-based and configured in the admin panel.
 	BackupKeep int
@@ -124,6 +128,7 @@ func Load() (*Config, error) {
 		BackupKeep:          getenvInt("BACKUP_KEEP", 7),
 		S3Keep:              getenvInt("S3_KEEP", 0),
 		BackupRehearseURL:   getenv("BACKUP_REHEARSE_URL", ""),
+		BackupRehearseCron:  strings.TrimSpace(os.Getenv("BACKUP_REHEARSE_CRON")),
 		S3Endpoint:          os.Getenv("S3_ENDPOINT"),
 		S3Bucket:            os.Getenv("S3_BUCKET"),
 		S3AccessKey:         os.Getenv("S3_ACCESS_KEY"),
@@ -139,6 +144,14 @@ func Load() (*Config, error) {
 		SMTPPassword:        os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:            os.Getenv("SMTP_FROM"),
 		SMTPStartTLS:        strings.EqualFold(getenv("SMTP_STARTTLS", "true"), "true"),
+	}
+	if c.BackupRehearseCron != "" {
+		if _, err := cron.ParseStandard(c.BackupRehearseCron); err != nil {
+			return nil, fmt.Errorf("BACKUP_REHEARSE_CRON: %w", err)
+		}
+		if c.BackupRehearseURL == "" || c.BackupEncryptionKey == "" {
+			return nil, fmt.Errorf("BACKUP_REHEARSE_CRON requires BACKUP_REHEARSE_URL and BACKUP_ENCRYPTION_KEY")
+		}
 	}
 
 	// Data-at-rest encryption key. Defaults to SessionSecret so existing

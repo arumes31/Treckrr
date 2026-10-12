@@ -7,6 +7,8 @@ import (
 
 // registerWorkflowRoutes registers the daily dashboard, neighbor, and year flow.
 func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
+	mux.Handle("GET /account/favorites", s.auth(s.handleFavorites))
+	mux.Handle("POST /account/favorites", s.auth(s.handleFavorites))
 	mux.Handle("GET /{$}", s.auth(s.handleDashboard))
 	mux.Handle("GET /stats", s.auth(s.handleStats))
 	mux.Handle("GET /stats/all", s.auth(s.handleStatsAll))
@@ -77,6 +79,7 @@ func (s *Server) registerBookingRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /ledger/{id}/delete", s.auth(s.handleLedgerDelete))
 	mux.Handle("POST /neighbors/{id}/payments", s.auth(s.handlePaymentAdd))
 	mux.Handle("POST /neighbors/{id}/carry-forward", s.auth(s.handleNeighborCarryForward))
+	mux.Handle("GET /neighbors/{id}/carry-forward", s.auth(s.handleNeighborCarryForwardPreview))
 	mux.Handle("GET /payments/{id}/edit", s.auth(s.handlePaymentEditForm))
 	mux.Handle("POST /payments/{id}/update", s.auth(s.handlePaymentUpdate))
 	mux.Handle("GET /payments/{id}/copy", s.auth(s.handlePaymentCopy))
@@ -226,6 +229,7 @@ func (s *Server) registerAccountAndOperationsRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
+	mux.Handle("GET /admin/legacy-inventory", s.admin(s.handleLegacyInventory))
 	mux.Handle("GET /admin/audit", s.admin(s.handleAudit))
 	mux.Handle("GET /admin/audit/export", s.admin(s.handleAuditExport))
 	mux.Handle("GET /admin/mail", s.admin(s.handleMailOutbox))

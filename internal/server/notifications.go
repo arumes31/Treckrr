@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/d0linger/treckrr/internal/store"
 )
@@ -17,10 +18,14 @@ func (s *Server) RefreshNotifications(ctx context.Context) error {
 	var backupNotice *store.NotificationSource
 	health := s.backupHealth()
 	if health.Tone != "ok" {
-		status := readBackupStatus(s.cfg.BackupStatusFile)
+		status := s.currentBackupStatus()
 		identity := status.State + ":" + strconv.FormatInt(status.LastBackup.Unix(), 10)
 		if s.backup == nil || !s.backup.Enabled() {
 			identity = "disabled"
+		} else if status.RehearsalFailed {
+			// A dismissed backup warning must not hide a new restore failure.
+			// Retries share one episode until a successful rehearsal resets it.
+			identity = "rehearsal_failed:" + status.RestoreTested.UTC().Format(time.RFC3339Nano)
 		}
 		backupNotice = &store.NotificationSource{
 			DedupeKey: "backup:" + identity, Kind: "backup", Tone: health.Tone,

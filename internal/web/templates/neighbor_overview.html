@@ -9,8 +9,8 @@
 
 	<div class="summary-card card">
 		<div>
-			<span class="summary-card__label">{{.Neighbor.Name}} · alle Jahre</span>
-			<span class="summary-card__value">{{money .TotalCost}}</span>
+			<span class="summary-card__label">{{.Neighbor.Name}} · alle Jahre · {{if .TotalRemaining.IsNegative}}Guthaben{{else if .TotalRemaining.IsZero}}Ausgeglichen{{else}}Offen{{end}}</span>
+			<span class="summary-card__value">{{if .TotalRemaining.IsNegative}}{{money .TotalRemaining.Neg}}{{else}}{{money .TotalRemaining}}{{end}}</span>
 		</div>
 		<div class="summary-card__meta"><span>{{num .TotalHours}} h gesamt</span></div>
 	</div>
@@ -21,18 +21,17 @@
 	</div>
 
 	<h2 class="section-title">Jahresverlauf &amp; Zahlungshistorie</h2>
-	<p class="muted small">Saldo je Jahr = Leistungen inkl. Verrechnung (Konto).</p>
+	<p class="muted small">Leistungssaldo = Leistungen inkl. Verrechnung (Konto). Offen/Guthaben berücksichtigt Zahlungen und festgeschriebene Rechnungen. Interne Überträge verschieben Beträge zwischen Jahren; sie sind keine Zahlung.</p>
 	<div class="yearcards">
 		{{range .Rows}}
 		<a class="yearcard" href="/neighbors/{{$.Neighbor.ID}}?year={{.YearID}}">
 			<span class="yearcard__year">{{.Year}}</span>
 			<span class="yearcard__meta">{{num .Hours}} h</span>
-			{{if .Completed}}
-				{{if .Paid}}<span class="chip2 chip2--paid"><span class="chip2__g">{{template "ic-check"}}</span>Bezahlt</span>
+				{{if .Paid}}<span class="chip2 chip2--paid"><span class="chip2__g">{{template "ic-check"}}</span>Ausgeglichen</span>
 				{{else if .Credit}}<span class="chip2 chip2--credit" title="Guthaben des Nachbarn – noch an ihn auszuzahlen"><span class="chip2__g">€</span>Guthaben · {{money .Remaining.Neg}}</span>
-				{{else}}<span class="chip2 chip2--owe"><span class="chip2__g">€</span>Offen</span>{{end}}
-			{{else}}<span class="chip2 chip2--prog"><span class="chip2__g">{{template "ic-clock"}}</span>Läuft</span>{{end}}
-			<span class="yearcard__value">{{money .Cost}}</span>
+				{{else}}<span class="chip2 chip2--owe"><span class="chip2__g">€</span>Offen · {{money .Remaining}}</span>{{end}}
+			<span class="yearcard__value">{{money .Cost}} <small class="muted">Leistungssaldo</small></span>
+			<span class="yearcard__meta yearcard__payment">Bezahlt {{money .PaidAmount}} · {{if .Completed}}Abgeschlossen{{else}}In Bearbeitung{{end}}</span>
 		</a>
 		{{else}}
 		<div class="empty empty--slim">
@@ -41,7 +40,7 @@
 		{{end}}
 	</div>
 	{{if .Rows}}
-	<div class="bcard__summary"><span class="muted">Gesamt · {{num .TotalHours}} h</span><span>{{money .TotalCost}}</span></div>
+	<div class="bcard__summary"><span class="muted">Leistungssaldo gesamt · {{num .TotalHours}} h</span><span>{{money .TotalCost}}</span></div>
 	{{end}}
 
 	{{if .HasTrend}}

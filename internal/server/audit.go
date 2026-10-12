@@ -423,6 +423,7 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		metrics.Inc(metrics.HTTPRequests)
 		metrics.IncLabel(metrics.HTTPRequestsByClass, "class", statusClass(rec.status))
 		metrics.ObserveRequest(dur.Seconds())
+		observeCoreOperation(r.Pattern, dur.Seconds())
 		if noisyPath(r.URL.Path) && rec.status < 400 {
 			return
 		}

@@ -255,6 +255,7 @@ type Status struct {
 	// from promising a rehearsal that never happened.
 	ArchiveVerified time.Time `json:"archive_verified,omitempty"`
 	RehearsalNote   string    `json:"rehearsal_note,omitempty"`
+	RehearsalOK     *bool     `json:"rehearsal_ok,omitempty"`
 }
 
 // Settings is the runtime backup schedule, editable in the GUI. An empty cron
@@ -299,7 +300,9 @@ type Options struct {
 	// dropped for restore rehearsals. Empty disables rehearsals entirely — the
 	// conservative default, because the feature needs CREATE DATABASE rights.
 	RehearseURL string
-	S3          S3Options
+	// RehearseCron explicitly opts in to periodic scratch-database rehearsals.
+	RehearseCron string
+	S3           S3Options
 	// SettingsFn returns the current GUI-editable schedule. When nil the service
 	// falls back to a fixed default cron and Keep. Called each scheduler tick so
 	// GUI edits apply without a restart.
@@ -324,11 +327,12 @@ type Service struct {
 	db     *sql.DB
 	secret []byte // raw backup-key secret; the AES key is derived per file, nil when disabled
 
-	mu         sync.Mutex    // serializes status.json read-modify-write
-	opSem      chan struct{} // size-1 semaphore serializing DB dump/restore, ctx-aware (T-05)
-	workSem    chan struct{} // one whole memory-heavy job, including HTTP parsing
-	volRetryAt time.Time     // earliest next volume attempt after a failure (tick goroutine only)
-	s3RetryAt  time.Time     // earliest next S3 attempt after a failure (tick goroutine only)
+	mu               sync.Mutex    // serializes status.json read-modify-write
+	opSem            chan struct{} // size-1 semaphore serializing DB dump/restore, ctx-aware (T-05)
+	workSem          chan struct{} // one whole memory-heavy job, including HTTP parsing
+	volRetryAt       time.Time     // earliest next volume attempt after a failure (tick goroutine only)
+	s3RetryAt        time.Time     // earliest next S3 attempt after a failure (tick goroutine only)
+	rehearsalRetryAt time.Time
 
 	s3mu     sync.Mutex    // guards the cached S3 client
 	s3cl     *minio.Client // one client (and HTTP transport) reused across S3 calls
@@ -599,7 +603,7 @@ func decrypt(enc, secret []byte) ([]byte, error) {
 func (s *Service) createScratch() (*os.File, error) {
 	dir := os.TempDir()
 	if s.opt.Dir != "" {
-		if err := os.MkdirAll(s.opt.Dir, 0o750); err != nil {
+		if err := os.MkdirAll(s.opt.Dir, 0o750); err != nil { // #nosec G703 -- backup directory is operator configuration, not an archive or HTTP path
 			return nil, err
 		}
 		dir = s.opt.Dir
@@ -1277,7 +1281,7 @@ func (s *Service) List() ([]BackupFile, error) {
 	}
 	out := make([]BackupFile, 0, len(paths))
 	for _, p := range paths {
-		fi, err := os.Stat(p)
+		fi, err := os.Stat(p) // #nosec G703 -- names come only from Glob within the operator-configured backup directory
 		if err != nil {
 			continue
 		}
@@ -1436,6 +1440,7 @@ func (s *Service) tick(ctx context.Context, logger *slog.Logger) {
 			})
 		}
 	}
+	s.runScheduledRehearsal(ctx, logger, now)
 }
 
 // runScheduledDestination runs one due scheduled job with crash bookkeeping:
@@ -2039,14 +2044,14 @@ func (s *Service) writeTemp(raw []byte) (path string, cleanup func(), err error)
 	}
 	if _, err := f.Write(raw); err != nil {
 		_ = f.Close()
-		_ = os.Remove(f.Name())
+		_ = os.Remove(f.Name()) // #nosec G703 -- private path returned by os.CreateTemp, never supplied by an archive
 		return "", nil, err
 	}
 	// Surface a failed Close: it can mean the archive was not fully flushed,
 	// which would make pg_restore read a truncated file.
 	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
+		_ = os.Remove(f.Name()) // #nosec G703 -- private path returned by os.CreateTemp, never supplied by an archive
 		return "", nil, err
 	}
-	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
+	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil // #nosec G703 -- cleanup of the exact private os.CreateTemp file
 }

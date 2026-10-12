@@ -38,3 +38,7 @@ node_modules/
 /tmp/
 /.tmp/
 /temp/
+
+# Local build outputs are not inputs to the container build.
+/treckrr
+/treckrr.exe

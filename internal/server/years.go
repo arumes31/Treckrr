@@ -341,5 +341,13 @@ func (s *Server) handleYearClosing(w http.ResponseWriter, r *http.Request) {
 	data["Year"] = year
 	data["Checks"] = checks
 	data["OpenChecks"] = store.OpenClosingChecks(checks)
+	if year.Completed() {
+		documents, err := s.store.ListInvoiceJournal(r.Context(), id)
+		if err != nil {
+			s.serverError(w, "closing: archive documents", err)
+			return
+		}
+		data["ArchiveCount"] = len(documents)
+	}
 	s.render(w, r, "year_closing", data)
 }

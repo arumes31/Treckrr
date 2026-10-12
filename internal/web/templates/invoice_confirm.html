@@ -32,8 +32,10 @@
 			{{end}}
 		</div>
 		<p class="muted small">Nach dem Festschreiben bleiben Rechnungsnummer und Inhalt <strong>unveränderbar gespeichert</strong>. Korrekturen sind nur über Storno oder Gutschrift möglich.</p>
+		<p class="flash flash--info"><strong>{{.Neighbor.Name}} · {{.Year.Year}}:</strong> Danach sind weitere Leistungen und Gegenpositionen für diesen Nachbarn in diesem Jahr gesperrt. Eine Zahlung hebt diese Sperre nicht auf.</p>
+		<p class="muted small">Wenn noch Arbeiten folgen: Ein Abschlag fordert eine Anzahlung an, ohne die Jahresrechnung festzuschreiben. Er ist keine abschließende Rechnung.</p>
 	</div>
-	<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice" data-confirm="Rechnung jetzt festschreiben? Die Nummer wird fest vergeben und der Inhalt eingefroren.">
+	<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice" data-confirm="Rechnung für {{.Neighbor.Name}} · {{.Year.Year}} jetzt festschreiben? Nummer und Inhalt werden unveränderbar gespeichert. Weitere Leistungen dieses Nachbarn im Jahr sind danach gesperrt; eine Zahlung hebt die Sperre nicht auf.">
 		<label class="field"><span>Rechnungsdatum (nicht in der Zukunft, nicht vor dem jüngsten Dokument des Jahres)</span>
 			<input class="input" type="date" name="issued_on" value="{{.Today}}"></label>
 		<input type="hidden" name="year_id" value="{{.Year.ID}}">

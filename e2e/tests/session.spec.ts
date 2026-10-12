@@ -42,10 +42,9 @@ test("record a payment and see it in the cross-year history", async ({ page }) =
   await login(page);
   await page.goto("/neighbors/1?year=1&view=payments");
 
-  const details = page.locator("details").filter({
-    has: page.locator("summary", { hasText: "Zahlung erfassen" }),
-  }).first();
-  await details.locator("summary").click();
+  const details = page.locator("#zahlung-erfassen");
+  await expect(details).toHaveAttribute("open", "");
+  await expect(details.locator("summary")).toHaveText("Zahlung verbuchen");
   await details.locator('input[name="amount"]').fill("25");
   await details.locator('select[name="method"]').selectOption("bar");
   await details.locator('input[name="note"]').fill("E2E Teilzahlung");
