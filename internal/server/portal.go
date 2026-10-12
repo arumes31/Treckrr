@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/d0linger/treckrr/internal/pdf"
 	"github.com/d0linger/treckrr/internal/store"
@@ -90,12 +91,17 @@ func (s *Server) handlePortalFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	message := strings.TrimSpace(r.FormValue("message"))
-	if len([]rune(message)) > maxNoteLen {
+	if utf8.RuneCountInString(message) > maxNoteLen {
 		s.badRequest(w, "Die Nachricht ist zu lang.")
 		return
 	}
 	if status == "disputed" && message == "" {
 		s.badRequest(w, "Bitte den Einwand kurz beschreiben.")
+		return
+	}
+	rawLine := strings.TrimSpace(r.FormValue("line"))
+	if utf8.RuneCountInString(rawLine) > maxNameLen {
+		s.badRequest(w, "Ungültige Rechnungsposition.")
 		return
 	}
 	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
@@ -104,8 +110,8 @@ func (s *Server) handlePortalFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var linePosition *int
-	if raw := strings.TrimSpace(r.FormValue("line")); raw != "" {
-		idx, err := strconv.Atoi(raw)
+	if rawLine != "" {
+		idx, err := strconv.Atoi(rawLine)
 		if err != nil || idx < 0 || idx >= len(iv.Content.Lines) {
 			s.badRequest(w, "Ungültige Rechnungsposition.")
 			return
