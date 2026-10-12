@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 // e2e/run.mjs starts the same disposable Docker stack locally and in CI. The
 // desktop suite stays intact; four bounded mobile projects cover core surfaces.
-// A trace on first retry makes flakes diagnosable from the uploaded report.
+// A trace on first retry makes flakes diagnosable in the local report.
 //
 // workers: 1 — all specs share ONE database (there is no per-test DB isolation), so
 // parallel workers would race and one spec's writes (a booking, an issued invoice)
@@ -14,7 +14,6 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
-  snapshotPathTemplate: "{testDir}/../snapshots/{testFilePath}/{arg}-{projectName}{ext}",
   use: {
     baseURL: process.env.BASE_URL || "http://localhost:8080",
     trace: "on-first-retry",

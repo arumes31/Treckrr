@@ -62,6 +62,11 @@ Guidelines:
 - Add or update tests for behaviour changes, especially in `calc` and `store`.
 - Update the README / docs when you change configuration, routes or features.
 - Write clear commit messages (imperative mood, e.g. "Add payment history view").
+- Keep mockups, screenshots, private review reports, and generated test output in
+  ignored local directories such as `tmp/`; never force-add them. Browser tests
+  use semantic layout/accessibility checks rather than committed screenshot
+  baselines. Existing README images, application icons, and synthetic test fixtures
+  are intentional repository inputs, not cleanup targets.
 
 ## Reporting bugs & requesting features
 

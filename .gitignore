@@ -41,6 +41,7 @@ Thumbs.db
 # Logs & temp
 *.log
 /tmp/
+/.tmp/
 /temp/
 *.tmp
 *.bak
@@ -66,8 +67,16 @@ Noppanschoftshilfe.xlsx
 /e2e/review/
 /e2e/tests/audit_report.spec.ts
 
+# Local mockups and visual evidence; retain application icons and README images.
+/mockups/
+/screenshots/
+/artifacts/
+/e2e/snapshots/
+*-snapshots/
+
 # E2E (Playwright) artifacts
 /treckrr-e2e
 e2e/node_modules/
-e2e/playwright-report/
-e2e/test-results/
+playwright-report/
+test-results/
+blob-report/

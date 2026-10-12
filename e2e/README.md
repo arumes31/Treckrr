@@ -35,18 +35,18 @@ split into six-page batches in each theme/width combination, so a retry does not
 repeat a whole palette and a single shared deadline cannot expire mid-crawl.
 Four additional projects exercise the
 five mobile core pages in Chromium/WebKit, light/dark, plus open search/navigation
-dialogs. They enforce opaque content surfaces and absence of horizontal overflow;
-screenshots of each state are attached to the report for review. These semantic
-visual contracts avoid a noisy full-page pixel baseline. Four bounded search-dialog
-reference screenshots are compared with 1% pixel tolerance; update them deliberately
-as described in `snapshots/README.md`. Other screenshots are evidence, not automatically
-approved baselines. Also review them and test one real smartphone for large UI changes.
+dialogs. They enforce opaque content surfaces and absence of horizontal overflow.
+Search-dialog checks cover contrast, visible input/results, a mobile touch target,
+initial focus and focus restoration on Escape. These semantic checks do not need
+reference screenshots. Review local diagnostic screenshots and test one real
+smartphone for large UI changes.
 
 Reports and screenshot/trace attachments are written to the ignored directories
 `tmp/e2e-runs/<test-project>/playwright-report` and its adjacent `test-results`;
 a new run does not overwrite old evidence. They are outside Playwright's default
-output trees, so a parallel host test cannot delete a Docker run's mount. CI
-uploads these even on failure.
+output trees, so a parallel host test cannot delete a Docker run's mount. GitHub
+Actions does not upload browser reports, screenshots or traces; CI retains only
+its normal textual job logs.
 The machine-local, gitignored `audit_report.spec.ts` is not an application fixture
 and is excluded from the browser image, just like its private report.
 Only the mobile read-only suite blocks service workers. Dedicated offline/PWA tests

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 /** Checks actual surface paint instead of merely the presence of a CSS class. */
 async function expectOpaque(locator: Locator) {
@@ -55,9 +56,6 @@ test("mobile core workflows retain readable surfaces and reachable dialogs", asy
     const sheets = page.locator("main .card:visible, main .work-surface:visible, main .neighbor-directory:visible");
     expect(await sheets.count(), `${name}: no opaque content sheet rendered`).toBeGreaterThan(0);
     for (const sheet of await sheets.all()) await expectOpaque(sheet);
-    await testInfo.attach(`${name}-${theme}`, {
-      body: await page.screenshot({ fullPage: true, animations: "disabled" }), contentType: "image/png",
-    });
   }
   await testInfo.attach("synthetic-navigation-timings", {
     body: JSON.stringify({ diagnosticOnly: true, fixture: "e2e/seed.sql", timings }, null, 2), contentType: "application/json",
@@ -66,13 +64,27 @@ test("mobile core workflows retain readable surfaces and reachable dialogs", asy
   await expectOpaque(page.locator("#drawer"));
   await expectFits(page);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Schnellsuche (Strg+K)", exact: true }).click();
+  const searchButton = page.getByRole("button", { name: "Schnellsuche (Strg+K)", exact: true });
+  await searchButton.focus();
+  await searchButton.click();
+  const dialog = page.getByRole("dialog", { name: "Suche", exact: true });
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
   const search = page.locator(".cmdk__box");
   await expectOpaque(search);
-  await testInfo.attach(`search-dialog-${theme}`, {
-    body: await search.screenshot({ animations: "disabled" }), contentType: "image/png",
-  });
-  await expect(search).toHaveScreenshot("search-dialog.png", { animations: "disabled", maxDiffPixelRatio: 0.01 });
+  await expectFits(page);
+  const input = dialog.getByRole("combobox", { name: "Suche", exact: true });
+  await expect(input).toBeFocused();
+  await expect(input).toBeEditable();
+  await expect(input).toBeInViewport({ ratio: 1 });
+  expect((await input.boundingBox())?.height, "mobile search input needs a 44px touch target").toBeGreaterThanOrEqual(44);
+  await input.fill("Nachbarn");
+  const result = dialog.getByRole("option", { name: /Nachbarn/ }).first();
+  await expect(result).toBeVisible();
+  await expect(result).toBeInViewport({ ratio: 1 });
+  await expect(search).toBeInViewport({ ratio: 1 });
+  const contrast = await new AxeBuilder({ page }).include(".cmdk__box").withRules(["color-contrast"]).analyze();
+  expect(contrast.violations, "search input and results must remain readable in both themes").toEqual([]);
   await page.keyboard.press("Escape");
-  await expect(search).not.toBeVisible();
+  await expect(dialog).not.toBeVisible();
+  await expect(searchButton).toBeFocused();
 });
