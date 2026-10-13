@@ -1219,6 +1219,22 @@ func (s *Server) handleInvoiceGutschrift(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	back := fmt.Sprintf("/neighbors/%d/beleg?year=%d&rechnung=1", neighborID, yearID)
+	invoiceID, selected, err := requestedInvoiceID(r)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	if selected {
+		// Keep validation redirects document-specific without looking up an
+		// invoice before rejecting oversized input. The destination and the
+		// write path below still verify the route account and document.
+		back = fmt.Sprintf(
+			"/neighbors/%d/beleg?year=%d&invoice_id=%d",
+			neighborID,
+			yearID,
+			invoiceID,
+		)
+	}
 	if s.tooLong(
 		w, r, "Betrag", r.FormValue("amount"), maxDecimalLen,
 	) {

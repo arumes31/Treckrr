@@ -146,6 +146,115 @@ func TestInvoiceSourceMigrationRejectsAmbiguity(t *testing.T) {
 	}
 }
 
+// TestInvoiceSourceMigrationReissuedShares keeps historical capabilities separate
+// from replacement invoices, including otherwise valid cancellation histories.
+func TestInvoiceSourceMigrationReissuedShares(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		createdAt   string
+		expired     bool
+		wantFailure bool
+		wantBinding int64
+	}{
+		{
+			name: "share after reissue fails closed", createdAt: "2026-05-05",
+			wantFailure: true,
+		},
+		{
+			name: "expired share after reissue stays unbound", createdAt: "2026-05-05",
+			expired: true,
+		},
+		{
+			name: "share before cancellation stays with canceled original", createdAt: "2026-05-02T12:00:00Z",
+			wantBinding: 1,
+		},
+		{
+			name: "share before any invoice fails closed", createdAt: "2026-05-01",
+			wantFailure: true,
+		},
+		{
+			name: "share at replacement timestamp remains ambiguous", createdAt: "2026-05-04",
+			wantFailure: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := invoiceSourceRehearsalDatabase(t)
+			migrateBeforeInvoiceSources(t, pool)
+			seedInvoiceSourceRehearsal(t, pool)
+			seedInvoiceSourceReissue(t, pool)
+			if _, err := pool.ExecContext(
+				t.Context(),
+				`UPDATE beleg_shares SET created_at=$1::timestamptz,
+				 expires_at=now()+CASE WHEN $2 THEN -interval '1 day' ELSE interval '1 day' END`,
+				tc.createdAt,
+				tc.expired,
+			); err != nil {
+				t.Fatal(err)
+			}
+			before := invoiceSourceRehearsalSnapshot(t, pool)
+			err := applyMigrationOnce(t.Context(), pool, invoiceSourceRehearsalName, invoiceSourceRehearsalSQL)
+			if tc.wantFailure {
+				if err == nil || !strings.Contains(err.Error(), "ambiguous unexpired legacy share") {
+					t.Fatalf("expected legacy share rejection, got %v", err)
+				}
+				assertInvoiceSourceRehearsalRolledBack(t, pool)
+			} else if err != nil {
+				t.Fatalf("rehearse reissued history: %v", err)
+			}
+			if after := invoiceSourceRehearsalSnapshot(t, pool); after != before {
+				t.Fatalf("migration changed historical rows:\nbefore: %s\nafter: %s", before, after)
+			}
+			if tc.wantFailure {
+				return
+			}
+			var binding sql.NullInt64
+			var activeTarget bool
+			if err := pool.QueryRowContext(t.Context(), `SELECT s.invoice_id,
+				COALESCE(i.kind='invoice' AND i.status='issued',false)
+				FROM beleg_shares s LEFT JOIN invoices i ON i.id=s.invoice_id`).Scan(&binding, &activeTarget); err != nil {
+				t.Fatal(err)
+			}
+			if binding.Valid != (tc.wantBinding != 0) || binding.Int64 != tc.wantBinding || activeTarget {
+				t.Fatalf("share binding=%+v, active target=%t; want binding=%d and no replacement access",
+					binding, activeTarget, tc.wantBinding)
+			}
+			var replacementClaims int
+			if err := pool.QueryRowContext(t.Context(), `SELECT count(*) FROM invoice_entries
+				WHERE invoice_id=3 AND entry_id=1 AND active`).Scan(&replacementClaims); err != nil {
+				t.Fatal(err)
+			}
+			if replacementClaims != 1 {
+				t.Fatalf("replacement source claims=%d, want 1", replacementClaims)
+			}
+		})
+	}
+}
+
+// seedInvoiceSourceReissue models the old single-active-invoice lifecycle without
+// disabling constraints: retain A, cancel it with a reversal, then issue B.
+func seedInvoiceSourceReissue(t *testing.T, pool *sql.DB) {
+	t.Helper()
+	rehearsalExec(t, pool, `
+		INSERT INTO invoices(billing_year_id,neighbor_id,number,kind,status,references_invoice_id,
+		                     issued_on,created_at,net,vat_rate,vat_amount,gross,show_vat,tax_mode,tax_note,
+		                     service_from,service_to,issuer,recipient,lines,content_hash,payment_reference)
+		SELECT billing_year_id,neighbor_id,number||'-S','storno','issued',id,
+		       '2026-05-03','2026-05-03',-net,vat_rate,-vat_amount,-gross,show_vat,tax_mode,'Synthetic storno',
+		       service_from,service_to,issuer,recipient,
+		       (SELECT jsonb_agg(jsonb_set(l.value,'{cost}',to_jsonb(-(l.value->>'cost')::numeric)) ORDER BY l.ordinal)
+		          FROM jsonb_array_elements(lines) WITH ORDINALITY AS l(value,ordinal)),
+		       'synthetic-storno-hash',number||'-S'
+		  FROM invoices WHERE id=1;
+		UPDATE invoices SET status='canceled' WHERE id=1;
+		INSERT INTO invoices(billing_year_id,neighbor_id,number,issued_on,created_at,
+		                     net,vat_rate,vat_amount,gross,show_vat,tax_mode,tax_note,
+		                     service_from,service_to,issuer,recipient,lines,content_hash,payment_reference)
+		SELECT billing_year_id,neighbor_id,'2026-002','2026-05-04','2026-05-04',
+		       net,vat_rate,vat_amount,gross,show_vat,tax_mode,tax_note,
+		       service_from,service_to,issuer,recipient,lines,content_hash,'2026-002'
+		  FROM invoices WHERE id=1;`)
+}
+
 // invoiceSourceRehearsalDatabase creates and owns a fresh database. The configured
 // TEST_DATABASE_URL database is only the administrative connection, never a fixture.
 func invoiceSourceRehearsalDatabase(t *testing.T) *sql.DB {

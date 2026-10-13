@@ -39,6 +39,54 @@ func TestInvoiceInputLimits(t *testing.T) {
 	}
 }
 
+// TestInvoiceCreditInputLimitPreservesSelection rejects oversized input before
+// database access without losing the document selected by the form.
+func TestInvoiceCreditInputLimitPreservesSelection(t *testing.T) {
+	s := &Server{cfg: &config.Config{SessionSecret: "test-session-secret-at-least-16-bytes"}}
+	assertFormRedirect(
+		t,
+		s,
+		s.handleInvoiceGutschrift,
+		url.Values{
+			"year_id": {"1"}, "invoice_id": {"42"},
+			"amount": {strings.Repeat("1", maxDecimalLen+1)},
+		},
+		"/neighbors/1/beleg?year=1&invoice_id=42",
+		fmt.Sprintf("Betrag darf höchstens %d Zeichen lang sein.", maxDecimalLen),
+	)
+}
+
+// TestInvoiceCreditInvalidSelection rejects malformed IDs even when another
+// validation error would otherwise redirect before any document lookup.
+func TestInvoiceCreditInvalidSelection(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		ids  []string
+	}{
+		{name: "empty", ids: []string{""}},
+		{name: "malformed", ids: []string{"broken"}},
+		{name: "duplicate", ids: []string{"42", "43"}},
+		{name: "overflow", ids: []string{"9223372036854775808"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{}
+			form := url.Values{
+				"year_id": {"1"}, "invoice_id": tc.ids,
+				"amount": {strings.Repeat("1", maxDecimalLen+1)},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/validation", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.SetPathValue("id", "1")
+			rr := httptest.NewRecorder()
+			s.handleInvoiceGutschrift(rr, req)
+			if rr.Code != http.StatusBadRequest || rr.Header().Get("Location") != "" {
+				t.Fatalf("response = %d %q, want 400 without redirect", rr.Code, rr.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 // TestPriceDecimalLimits prevents oversized rates from silently becoming zero.
 func TestPriceDecimalLimits(t *testing.T) {
 	s := &Server{cfg: &config.Config{SessionSecret: "test-session-secret-at-least-16-bytes"}}

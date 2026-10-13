@@ -89,6 +89,59 @@ invoices: its single-invoice queries and locks no longer describe that data.
 Coordinate application rollback with restoration of the matching backup, taking
 care not to discard payments or work entered since the backup.
 
+### Legacy public-link preflight
+
+A normal **issue A → cancel A → issue B → create link** history can block 0081
+while that link remains unexpired. The old link row stored only the neighbor and
+year, not an invoice ID. The migration intentionally refuses to guess when more
+than one historical invoice predates the link, including canceled invoices.
+The complete migration rolls back; existing financial rows remain unchanged.
+
+Do not replace this guard with "choose the newest invoice". The old invoice check
+and link insertion were separate operations; transaction-start timestamps and
+the old one-active-invoice constraint do not prove which document a link was
+originally authorized for when cancellation/reissue ran concurrently.
+
+Before upgrading, run this read-only query on an **isolated restored copy** of
+the old database. It lists the links that would fail this specific 0081 guard,
+without exposing bearer tokens, token hashes, names or invoice amounts:
+
+```sql
+SELECT s.id AS share_id, s.billing_year_id, s.neighbor_id, s.expires_at,
+       candidates.invoice_count
+FROM beleg_shares s
+CROSS JOIN LATERAL (
+    SELECT count(*) AS invoice_count
+    FROM invoices i
+    WHERE i.kind = 'invoice'
+      AND i.billing_year_id = s.billing_year_id
+      AND i.neighbor_id = s.neighbor_id
+      AND i.created_at <= s.created_at
+) candidates
+WHERE s.expires_at > now()
+  AND candidates.invoice_count <> 1
+  AND NOT EXISTS (
+      SELECT 1 FROM schema_migrations
+      WHERE name = '0081_invoice_sources.sql'
+  )
+ORDER BY s.id;
+```
+
+After 0081 is applied, this legacy-only query intentionally returns no rows:
+new document-bound links can legitimately have several earlier invoices.
+Before 0081, an empty result clears only this link check, not the other migration
+guards or concurrent changes. The existing UI source-assignment report checks
+invoice/booking correspondence; it does not replace this link preflight.
+
+If links are listed, investigate them before deployment. Where the still-running
+old application's Beleg page offers the link menu, an operator can revoke the
+affected links there. Without an active invoice that menu may be unavailable;
+wait for expiry or investigate separately rather than creating an invoice just
+to expose the menu. Repeat the isolated rehearsal afterwards. Revocation
+invalidates the old URLs, so recipients will need fresh document-bound links
+after the upgrade. Do not edit invoice history, silently retarget links or bypass
+the migration guard. These instructions do not revoke links automatically.
+
 ## Validation boundaries
 
 Migration tests use newly created disposable databases and synthetic data. They
