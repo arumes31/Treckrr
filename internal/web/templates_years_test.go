@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -62,5 +63,38 @@ func TestYearClosingPrioritizesOpenChecks(t *testing.T) {
 	}
 	if !strings.Contains(page, `class="work-surface closing-workspace"`) {
 		t.Error("year closing is missing its solid work surface")
+	}
+}
+
+func TestYearClosingAccountRemainderPaymentLinks(t *testing.T) {
+	t.Parallel()
+	for _, count := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d accounts", count), func(t *testing.T) {
+			t.Parallel()
+			neighbors := []store.ClosingNeighbor{{ID: 7, Name: "Synthetic farm A"}}
+			if count == 2 {
+				neighbors = append(neighbors, store.ClosingNeighbor{ID: 8, Name: "Synthetic farm B"})
+			}
+			page := mainContent(t, execPage(t, "year_closing", map[string]any{
+				"Year": map[string]any{"ID": int64(2), "Year": 2026, "Status": "in_progress"},
+				"Checks": []store.ClosingCheck{{
+					Key: "account_unpaid", Label: "Zusätzliche offene Kontoposten",
+					Count: count, Amount: decimal.NewFromInt(10), Neighbors: neighbors,
+				}},
+				"OpenChecks": 1,
+			}))
+			for _, neighbor := range neighbors {
+				want := fmt.Sprintf(`href="/neighbors/%d?year=2&amp;view=payments"`, neighbor.ID)
+				if !strings.Contains(page, want) {
+					t.Errorf("account remainder warning does not link to payments: %s", want)
+				}
+			}
+			if !strings.Contains(page, "Zusätzliche offene Kontoposten") || strings.Contains(page, "Alles bereit") {
+				t.Error("account remainder is hidden by the clean-year state")
+			}
+			if !strings.Contains(page, `action="/years/2/status"`) {
+				t.Error("an advisory account warning must not remove the year-close action")
+			}
+		})
 	}
 }

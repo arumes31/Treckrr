@@ -125,3 +125,82 @@ database jobs. Local tests did not access production or alter the existing
 development database, and the normal development application was not rebuilt.
 These results do not replace a migration rehearsal against a protected copy of
 the actual historical data before production rollout.
+
+### Direct before/after comparison
+
+`node .github/scripts/billing-parity.mjs f85ca89` runs the same public-API probes
+against the last pre-implementation runtime and the current working source. It
+archives the old source without switching branches, creates uniquely named,
+network-isolated PostgreSQL/test containers, and removes its containers, images
+and cache afterwards. It never accepts an application database URL. Reports and
+source hashes stay under gitignored `tmp/billing-parity/`.
+
+The comparison covers 20 scenarios and 30 checkpoints: all three tax modes,
+unissued work, partial/full/excess payment, payout, positive/negative ledger
+postings, incoming work, credit notes, cancellation/reissue, changed tax settings,
+Skonto, payment deletion/restoration, year-close/settlement, debit/credit carry,
+voided bookings and legacy sub-cent precision. Fixed expected amounts are checked
+independently of the old/new comparison.
+
+| Scenario / annual account remainder | Before | After |
+| --- | ---: | ---: |
+| EUR 100 net plus 20% VAT, EUR 30 paid | EUR 90.00 | EUR 90.00 |
+| Same invoice, EUR 150 paid | EUR -30.00 credit | EUR -30.00 credit |
+| EUR 24 credit note and EUR 30 paid | EUR 66.00 | EUR 66.00 |
+| EUR 117.60 paid with 2% Skonto | EUR 0.00 | EUR 0.00 |
+| Cancel and reissue at 13%, existing EUR 30 cash retained | EUR 83.00 | EUR 83.00 |
+| Close year, settle EUR 90, repeat settlement | EUR 0.00; no second payment | EUR 0.00; no second payment |
+| EUR 100 invoice + EUR 20 account debit - EUR 110 cash | EUR 10.00 | EUR 10.00 |
+| Unissued EUR 9.995 legacy booking | EUR 10.00; raw cost 9.995 | EUR 10.00; raw cost 9.995 |
+
+A separate two-binary upgrade probe seeds four accounts with the old runtime,
+then migrates that exact database with the new runtime and runs the normal
+snapshot backfill. All 39 existing rows across 14 inspected tables retained every
+old column, including IDs, timestamps, payment attribution and document hashes.
+Account remainders remained EUR 73/10/0/7; annual cash remained EUR 220.75 and the
+legacy unrounded annual open total remained EUR 89.995. New source/document
+metadata is checked separately; existing financial columns are not normalized
+or silently rewritten to make the comparison pass.
+
+The first comparison exposed a missing closing warning for account debt outside
+an already paid invoice. The correction keeps document debt separate and adds
+**Zusätzliche offene Kontoposten**, without changing money or double-counting
+invoice debt. Its links open the account's payments view. Mahnungen still use
+only the relevant document's remainder: in the EUR 10 account-debit example,
+the invoice itself is paid and must not be dunned for EUR 10.
+
+Historical annual delivery records cannot prove which particular invoice was
+sent. They remain unchanged in history, but the new document-scoped closing
+check can request an explicit delivery confirmation again. This neither deletes
+the old record nor automatically resends an invoice.
+
+The runner fails on any financial-field difference. It also records every
+reminder/checklist difference for explicit review and runs race-enabled migration,
+store, server and template regressions. Tests prove these synthetic cases, not
+that all possible production histories will migrate; the isolated real-history
+rehearsal in the deployment checklist is still required.
+
+The corrected comparison has **zero financial differences**. Its 35 matrix and
+nine upgrade display-field differences are accounted for: the new account-rest
+check (including empty states), the split between document and account debt, and
+unbound historical delivery records. In the upgrade fixture, EUR 73 of document
+debt plus EUR 17 of additional account debt now exposes the full rounded EUR 90
+annual remainder; this is a warning/display correction, not new debt.
+
+Final follow-up validation passed on 2026-10-13:
+
+- Both old/new matrix runs and the same-database upgrade, with race detection.
+- Migration preservation and all 24 invalid-history rollback cases.
+- Complete race-enabled store (290.012 s), server (327.534 s) and web/template
+  (22.636 s) suites, including the new account-warning regressions.
+- Native `go test ./...`, integration-tagged `go vet`, formatting and diff checks;
+  golangci-lint 2.13.1: zero issues.
+- All **164 Playwright cases** (160 desktop, four mobile) passed with retries
+  disabled, plus a separate eight-case invoice/session run. The new browser test
+  verifies document EUR 0/account EUR 10, the warning's payment link, year closure,
+  annual settlement to EUR 0 and unchanged frozen invoice lines. An initially
+  premature test navigation was fixed to await the actual close redirect.
+
+No production or existing development database was used. Owned test containers,
+images and cache were removed; ignored local reports were retained. No screenshot
+or generated database fixture is included in the commit.

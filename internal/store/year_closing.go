@@ -69,7 +69,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck // read-only; no-op after Commit
-	out := make([]ClosingCheck, 0, 4)
+	out := make([]ClosingCheck, 0, 5)
 
 	// 1. Bookings but no frozen invoice — the classic "forgot someone".
 	n, names, neighbors, err := closingNamesQuery(ctx, tx,
@@ -99,8 +99,8 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 		return nil, err
 	}
 	out = append(out, ClosingCheck{
-		Key: "unsent", Label: "Rechnungen nie versendet",
-		Detail: "Festgeschrieben, aber kein Versand vermerkt (E-Mail, Druck oder Übergabe).",
+		Key: "unsent", Label: "Rechnungen ohne eindeutigen Versandnachweis",
+		Detail: "Kein Versandvermerk für diese konkrete Rechnung. Frühere Vermerke zum Jahreskonto bleiben erhalten.",
 		Count:  n, Names: names, Neighbors: neighbors,
 	})
 
@@ -113,6 +113,7 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 		Key: "unpaid", Label: "Offene Beträge",
 		Detail: "Ausgestellte Rechnungen, die noch nicht vollständig bezahlt sind.",
 	}
+	documentOpen := make(map[int64]decimal.Decimal)
 	for _, invoice := range invoices {
 		if !invoice.Open.IsPositive() {
 			continue
@@ -120,11 +121,22 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 		open.Count++
 		open.Neighbors = append(open.Neighbors, ClosingNeighbor{ID: invoice.NeighborID, Name: invoice.Name})
 		open.Amount = open.Amount.Add(invoice.Open)
+		documentOpen[invoice.NeighborID] = documentOpen[invoice.NeighborID].Add(invoice.Open)
 		if len(open.Names) < 5 {
 			open.Names = append(open.Names, invoice.Name)
 		}
 	}
 	out = append(out, open)
+	accountOpen, err := closingAccountRemainders(
+		ctx,
+		tx,
+		yearID,
+		documentOpen,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, accountOpen)
 
 	// 4. Abschläge that never became a Schlussrechnung (Ausbaukarte 54): money
 	// was requested on account and the final document is missing.
@@ -144,6 +156,50 @@ func (s *Store) YearClosingChecks(ctx context.Context, yearID int64) ([]ClosingC
 		Count:  n, Names: names, Neighbors: neighbors,
 	})
 	return out, tx.Commit()
+}
+
+// closingAccountRemainders keeps ledger debits and uninvoiced work visible even
+// when all documents are paid. Only the amount beyond open documents is shown,
+// once per account, using the same snapshot and balance formula as the dashboard.
+func closingAccountRemainders(
+	ctx context.Context,
+	tx *sql.Tx,
+	yearID int64,
+	documentOpen map[int64]decimal.Decimal,
+) (ClosingCheck, error) {
+	check := ClosingCheck{
+		Key: "account_unpaid", Label: "Zusätzliche offene Kontoposten",
+		Detail: "Offener Jahreskontorest über die offenen Rechnungsbeträge hinaus, " +
+			"etwa aus Kontobuchungen oder noch nicht abgerechneten Leistungen.",
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT n.id,n.name,ROUND(balance.payable-balance.paid,2)
+		FROM billing_year_neighbors membership JOIN neighbors n ON n.id=membership.neighbor_id
+		CROSS JOIN LATERAL (`+perNeighborPayablePaid+`
+			WHERE byn.billing_year_id=membership.billing_year_id AND byn.neighbor_id=membership.neighbor_id
+		) balance
+		WHERE membership.billing_year_id=$1 ORDER BY n.name,n.id`, yearID)
+	if err != nil {
+		return ClosingCheck{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var neighbor ClosingNeighbor
+		var annual decimal.Decimal
+		if err := rows.Scan(&neighbor.ID, &neighbor.Name, &annual); err != nil {
+			return ClosingCheck{}, err
+		}
+		residual := annual.Sub(documentOpen[neighbor.ID])
+		if !residual.IsPositive() {
+			continue
+		}
+		check.Count++
+		check.Amount = check.Amount.Add(residual)
+		check.Neighbors = append(check.Neighbors, neighbor)
+		if len(check.Names) < 5 {
+			check.Names = append(check.Names, neighbor.Name)
+		}
+	}
+	return check, rows.Err()
 }
 
 // OpenClosingChecks counts the checks that are not clean.

@@ -122,6 +122,115 @@ test("bookings list filters, and bulk storno leaves a reason", async ({ page }, 
   }
 });
 
+test("year closing keeps additional account residual visible after the invoice is paid", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page);
+
+  // A fresh account-year keeps this scenario independent of other specs and
+  // retries. The disposable seed supplies base 1 and neighbor 1 with an address.
+  await page.goto("/years");
+  const create = page.locator('form[action="/years"]');
+  const year = await create.locator('[name="year"]').inputValue();
+  const csrf = await create.locator('[name="csrf_token"]').inputValue();
+  const created = await page.request.post("/years", { form: {
+    csrf_token: csrf, year, base_id: "1", label: `Account residual E2E ${year}`,
+  } });
+  expect(created.ok()).toBeTruthy();
+  const yearID = new URL(created.url()).searchParams.get("year")!;
+  expect(yearID).toBeTruthy();
+  expect((await page.request.post("/years/add-neighbor", { form: {
+    csrf_token: csrf, year_id: yearID, neighbor_id: "1",
+  } })).ok()).toBeTruthy();
+  const paymentsURL = `/neighbors/1?year=${yearID}&view=payments`;
+  const closingURL = `/years/${yearID}/abschluss`;
+
+  // Supply the invoice prerequisites even when this single test runs alone.
+  await page.goto("/admin/company");
+  const company = page.locator('form[action="/admin/company"]');
+  await company.locator('[name="name"]').fill("Hof Bergmann");
+  await company.locator('[name="address"]').fill("Feldweg 3\n4780 Schärding");
+  await company.locator('[name="tax_mode"]').selectOption("kleinunternehmer");
+  await company.locator('[name="vat_rate"]').fill("0");
+  await company.locator('[name="tax_note"]').fill("Synthetischer Kleinunternehmer-Test ohne Umsatzsteuerausweis.");
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load" }),
+    company.getByRole("button", { name: "Speichern", exact: true }).click(),
+  ]);
+
+  const book = async (kind: "quantity" | "fixed", amount: string, label: string) => {
+    await page.goto(`/neighbors/1?year=${yearID}&view=booking`);
+    const form = page.locator("[data-unified-booking]");
+    await form.locator('[name="booking_direction"][value="out"]').check();
+    await form.locator('[name="booking_kind"]').selectOption(kind);
+    await form.locator('[name="entry_date"]').fill(`${year}-05-01`);
+    await form.locator('[name="task_label"]').fill(label);
+    if (kind === "quantity") {
+      await form.locator('[name="unit"]').selectOption("Ballen");
+      await form.locator('[name="quantity"]').fill("1");
+      await form.locator('[name="unit_price"]').fill(amount);
+    } else {
+      await form.locator('[name="amount"]').fill(amount);
+    }
+    await form.getByRole("button", { name: "Buchung speichern", exact: true }).click();
+    await expect(page.locator(".bcard").filter({ hasText: label })).toHaveCount(1);
+    await page.waitForLoadState("load");
+  };
+  await book("quantity", "100", `E2E issued work ${year}`);
+  await page.goto(`/neighbors/1/invoice/confirm?year=${yearID}`);
+  await page.waitForLoadState("load");
+  await page.getByRole("button", { name: "Jetzt festschreiben", exact: true }).click();
+  await confirmModal(page, /\/neighbors\/1\/beleg\?.*invoice_id=/);
+  const invoiceURL = page.url();
+  const frozenLines = await page.getByRole("table").innerText();
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 100,00 €");
+  await page.locator('form[action*="mark-sent"] button').click();
+  await confirmModal(page);
+
+  // This positive account posting is deliberately not an invoice source.
+  await book("fixed", "20", `E2E additional account cost ${year}`);
+  await page.goto(paymentsURL);
+  const payment = page.locator('form[action="/neighbors/1/payments"]');
+  await payment.locator('[name="invoice_id"]').selectOption("");
+  await payment.locator('[name="amount"]').fill("110");
+  await payment.getByRole("button", { name: "Zahlung erfassen", exact: true }).click();
+  await page.waitForLoadState("load");
+  await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("10,00 €");
+  await page.goto(invoiceURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
+  await expect(page.getByRole("table")).toHaveText(frozenLines, { useInnerText: true });
+
+  await page.goto(closingURL);
+  const residual = page.locator(".closing-check").filter({ has: page.getByText("Zusätzliche offene Kontoposten", { exact: true }) });
+  await expect(residual).toBeVisible();
+  await expect(residual).toContainText("Summe 10,00 €");
+  await expect(residual.locator(".status")).toHaveText("1 offen");
+  await expect(page.locator(".closing-check").filter({ has: page.getByText("Offene Beträge", { exact: true }) })).toHaveCount(0);
+  const review = residual.getByRole("link", { name: "E2E Nachbar prüfen", exact: true });
+  await expect(review).toHaveAttribute("href", paymentsURL);
+  await review.click();
+  await expect(page).toHaveURL(new RegExp(`/neighbors/1\\?year=${yearID}&view=payments$`));
+  await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("10,00 €");
+
+  // Closing is allowed with warnings; settling that residual must still work
+  // afterwards and must not change the already paid, frozen invoice.
+  await page.goto(closingURL);
+  await page.getByRole("button", { name: new RegExp(`Jahr ${year} abschließen`) }).click();
+  await confirmModal(page, /\/years$/);
+  await expect(page.locator("body")).toContainText("Abrechnungsjahr abgeschlossen.");
+  await page.goto(paymentsURL);
+  await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("10,00 €");
+  await page.getByRole("button", { name: "Gesamten Rest bezahlen", exact: true }).click();
+  await page.waitForLoadState("load");
+  await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("0,00 €");
+  await expect(page.locator("header.summary-card .summary-card__label").first()).toContainText("Ausgeglichen");
+  await page.goto(closingURL);
+  await expect(page.getByText("Dieses Jahr ist bereits abgeschlossen.", { exact: true })).toBeVisible();
+  await expect(residual).toHaveCount(0);
+  await page.goto(invoiceURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
+  await expect(page.getByRole("table")).toHaveText(frozenLines, { useInnerText: true });
+});
+
 test("year closing review lists what is open, and closing locks documents", async ({ page }) => {
   await login(page);
   await page.goto("/years/1/abschluss");
