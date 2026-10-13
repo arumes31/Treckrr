@@ -136,14 +136,14 @@ func (s *Store) NeighborYearHistory(ctx context.Context, neighborID int64) ([]Ne
 		  COALESCE((SELECT SUM(p.amount) FROM payments p
 		             WHERE p.neighbor_id = byn.neighbor_id
 		               AND p.billing_year_id = byn.billing_year_id AND p.deleted_at IS NULL), 0) AS paid,
-		  COALESCE((SELECT gross FROM invoices iv
+		  COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		             WHERE iv.neighbor_id = byn.neighbor_id
 		               AND iv.billing_year_id = byn.billing_year_id
-		               AND iv.kind = 'invoice' AND iv.status = 'issued'),
-		           (SELECT SUM(e.cost) FROM entries e
+		               AND iv.kind = 'invoice' AND iv.status = 'issued'), 0)
+		  + (SELECT COALESCE(SUM(e.cost),0) FROM entries e
 		             WHERE e.neighbor_id = byn.neighbor_id
-		               AND e.billing_year_id = byn.billing_year_id
-		               AND NOT e.voided), 0)
+		               AND e.billing_year_id = byn.billing_year_id AND NOT e.voided
+		               AND NOT EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=e.id AND ie.active))
 		  + COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		               WHERE iv.neighbor_id = byn.neighbor_id
 		                 AND iv.billing_year_id = byn.billing_year_id
@@ -263,9 +263,6 @@ func (s *Store) UpdateNeighborLedger(ctx context.Context, id int64, amount decim
 	if before.TransferID != "" {
 		return ErrLedgerTransfer
 	}
-	if err := protectStructuredLedger(ctx, tx, id, yearID, neighborID); err != nil {
-		return err
-	}
 	res, err := tx.ExecContext(ctx,
 		`UPDATE neighbor_ledger SET amount=$1, description=$2, posting_date=$3
 		  WHERE id=$4 AND booking IS NULL AND transfer_id=''`,
@@ -307,9 +304,6 @@ func (s *Store) SetLedgerVoided(ctx context.Context, id int64, voided bool, reas
 	}
 	if before.TransferID != "" {
 		return ErrLedgerTransfer
-	}
-	if err := protectStructuredLedger(ctx, tx, id, yearID, neighborID); err != nil {
-		return err
 	}
 	if before.Voided == voided {
 		return tx.Commit()
@@ -407,9 +401,6 @@ func (s *Store) DeleteNeighborLedger(ctx context.Context, id int64) error {
 	}
 	if before.TransferID != "" {
 		return ErrLedgerTransfer
-	}
-	if err := protectStructuredLedger(ctx, tx, id, yearID, neighborID); err != nil {
-		return err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM neighbor_ledger WHERE id=$1`, id)
 	if err != nil {

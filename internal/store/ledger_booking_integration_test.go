@@ -105,19 +105,27 @@ func TestLedgerBookingLifecycle(t *testing.T) {
 	if remaining, err := st.AccountRemaining(ctx, yearID, neighborID); err != nil || remaining.StringFixed(2) != "-50.00" {
 		t.Fatalf("settlement=%s %v", remaining, err)
 	}
-	locked := in
-	locked.IdempotencyKey = "locked-new"
-	if _, err := st.CreateLedgerBooking(ctx, locked); !errors.Is(err, store.ErrInvoiceLocked) {
-		t.Fatalf("invoice lock create=%v", err)
+	later := in
+	later.IdempotencyKey = "later-counterclaim"
+	laterID, err := st.CreateLedgerBooking(ctx, later)
+	if err != nil || laterID == 0 {
+		t.Fatalf("later counterclaim create=%d, %v", laterID, err)
 	}
-	if err := st.UpdateLedgerBooking(ctx, id, changed); !errors.Is(err, store.ErrInvoiceLocked) {
-		t.Fatalf("invoice lock update=%v", err)
+	if err := st.UpdateLedgerBooking(ctx, id, changed); err != nil {
+		t.Fatalf("counterclaim update=%v", err)
 	}
-	if err := st.SetLedgerVoided(ctx, id, true, "blocked"); !errors.Is(err, store.ErrInvoiceLocked) {
-		t.Fatalf("invoice lock void=%v", err)
+	if err := st.SetLedgerVoided(ctx, id, true, "correction"); err != nil {
+		t.Fatalf("counterclaim void=%v", err)
 	}
-	if err := st.DeleteNeighborLedger(ctx, id); !errors.Is(err, store.ErrInvoiceLocked) {
-		t.Fatalf("invoice lock delete=%v", err)
+	if err := st.SetLedgerVoided(ctx, id, false, ""); err != nil {
+		t.Fatalf("counterclaim restore=%v", err)
+	}
+	if err := st.DeleteNeighborLedger(ctx, laterID); err != nil {
+		t.Fatalf("later counterclaim delete=%v", err)
+	}
+	frozen, err := st.GetInvoice(ctx, yearID, neighborID)
+	if err != nil || frozen.Content == nil || frozen.Content.Hash != content.Hash {
+		t.Fatalf("counterclaim changed outgoing invoice: %+v, %v", frozen, err)
 	}
 	if err := st.AnonymizeNeighbor(ctx, neighborID); err != nil {
 		t.Fatal(err)

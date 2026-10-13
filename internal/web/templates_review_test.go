@@ -12,7 +12,7 @@ import (
 )
 
 // TestNeighborBookingSubmitGuards keeps both creation controls consistent with
-// invoice finalization and hides them entirely once the billing year is closed.
+// new work after invoicing and hides them entirely once the billing year is closed.
 func TestNeighborBookingSubmitGuards(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
@@ -44,8 +44,8 @@ func TestNeighborBookingSubmitGuards(t *testing.T) {
 				if button == "" {
 					t.Fatalf("missing button %q", label)
 				}
-				if disabled := strings.Contains(button, " disabled"); disabled != tc.issued {
-					t.Errorf("%q disabled=%t, want %t", label, disabled, tc.issued)
+				if strings.Contains(button, " disabled") {
+					t.Errorf("%q must allow new work in an open year, including after invoicing", label)
 				}
 			}
 			if !tc.completed {
@@ -84,6 +84,28 @@ func TestClosedYearBelegHasNoCorrectionForms(t *testing.T) {
 				t.Errorf("closed-year beleg still renders %s", action)
 			}
 		}
+	}
+}
+
+func TestBatchInvoiceExplainsPendingScope(t *testing.T) {
+	page := execPage(t, "batch_invoice", map[string]any{
+		"Year": models.BillingYear{ID: 1, Year: 2026}, "CompanyOK": true,
+		"Total": decimal.NewFromInt(40), "Issuable": 1,
+		"Rows": []map[string]any{
+			{"Neighbor": models.Neighbor{ID: 2, Name: "Neue Arbeit"}, "Bookings": 1,
+				"Gross": decimal.NewFromInt(40), "Issuable": true, "ContentHash": "pending-hash"},
+			{"Neighbor": models.Neighbor{ID: 3, Name: "Bereits abgerechnet"}, "Bookings": 1,
+				"Gross": decimal.Zero, "AlreadyInvoiced": true},
+		},
+	})
+	for _, want := range []string{"noch nicht abgerechneten Leistungen", "ohne neue Leistungen",
+		"keine neuen Leistungen", `name="neighbor_id" value="2"`, `name="hash_2" value="pending-hash"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("batch preview missing %q", want)
+		}
+	}
+	if strings.Contains(page, `name="neighbor_id" value="3"`) || strings.Contains(page, "Bereits berechnete oder unvollständige Nachbarn") {
+		t.Fatal("batch preview offers an empty account or describes obsolete account-wide skipping")
 	}
 }
 

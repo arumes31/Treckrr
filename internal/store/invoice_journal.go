@@ -90,10 +90,10 @@ func (s *Store) ListInvoiceJournal(ctx context.Context, yearID int64) ([]Journal
 	return out, rows.Err()
 }
 
-// ListInvoiceDocs returns the full documents of a year (for the archive
-// export), with legacy invoices hydrated from live data where possible so their
-// PDF can still be rendered. Other document kinds cannot be reconstructed from
-// bookings. Missing snapshots stay nil — the caller decides how to report them.
+// ListInvoiceDocs returns the full documents of a year for archive export.
+// After source assignments exist, missing snapshots stay nil; the caller reports
+// them without inventing content from current work. Only a pre-0081 schema keeps
+// the historical best-effort live-data fallback for ordinary invoices.
 func (s *Store) ListInvoiceDocs(ctx context.Context, yearID int64) ([]models.Invoice, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+invoiceCols+` FROM invoices WHERE billing_year_id=$1 ORDER BY issued_on, id`, yearID)
@@ -111,6 +111,15 @@ func (s *Store) ListInvoiceDocs(ctx context.Context, yearID int64) ([]models.Inv
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	assigned, err := invoiceSourcesAvailable(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
+	if assigned {
+		// Missing historical snapshots remain explicit. The export caller
+		// reports them; it must never substitute this year's current work.
+		return out, nil
 	}
 	// Legacy rows (pre-snapshot) rebuild their content on the fly; the company
 	// row is loop-invariant, so it is fetched once for all of them instead of

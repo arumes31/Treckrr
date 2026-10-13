@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -161,19 +162,23 @@ func TestPaymentImportByTokenIntegration(t *testing.T) {
 
 // TestBookingImportCommitIntegration pins WEB-03 and WEB-05: the commit reads
 // the CSV parked under the token (the browser no longer sends it), an
-// oversized value is rejected in the preview, and a row whose invoice was
-// festgeschrieben after the preview is reported while the others are booked
-// and audited.
+// oversized value is rejected in the preview, and an invoice issued after the
+// preview freezes only its existing source. New imported work remains pending,
+// is audited, and cannot rewrite the issued document.
 func TestBookingImportCommitIntegration(t *testing.T) {
 	e := newItEnv(t)
 	nid, yid := e.neighborID, e.yearID64
-	locked := e.secondNeighbor("Gesperrt")
-	e.book(locked, "2026-02-01")
+	invoiced := e.secondNeighbor("Abgerechnet")
+	e.book(invoiced, "2026-02-01")
+	original, err := e.st.ListEntries(e.ctx, invoiced, yid)
+	if err != nil || len(original) != 1 {
+		t.Fatalf("original booking: n=%d err=%v", len(original), err)
+	}
 	header := "Nachbar;Datum;Tätigkeit;Traktor;Belastung;Maschinen;Einheit;Menge;Satz/Einheit (€);Kosten (€);Notiz\n"
-	name, lockedName := "IT-Nachbar "+e.uname, "Gesperrt "+e.uname
+	name, invoicedName := "IT-Nachbar "+e.uname, "Abgerechnet "+e.uname
 	csv := header +
 		name + ";2026-10-01;Mähen;;;;h;2;20,00;;\n" +
-		lockedName + ";2026-10-02;Mähen;;;;h;1;20,00;;\n" +
+		invoicedName + ";2026-10-02;Mähen;;;;h;1;20,00;;\n" +
 		name + ";2026-10-03;Mähen;;;;h;10000000;1;;\n" +
 		name + ";2026-10-04;Pressen;;;;Ballen;10;3,00;;\n"
 	page := e.post("/entries/import/preview", url.Values{"year_id": {itoa64(yid)}, "csv": {csv}})
@@ -186,12 +191,20 @@ func TestBookingImportCommitIntegration(t *testing.T) {
 	token := extractValue(t, page, "import_token")
 
 	// The second neighbor's invoice is frozen between preview and commit.
-	e.postIssue(locked, url.Values{"year_id": {itoa64(yid)}})
+	e.postIssue(invoiced, url.Values{"year_id": {itoa64(yid)}})
+	invoice, err := e.st.GetInvoice(e.ctx, yid, invoiced)
+	if err != nil || invoice.Content == nil {
+		t.Fatalf("invoice before import: %v", err)
+	}
+	frozen, err := json.Marshal(invoice)
+	if err != nil {
+		t.Fatal(err)
+	}
 	done := e.post("/entries/import", url.Values{
 		"year_id": {itoa64(yid)}, "import_token": {token}, "line": {"2", "3", "5"},
 	})
-	if !strings.Contains(done, "2 Buchung(en) importiert") || !strings.Contains(done, "Zeile 3 (Rechnung festgeschrieben)") {
-		t.Errorf("commit flash does not report 2 booked and the locked row")
+	if !strings.Contains(done, "3 Buchung(en) importiert") || strings.Contains(done, "Zeile 3 (Rechnung festgeschrieben)") {
+		t.Errorf("commit flash does not report all three new bookings")
 	}
 	entries, err := e.st.ListEntries(e.ctx, nid, yid)
 	if err != nil || len(entries) != 2 {
@@ -202,9 +215,59 @@ func TestBookingImportCommitIntegration(t *testing.T) {
 		`SELECT detail FROM audit_log WHERE username=$1 AND action='import' ORDER BY id DESC LIMIT 1`, e.uname).Scan(&detail); err != nil {
 		t.Fatalf("no import audit row: %v", err)
 	}
-	if detail != "2 Buchungen importiert, 1 nicht gebucht" {
+	if detail != "3 Buchungen importiert" {
 		t.Errorf("audit detail = %q", detail)
 	}
+	assertImportedState := func() {
+		t.Helper()
+		current, err := e.st.GetInvoiceDocument(e.ctx, invoice.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		currentJSON, err := json.Marshal(current)
+		if err != nil || !bytes.Equal(currentJSON, frozen) {
+			t.Fatalf("import changed the frozen invoice: err=%v", err)
+		}
+		sources, err := e.st.ListNeighborInvoiceSourceExport(e.ctx, yid, invoiced)
+		if err != nil || len(sources) != 1 {
+			t.Fatalf("invoice sources after import: %+v err=%v", sources, err)
+		}
+		if sources[0].InvoiceID != invoice.ID || !sources[0].Active || sources[0].EntryID == nil ||
+			*sources[0].EntryID != original[0].ID || sources[0].SourceEntryID != original[0].ID {
+			t.Fatalf("import changed the original source claim: %+v", sources[0])
+		}
+		pending, err := e.st.BuildPendingInvoiceContent(e.ctx, yid, invoiced)
+		if err != nil || len(pending.Lines) != 1 || !pending.Net.Equal(decimal.NewFromInt(20)) {
+			t.Fatalf("new work is not exactly 20 EUR pending: %+v err=%v", pending, err)
+		}
+		remaining, err := e.st.AccountRemaining(e.ctx, yid, invoiced)
+		if err != nil || !remaining.Equal(invoice.Content.Gross.Add(decimal.NewFromInt(20))) {
+			t.Fatalf("account must include frozen gross plus new net: %s err=%v", remaining, err)
+		}
+		documentRemaining, err := e.st.InvoiceDocumentRemaining(e.ctx, invoice.ID)
+		if err != nil || !documentRemaining.Equal(invoice.Content.Gross) {
+			t.Fatalf("new work changed the invoice's remaining: %s err=%v", documentRemaining, err)
+		}
+		for _, accountID := range []int64{nid, invoiced} {
+			rows, err := e.st.ListEntries(e.ctx, accountID, yid)
+			if err != nil || len(rows) != 2 {
+				t.Fatalf("account %d: bookings=%d err=%v, want 2", accountID, len(rows), err)
+			}
+		}
+		unbilledRemaining, err := e.st.AccountRemaining(e.ctx, yid, nid)
+		if err != nil || !unbilledRemaining.Equal(decimal.NewFromInt(70)) {
+			t.Fatalf("unbilled import amount: %s err=%v, want 70 EUR", unbilledRemaining, err)
+		}
+	}
+	assertImportedState()
+	if err := e.st.DeleteEntry(e.ctx, original[0].ID); !errors.Is(err, store.ErrInvoiceLocked) {
+		t.Fatalf("the original invoiced source lost its deletion lock: %v", err)
+	}
+	// Retrying the same selected CSV rows cannot duplicate either account's work.
+	e.post("/entries/import", url.Values{
+		"year_id": {itoa64(yid)}, "import_token": {token}, "line": {"2", "3", "5"},
+	})
+	assertImportedState()
 
 	// A token for another year, or none, never imports.
 	for _, tok := range []string{"", token + "x"} {
@@ -213,9 +276,7 @@ func TestBookingImportCommitIntegration(t *testing.T) {
 			t.Errorf("token %q: no expiry message", tok)
 		}
 	}
-	if again, _ := e.st.ListEntries(e.ctx, nid, yid); len(again) != 2 {
-		t.Fatalf("an invalid token imported rows: %d", len(again))
-	}
+	assertImportedState()
 }
 
 // TestDunningStageAndOpenAmountIntegration pins WEB-06: every dunning handler

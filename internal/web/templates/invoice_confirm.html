@@ -22,6 +22,12 @@
 	{{if .CanIssue}}
 	<div class="card">
 		<div class="cfm-h">Rechnungsvorschau</div>
+		<p class="muted small">Nur die folgenden, noch nicht abgerechneten Leistungen werden festgeschrieben. Bestehende Rechnungen bleiben unverändert.</p>
+		<div class="tablewrap" role="region" aria-label="Noch nicht abgerechnete Leistungen" tabindex="0">
+			<table class="dtable"><thead><tr><th>Datum</th><th>Leistung</th><th class="num">Betrag</th></tr></thead>
+				<tbody>{{range .Content.Lines}}<tr><td>{{date .Date}}</td><td>{{.Label}}</td><td class="num">{{money .Cost}}</td></tr>{{end}}</tbody>
+			</table>
+		</div>
 		<div class="cfm-prev">
 			{{if .Content.ShowVAT}}
 			<div class="cfm-prev-row"><span>Netto</span><span class="num">{{money .Content.Net}}</span></div>
@@ -32,10 +38,9 @@
 			{{end}}
 		</div>
 		<p class="muted small">Nach dem Festschreiben bleiben Rechnungsnummer und Inhalt <strong>unveränderbar gespeichert</strong>. Korrekturen sind nur über Storno oder Gutschrift möglich.</p>
-		<p class="flash flash--info"><strong>{{.Neighbor.Name}} · {{.Year.Year}}:</strong> Danach sind weitere Leistungen und Gegenpositionen für diesen Nachbarn in diesem Jahr gesperrt. Eine Zahlung hebt diese Sperre nicht auf.</p>
-		<p class="muted small">Wenn noch Arbeiten folgen: Ein Abschlag fordert eine Anzahlung an, ohne die Jahresrechnung festzuschreiben. Er ist keine abschließende Rechnung.</p>
+		<p class="flash flash--info"><strong>{{.Neighbor.Name}} · {{.Year.Year}}:</strong> Nur die hier aufgeführten Leistungen werden gesperrt. Solange das Jahr offen ist, können Sie neue Leistungen erfassen und später mit einer weiteren Rechnung abrechnen – auch wenn diese Rechnung noch nicht bezahlt ist.</p>
 	</div>
-	<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice" data-confirm="Rechnung für {{.Neighbor.Name}} · {{.Year.Year}} jetzt festschreiben? Nummer und Inhalt werden unveränderbar gespeichert. Weitere Leistungen dieses Nachbarn im Jahr sind danach gesperrt; eine Zahlung hebt die Sperre nicht auf.">
+	<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice" data-confirm="Diese noch nicht abgerechneten Leistungen für {{.Neighbor.Name}} · {{.Year.Year}} jetzt festschreiben? Nummer und Inhalt bleiben unveränderbar. Neue Leistungen können danach weiterhin erfasst werden, solange das Jahr offen ist.">
 		<label class="field"><span>Rechnungsdatum (nicht in der Zukunft, nicht vor dem jüngsten Dokument des Jahres)</span>
 			<input class="input" type="date" name="issued_on" value="{{.Today}}"></label>
 		<input type="hidden" name="year_id" value="{{.Year.ID}}">

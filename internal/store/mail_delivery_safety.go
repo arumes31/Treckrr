@@ -20,7 +20,7 @@ type rowScanner interface {
 const outboxSelectColumns = `id, kind, COALESCE(neighbor_id,0), COALESCE(billing_year_id,0),
 	recipient, subject, body, att_name, att_type, COALESCE(att_data,''::bytea), attempts,
 	attempt_seq, status, COALESCE(delivery_key,''), COALESCE(message_id,''), claimed_at, terminal_at,
-	COALESCE(meta,'{}'::jsonb)`
+	COALESCE(meta,'{}'::jsonb), COALESCE(invoice_id,0)`
 
 // MailSender performs one SMTP attempt using the durable Message-ID stored with
 // the intent.
@@ -35,7 +35,7 @@ func scanOutboxMail(row rowScanner) (OutboxMail, error) {
 	)
 	err := row.Scan(&m.ID, &m.Kind, &m.NeighborID, &m.BillingYearID, &m.Recipient,
 		&m.Subject, &m.Body, &m.AttName, &m.AttType, &m.AttData, &m.Attempts,
-		&m.AttemptSeq, &m.Status, &m.DeliveryKey, &m.MessageID, &claimedAt, &terminal, &meta)
+		&m.AttemptSeq, &m.Status, &m.DeliveryKey, &m.MessageID, &claimedAt, &terminal, &meta, &m.InvoiceID)
 	if err != nil {
 		return OutboxMail{}, err
 	}
@@ -367,8 +367,8 @@ func (s *Store) settleDelivered(ctx context.Context, m OutboxMail, attempts, att
 			sendChannel = "e-mail (Wiederholung)"
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO beleg_sends (billing_year_id, neighbor_id, channel) VALUES ($1,$2,$3)`,
-			m.BillingYearID, m.NeighborID, sendChannel); err != nil {
+			`INSERT INTO beleg_sends (billing_year_id, neighbor_id, channel, invoice_id) VALUES ($1,$2,$3,$4)`,
+			m.BillingYearID, m.NeighborID, sendChannel, nullable(m.InvoiceID)); err != nil {
 			return err
 		}
 	}

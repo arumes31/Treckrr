@@ -42,8 +42,8 @@ func flatEntry(yearID, neighborID int64, year int, cost string) *models.Entry {
 	}
 }
 
-// LED-01: one rule blocked by an issued invoice must not starve the others.
-func TestRunDueRecurringIsolatesBlockedRuleIntegration(t *testing.T) {
+// LED-01: a previously invoiced account must not block later recurring work.
+func TestRunDueRecurringContinuesAfterInvoiceIntegration(t *testing.T) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	st, pool, yearID, blockedNeighbor, blockedSource := invoiceFixtureYear(t, false, today.Year())
@@ -57,8 +57,7 @@ func TestRunDueRecurringIsolatesBlockedRuleIntegration(t *testing.T) {
 		TaskLabel: "recurring review", Unit: "Pauschale",
 		Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(25), Cost: decimal.NewFromInt(25),
 	}
-	// Both rules are due exactly once today; the blocked rule has the lower id
-	// and is processed first (ORDER BY next_run, id).
+	// Both rules are due exactly once today; the invoiced rule has the lower id.
 	blockedStart, freeStart := today, today
 	const ymd = "2006-01-02"
 	if err := st.CreateRecurring(ctx, blockedSource, blockedNeighbor, tmpl, "monthly", blockedStart); err != nil {
@@ -70,8 +69,8 @@ func TestRunDueRecurringIsolatesBlockedRuleIntegration(t *testing.T) {
 	issueFixtureInvoiceYear(t, st, yearID, blockedNeighbor, today.Year())
 
 	created, err := st.RunDueRecurring(ctx)
-	if err != nil || created != 1 {
-		t.Fatalf("tick: created=%d err=%v, want 1/nil", created, err)
+	if err != nil || created != 2 {
+		t.Fatalf("tick: created=%d err=%v, want 2/nil", created, err)
 	}
 	rule := func(neighborID int64) (next time.Time, lastError string) {
 		t.Helper()
@@ -83,8 +82,8 @@ func TestRunDueRecurringIsolatesBlockedRuleIntegration(t *testing.T) {
 		return next, lastError
 	}
 	next, lastError := rule(blockedNeighbor)
-	if next.Format(ymd) != today.Format(ymd) || !strings.Contains(lastError, "Rechnung") {
-		t.Fatalf("blocked rule: next=%s last_error=%q, want unchanged + invoice reason", next.Format(ymd), lastError)
+	if next.Format(ymd) <= today.Format(ymd) || lastError != "" {
+		t.Fatalf("invoiced rule: next=%s last_error=%q, want advanced and clean", next.Format(ymd), lastError)
 	}
 	next, lastError = rule(freeNeighbor)
 	if next.Format(ymd) <= today.Format(ymd) || lastError != "" {
@@ -95,18 +94,14 @@ func TestRunDueRecurringIsolatesBlockedRuleIntegration(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 	for _, r := range rules {
-		if r.NeighborID == blockedNeighbor && (r.LastError == "" || r.LastErrorAt == nil) {
-			t.Fatalf("ListRecurring hides the waiting state: %+v", r)
+		if r.NeighborID == blockedNeighbor && (r.LastError != "" || r.LastErrorAt != nil) {
+			t.Fatalf("ListRecurring retains a stale waiting state: %+v", r)
 		}
 	}
 
-	// Storno releases the account: the waiting occurrence books and the
-	// reason clears.
-	if _, err := st.StornoInvoice(ctx, yearID, blockedNeighbor, "release"); err != nil {
-		t.Fatalf("storno: %v", err)
-	}
-	if created, err := st.RunDueRecurring(ctx); err != nil || created != 1 {
-		t.Fatalf("second tick: created=%d err=%v, want 1/nil", created, err)
+	// Retrying the tick must not duplicate either occurrence.
+	if created, err := st.RunDueRecurring(ctx); err != nil || created != 0 {
+		t.Fatalf("second tick: created=%d err=%v, want 0/nil", created, err)
 	}
 	if next, lastError := rule(blockedNeighbor); next.Format(ymd) <= today.Format(ymd) || lastError != "" {
 		t.Fatalf("released rule: next=%s last_error=%q", next.Format(ymd), lastError)

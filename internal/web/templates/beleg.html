@@ -42,7 +42,7 @@
 			<div class="beleg__hl beleg__sum-informal">{{if .Credit}}Guthaben{{else if .HasPayments}}Offener Rest{{else}}Saldo{{if .Completed}} · {{if .Paid}}bezahlt{{else}}offen{{end}}{{end}}{{end}}</div>
 			<div class="beleg__hv beleg__sum-informal">{{if .HasPayments}}{{money .Remaining}}{{else}}{{money .Saldo}}{{end}}</div>
 			<div class="beleg__hb">
-				<span>Leistungen {{money .TotalCost}}</span>
+				<span>Leistungen netto {{money .TotalCost}}</span>
 				{{if .Ledger}}<span>Verrechnung {{money .LedgerSum}}</span>{{end}}
 				{{if .HasPayments}}<span>Bezahlt {{money .PaidSum}}</span>{{end}}
 				<span>{{num .TotalHours}} h · {{.Bookings}} Buchung{{if ne .Bookings 1}}en{{end}}</span>
@@ -104,6 +104,9 @@
 		<div class="beleg__lsub beleg__lsub--muted beleg__ver-sum"><span></span><span>Verrechnung</span><span class="beleg__r"></span><span class="beleg__r">{{money .LedgerSum}}</span></div>
 		{{end}}
 
+		{{if .IssuedVAT.IsPositive}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>USt aus festgeschriebenen Rechnungen</span><span></span><span class="beleg__r">{{money .IssuedVAT}}</span></div>{{end}}
+		{{if .HasCredits}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>Gutschriften</span><span></span><span class="beleg__r">{{money .InvCredits}}</span></div>{{end}}
+		{{if .InvoiceReconciliation}}{{if not .InvoiceReconciliation.IsZero}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>Abgleich festgeschriebener Beträge / Rundung</span><span></span><span class="beleg__r">{{money .InvoiceReconciliation}}</span></div>{{end}}{{end}}
 		{{if .HasPayments}}
 		<div class="beleg__sec beleg__pay">Zahlungen</div>
 		{{range .Payments}}
@@ -116,7 +119,7 @@
 		{{end}}
 		<div class="beleg__lsub beleg__lsub--total beleg__sum-informal beleg__pay" data-beleg-final-total><span></span><span>{{if .Credit}}Guthaben{{else}}Offener Rest{{end}}</span><span class="beleg__r"></span><span class="beleg__r">{{money .Remaining}}</span></div>
 		{{end}}
-		{{if and .Ledger (not .HasPayments)}}
+		{{if and (or .Ledger .HasDocuments) (not .HasPayments)}}
 		<div class="beleg__lsub beleg__lsub--total beleg__sum-informal" data-beleg-final-total><span></span><span>{{if .Credit}}Guthaben{{else}}Saldo{{end}}</span><span class="beleg__r"></span><span class="beleg__r">{{money .Saldo}}</span></div>
 		{{end}}
 		{{if .HasCalculationPath}}<details class="beleg__calc beleg__calc--total no-print">
@@ -131,7 +134,10 @@
 				{{if .HasPayments}}<div><span>Zahlungen</span><strong>−{{money .PaidSum}}</strong></div>{{end}}
 				<div><span>Restbetrag zu zahlen</span><strong>{{money .InvRest}}</strong></div>
 				{{else}}
-				<div><span>Leistungen</span><strong>{{money .TotalCost}}</strong></div>
+				<div><span>Leistungen netto</span><strong>{{money .TotalCost}}</strong></div>
+				{{if .IssuedVAT.IsPositive}}<div><span>USt aus festgeschriebenen Rechnungen</span><strong>{{money .IssuedVAT}}</strong></div>{{end}}
+				{{if .HasCredits}}<div><span>Gutschriften</span><strong>{{money .InvCredits}}</strong></div>{{end}}
+				{{if .InvoiceReconciliation}}{{if not .InvoiceReconciliation.IsZero}}<div><span>Abgleich festgeschriebener Beträge / Rundung</span><strong>{{money .InvoiceReconciliation}}</strong></div>{{end}}{{end}}
 				<div><span>Verrechnung</span><strong>{{money .LedgerSum}}</strong></div>
 				{{if .HasPayments}}<div><span>Zahlungen</span><strong>−{{money .PaidSum}}</strong></div>{{end}}
 				<div><span>{{if .Credit}}Guthaben{{else}}Gespeicherter Saldo{{end}}</span><strong>{{if .HasPayments}}{{money .Remaining}}{{else}}{{money .Saldo}}{{end}}</strong></div>
@@ -274,7 +280,7 @@
 			</form>
 			{{end}}
 			{{end}}
-			{{if not .Shared}}
+			{{if and (not .Shared) .HasInvoice}}
 			<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}" class="beleg__markform"
 				data-confirm="Beleg als versendet markieren? Das ist nur ein interner Vermerk — es wird nichts an den Nachbarn geschickt.">
 				{{if .LastSend}}
@@ -359,7 +365,7 @@
 		</div>
 		{{end}}
 		{{if and (not .HasInvoice) (not .Shared) (not .Completed)}}
-		<a class="btn btn--primary btn--block" href="/neighbors/{{.Neighbor.ID}}/invoice/confirm?year={{.Year.ID}}">Rechnung ausstellen &amp; festschreiben</a>
+		<a class="btn btn--primary btn--block" href="/neighbors/{{.Neighbor.ID}}/invoice/confirm?year={{.Year.ID}}">Neue Leistungen abrechnen &amp; festschreiben</a>
 		{{end}}
 		{{if and .Completed (not .Shared)}}
 		<p class="muted small">Das Abrechnungsjahr ist abgeschlossen — Belege sind gesperrt. Für eine Korrektur das Jahr unter „Jahre“ mit Begründung wieder öffnen.</p>
@@ -389,7 +395,7 @@
 			<div class="beleg__doclist-h">Belegverlauf</div>
 			{{range .Documents}}
 			<div class="beleg__docrow">
-				<span class="beleg__docno">{{.Number}}</span>
+				{{if eq .Kind "invoice"}}<a class="beleg__docno" href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}&amp;invoice_id={{.ID}}">{{.Number}}</a>{{else}}<span class="beleg__docno">{{.Number}}</span>{{end}}
 				<span class="beleg__dockind">{{if eq .Kind "invoice"}}Rechnung{{if eq .Status "canceled"}} · storniert{{end}}{{else if eq .Kind "storno"}}Storno{{else if eq .Kind "anzahlung"}}Abschlag{{if eq .Status "canceled"}} · storniert{{end}}{{else}}Gutschrift{{if eq .Status "canceled"}} · storniert{{end}}{{end}}</span>
 				{{if .Content}}<span class="beleg__r">{{money .Content.Gross}}</span>{{end}}
 			</div>
@@ -398,7 +404,7 @@
 		{{end}}
 		{{/* Corrections are OWNER actions — never rendered on the public (Shared)
 		     read-only view, which must stay a pure document. */}}
-		{{if and (not .HasInvoice) (not .Shared) (not .Completed)}}
+		{{if and (not .HasActiveInvoices) (not .Shared) (not .Completed)}}
 		<div class="beleg__invacts stack">
 			<form method="post" action="/neighbors/{{.Neighbor.ID}}/anzahlung" class="beleg__gform">
 				<input type="hidden" name="year_id" value="{{.Year.ID}}">

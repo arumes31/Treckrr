@@ -32,7 +32,7 @@
 	</nav>
 
 	{{if eq .Section "overview"}}
-	{{if .HasInvoice}}<div class="flash flash--info">Rechnung festgeschrieben: Die abgerechneten Inhalte sind unveränderbar; neue Leistungen dieses Nachbarn im Jahr sind gesperrt. <a class="link" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Rechnung ansehen</a> · <a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a></div>{{end}}
+	{{if .HasInvoice}}<div class="flash flash--info">Festgeschriebene Rechnungen bleiben unverändert. Neue Leistungen können separat erfasst und abgerechnet werden. <a class="link" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Rechnungen ansehen</a> · <a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a></div>{{end}}
 	<section class="account-overview" aria-labelledby="account-overview-title">
 		<div class="account-overview__heading">
 			<div><h2 id="account-overview-title">Stand {{.Year.Year}}</h2><p class="muted small">Die wichtigsten Werte auf einen Blick.</p></div>
@@ -59,7 +59,7 @@
 	{{if and (eq .Section "booking") (not .Completed)}}
 	<h2 class="section-title" id="neue-buchung">Neue Buchung erfassen</h2>
 	{{with .PrefilledMachine}}<div class="flash flash--info"><strong>{{.Name}}</strong> wurde über den Maschinen-QR vorausgewählt. Bitte Nachbar, Richtung, Datum und Stunden prüfen; gespeichert wird erst mit „Buchung speichern“.</div>{{end}}
-	{{if .HasInvoice}}<p class="flash flash--info">Für dieses Jahr ist bereits eine Rechnung festgeschrieben. Neue Leistungen und Gegenpositionen sind gesperrt.</p>{{end}}
+	{{if .HasInvoice}}<p class="flash flash--info">Neue Leistungen werden getrennt von bereits festgeschriebenen Rechnungen erfasst.</p>{{end}}
 	{{template "booking-form" .}}
 	<details class="disclosure disclosure--plain page-more">
 		<summary>Schnellerfassung (mehrere Zeilen)</summary>
@@ -98,7 +98,7 @@
 			</div>
 			<div class="btnrow">
 				<button class="btn btn--ghost btn--sm" type="button" data-quick-add>+ Zeile</button>
-				<button class="btn btn--primary" type="submit" {{if .HasInvoice}}disabled{{end}}>Zeilen speichern</button>
+				<button class="btn btn--primary" type="submit" {{if .Completed}}disabled{{end}}>Zeilen speichern</button>
 			</div>
 		</form>
 	</details>
@@ -171,7 +171,7 @@
 			</div>
 			<div class="bcard__foot">
 				<span class="bcard__detail">{{if eq .Unit "h"}}{{num .Hours}} h × {{money .HourlyRate}}/h{{if .TractorLabel}} · {{.TractorLabel}} · {{.LoadLabel}}{{else}} · ohne Traktor{{end}}{{if .MachineLabels}} · {{.MachineLabels}}{{end}}{{else}}{{num .Quantity}} {{.Unit}} × {{money .UnitPrice}}/{{.Unit}}{{end}}{{if .Note}} · {{.Note}}{{end}}{{if .VoidReason}} · Storno: {{.VoidReason}}{{end}}{{if .LinkedEntryID}} · <a class="bcard__link" href="#entry-{{.LinkedEntryID}}" title="Zur verknüpften Maschinenbuchung springen">↳ {{if $pl}}{{$pl}}{{else}}zur Maschinenbuchung{{end}}</a>{{end}}{{with (index $.LinkedFrom .ID)}} · <a class="bcard__link" href="#entry-{{.}}" title="Zur verknüpften Mannstunden-Buchung springen">＋ {{if $pl}}{{$pl}}{{else}}Mannstunden verknüpft{{end}}</a>{{end}}</span>
-				{{if not $.Completed}}
+				{{if and (not $.Completed) (not .InvoiceLocked)}}
 				<span class="bcard__acts">
 					{{if .Voided}}
 					<form method="post" action="/entries/{{.ID}}/void"
@@ -296,7 +296,7 @@
 	<div class="bcard__summary"><span>Saldo</span><span>{{money .Saldo}}</span></div>
 	{{end}}
 
-	{{if and (not .Completed) (not .HasInvoice)}}
+	{{if not .Completed}}
 	{{if .HasTravelRates}}
 	<details class="card disclosure">
 		<summary>+ Anfahrt verrechnen</summary>
@@ -318,6 +318,11 @@
 	{{end}}
 	{{end}}
 
+	{{if and .Invoices (or (eq .Section "overview") (eq .Section "payments"))}}
+	<details class="disclosure page-more" open><summary>Rechnungen ({{len .Invoices}})</summary><div class="action-list">
+		{{range .Invoices}}<a href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}&amp;invoice_id={{.ID}}"><span><strong>{{.Number}}</strong><small>{{date .IssuedOn}}</small></span><span>{{money .Content.Gross}}</span></a>{{end}}
+	</div></details>
+	{{end}}
 	{{if eq .Section "payments"}}
 	<h2 class="section-title" id="zahlungen">Zahlungen</h2>
 	<p class="muted small">Erhaltene Zahlungen — jederzeit erfassbar, auch nach Abschluss des Jahres.</p>
@@ -373,16 +378,18 @@
 				<label class="field"><span>Notiz</span>
 					<input class="input" name="note" placeholder="optional"></label>
 				{{if .HasInvoice}}
+				<label class="field"><span>Rechnung zuordnen (optional)</span>
+					<select class="select" name="invoice_id"><option value="">Automatisch: älteste offene Rechnung zuerst</option>{{range .Invoices}}<option value="{{.ID}}">{{.Number}} · {{money .Content.Gross}}</option>{{end}}</select></label>
 				<label class="field"><span>Skonto % (§ 16, optional)</span>
 					<input class="input" type="number" step="0.1" min="0" max="10" name="skonto" placeholder="z. B. 2"></label>
 				{{end}}
 			</div>
-			{{if .HasInvoice}}<p class="muted small">Ein Skonto erzeugt automatisch eine § 16-Gutschrift auf die Rechnung (Netto und USt werden korrekt gemindert).</p>{{end}}
+			{{if .HasInvoice}}<p class="muted small">Ohne Auswahl wird die älteste offene Rechnung zuerst bezahlt; Überschüsse bleiben Guthaben. Bei mehreren Rechnungen muss für Skonto eine Rechnung ausgewählt werden.</p>{{end}}
 			<div class="btnrow">
 				<button class="btn btn--primary btn--sm" type="submit">Zahlung erfassen</button>
 				{{if .Remaining.IsPositive}}<button class="btn btn--ghost btn--sm" type="submit" formaction="/years/mark-paid" formnovalidate>Gesamten Rest bezahlen</button>{{end}}
 			</div>
-			<p class="muted small">Teilzahlung: Betrag anpassen und „Zahlung erfassen“ wählen. „Gesamten Rest bezahlen“ verbucht den beim Speichern offenen Betrag ohne Skonto, mit Datum und Zahlungsart.</p>
+			<p class="muted small">Teilzahlung: Betrag anpassen und „Zahlung erfassen“ wählen. „Gesamten Rest bezahlen“ begleicht immer das ganze Jahreskonto ohne Skonto und unabhängig von der Rechnungsauswahl, mit Datum und Zahlungsart.</p>
 		</form>
 	</details>
 

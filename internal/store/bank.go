@@ -142,6 +142,12 @@ func (s *Store) NeighborIBANMap(ctx context.Context) (map[string]int64, error) {
 // batch-row outcome atomically. Returns false when a concurrent import already
 // booked the hash; that row is retained as a duplicate in its own batch.
 func (s *Store) ImportPayment(ctx context.Context, rowID int64, hash string, yearID, neighborID, invoiceID int64, amount decimal.Decimal, paidOn time.Time, note string) (bool, error) {
+	if !amount.IsPositive() || !wholeAllocationCents(amount) {
+		return false, ErrPaymentAmount
+	}
+	if invoiceID < 0 {
+		return false, ErrNotFound
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -165,7 +171,11 @@ func (s *Store) ImportPayment(ctx context.Context, rowID int64, hash string, yea
 	if err != nil {
 		return false, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE payment_import_rows
 			   SET status='duplicate', reason='Bereits in einem anderen Import verbucht'
@@ -197,9 +207,12 @@ func (s *Store) ImportPayment(ctx context.Context, rowID int64, hash string, yea
 	// resolved the invoice — store both instead of re-deriving them.
 	var paymentID int64
 	if err := tx.QueryRowContext(ctx,
-		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method, invoice_id)
-		 VALUES ($1,$2,$3,$4,$5,'überweisung',$6) RETURNING id`,
-		yearID, neighborID, amount, paidOn, note, nullable(invoiceID)).Scan(&paymentID); err != nil {
+		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method, invoice_id, preferred_invoice_id)
+		 VALUES ($1,$2,$3,$4,$5,'überweisung',
+		         COALESCE(NULLIF($6::bigint,0),(SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) END FROM invoices
+		           WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued')),
+		         NULLIF($6::bigint,0)) RETURNING id`,
+		yearID, neighborID, amount, paidOn, note, invoiceID).Scan(&paymentID); err != nil {
 		return false, err // rollback also undoes the hash insert
 	}
 	if _, err := tx.ExecContext(ctx, `

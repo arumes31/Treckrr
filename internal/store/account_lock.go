@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	// ErrInvoiceLocked reports that an issued invoice froze the account's
-	// booking basis. Callers may still use the explicit settlement operations.
-	ErrInvoiceLocked = errors.New("account has an issued invoice")
+	// ErrInvoiceLocked reports that an issued invoice owns this booking source.
+	// New work and settlement remain possible while the booking year is open.
+	ErrInvoiceLocked = errors.New("entry belongs to an issued invoice")
 	// ErrNeighborAnonymized prevents ordinary writers from repopulating personal
 	// working data after erasure.
 	ErrNeighborAnonymized = errors.New("neighbor is anonymized")
@@ -28,22 +28,22 @@ var (
 )
 
 // The payable balance for one neighbor in one year, as a single statement so it
-// can be evaluated inside the transaction that is about to act on it. Once an
-// invoice is issued its frozen gross replaces the live booking net. Active credit
-// notes and ledger postings then adjust that liability and payments reduce it.
-// Before issuance, the live booking net is the deliberate fallback.
+// can be evaluated inside the transaction that is about to act on it. Issued
+// invoice gross replaces only its assigned source entries. Unassigned booking
+// net, active credits and ledger postings remain on the account; real payments
+// reduce that liability exactly once.
 //
 // The result is rounded to whole cents (models.BalanceState is the Go twin):
 // settle, carry and payout write exactly this figure, and money rows must be
 // whole cents, so a sub-cent legacy booking cost can never leak into a posting.
 const remainingSQL = `
-	SELECT ROUND(COALESCE(
-	         (SELECT gross FROM invoices
-	           WHERE billing_year_id=$1 AND neighbor_id=$2
-	             AND kind='invoice' AND status='issued'),
-	         (SELECT COALESCE(SUM(cost),0) FROM entries
-	           WHERE billing_year_id=$1 AND neighbor_id=$2 AND NOT voided),
-	         0)
+	SELECT ROUND(
+	       (SELECT COALESCE(SUM(gross),0) FROM invoices
+	         WHERE billing_year_id=$1 AND neighbor_id=$2
+	           AND kind='invoice' AND status='issued')
+	     + (SELECT COALESCE(SUM(e.cost),0) FROM entries e
+	         WHERE e.billing_year_id=$1 AND e.neighbor_id=$2 AND NOT e.voided
+	           AND NOT EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=e.id AND ie.active))
 	     + (SELECT COALESCE(SUM(gross),0) FROM invoices
 	         WHERE billing_year_id=$1 AND neighbor_id=$2
 	           AND kind='gutschrift' AND status='issued')
@@ -118,20 +118,45 @@ func lockAccountBoundary(
 }
 
 func lockMutableBookingAccount(ctx context.Context, tx *sql.Tx, yearID, neighborID int64) error {
-	ok, err := lockAccountBoundary(ctx, tx, yearID, neighborID, true, false)
-	if err != nil {
-		return err
-	}
-	if !ok {
+	return lockOpenAccount(ctx, tx, yearID, neighborID)
+}
+
+// lockUninvoicedEntry protects an individual source after the caller has taken
+// its canonical open-account boundary. Invoice issuance takes the same boundary,
+// so a source cannot be claimed between this check and the caller's write.
+func lockUninvoicedEntry(ctx context.Context, tx *sql.Tx, entryID int64) error {
+	var claimed bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=entries.id AND ie.active)
+		FROM entries WHERE id=$1 FOR UPDATE`, entryID).Scan(&claimed)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
-	var invoiced bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM invoices WHERE billing_year_id=$1 AND neighbor_id=$2
-		  AND kind='invoice' AND status='issued')`, yearID, neighborID).Scan(&invoiced); err != nil {
+	if err != nil {
+		return fmt.Errorf("lock invoice source: %w", err)
+	}
+	if claimed {
+		return ErrInvoiceLocked
+	}
+	return nil
+}
+
+// lockEntryDeletion additionally protects frozen incoming links: deleting an
+// unclaimed parent would otherwise SET NULL on an already invoiced helper.
+func lockEntryDeletion(ctx context.Context, tx *sql.Tx, entryID int64) error {
+	if err := lockUninvoicedEntry(ctx, tx, entryID); err != nil {
 		return err
 	}
-	if invoiced {
+	var claimedLink bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM entries child JOIN entries parent ON parent.id=child.linked_entry_id
+		WHERE parent.id=$1 AND (child.billing_year_id<>parent.billing_year_id
+		  OR child.neighbor_id<>parent.neighbor_id
+		  OR EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=child.id AND ie.active)))`,
+		entryID).Scan(&claimedLink); err != nil {
+		return fmt.Errorf("check frozen entry links: %w", err)
+	}
+	if claimedLink {
 		return ErrInvoiceLocked
 	}
 	return nil
@@ -271,22 +296,7 @@ func lockSettlementAccounts(ctx context.Context, tx *sql.Tx, accounts ...account
 }
 
 func lockMutableAccounts(ctx context.Context, tx *sql.Tx, accounts ...accountKey) error {
-	accounts = sortedUniqueAccounts(accounts)
-	if err := lockAccounts(ctx, tx, accounts, true, false); err != nil {
-		return err
-	}
-	for _, account := range accounts {
-		var invoiced bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-			SELECT 1 FROM invoices WHERE billing_year_id=$1 AND neighbor_id=$2
-			  AND kind='invoice' AND status='issued')`, account.yearID, account.neighborID).Scan(&invoiced); err != nil {
-			return err
-		}
-		if invoiced {
-			return ErrInvoiceLocked
-		}
-	}
-	return nil
+	return lockOpenAccounts(ctx, tx, accounts...)
 }
 
 func lockOpenAccounts(ctx context.Context, tx *sql.Tx, accounts ...accountKey) error {
@@ -343,8 +353,8 @@ func (s *Store) SettleRemainingWithMethod(ctx context.Context, yearID, neighborI
 	if err := tx.QueryRowContext(ctx,
 		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method, invoice_id)
 		 VALUES ($1,$2,$3,$4,$5,$6,
-		         (SELECT id FROM invoices WHERE billing_year_id=$1 AND neighbor_id=$2
-		           AND kind='invoice' AND status='issued'))
+		         (SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) END FROM invoices
+		           WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'))
 		 RETURNING id`, yearID, neighborID, remaining, when, note, method).Scan(&paymentID); err != nil {
 		return decimal.Zero, err
 	}

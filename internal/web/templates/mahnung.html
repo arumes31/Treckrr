@@ -39,15 +39,15 @@
 				<span class="beleg__payinfo-k">Zahlung</span>
 				<span class="beleg__payinfo-v">Bitte überweisen Sie <strong>{{money .TotalDue}}</strong>{{if .Fee.IsPositive}} (inkl. {{money .Fee}} Mahnspesen){{end}}{{if .InvoiceNo}} unter Angabe der Referenz <strong>{{.InvoiceNo}}</strong>{{end}}{{if not .GraceUntil.IsZero}} bis <strong>{{date .GraceUntil}}</strong>{{end}}.{{with .Company.IBAN}} IBAN <strong>{{.}}</strong>.{{end}}</span>
 			</div>
-			{{if .HasEpcQR}}<img class="beleg__epcqr" src="/neighbors/{{.Neighbor.ID}}/mahnung/epc-qr.png?year={{.Year.ID}}&stufe={{.Stage}}" width="118" height="118" alt="EPC-QR-Code zum Bezahlen des offenen Betrags (GiroCode)" loading="lazy">{{end}}
+			{{if .HasEpcQR}}<img class="beleg__epcqr" src="/neighbors/{{.Neighbor.ID}}/mahnung/epc-qr.png?year={{.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe={{.Stage}}" width="118" height="118" alt="EPC-QR-Code zum Bezahlen des offenen Betrags (GiroCode)" loading="lazy">{{end}}
 		</div>
 
 		<div class="btnrow no-print">
-			<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/mahnung.pdf?year={{.Year.ID}}&stufe={{.Stage}}" target="_blank" rel="noopener">Als PDF</a>
+			<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/mahnung.pdf?year={{.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe={{.Stage}}" target="_blank" rel="noopener">Als PDF</a>
 			{{if not .Open.IsPositive}}
 			<span class="muted small">Kein offener Betrag — ein Versand ist nicht möglich.</span>
 			{{else if and .MailEnabled .NeighborEmail}}
-			<form method="post" action="/neighbors/{{.Neighbor.ID}}/mahnung/email?year={{.Year.ID}}&stufe={{.Stage}}" class="beleg__markform"
+			<form method="post" action="/neighbors/{{.Neighbor.ID}}/mahnung/email?year={{.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe={{.Stage}}" class="beleg__markform"
 				data-confirm="{{.Title}} als PDF an {{.NeighborEmail}} senden?">
 				<button type="submit" class="btn btn--ghost btn--sm">✉ Per E-Mail senden</button>
 			</form>

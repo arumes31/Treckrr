@@ -176,7 +176,7 @@ func waitForLockWaiters(t *testing.T, ctx context.Context, pool *sql.DB, holderP
 	}
 }
 
-func TestInvoiceFreezeSerializesBookingWriter(t *testing.T) {
+func TestInvoiceClaimSerializesBookingWriter(t *testing.T) {
 	st, pool, yearID, neighborID, _ := invoiceFixture(t, false)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -225,23 +225,24 @@ func TestInvoiceFreezeSerializesBookingWriter(t *testing.T) {
 	if issued.err != nil {
 		t.Fatalf("issue: %v", issued.err)
 	}
-	if err := <-bookingDone; !errors.Is(err, store.ErrInvoiceLocked) {
-		t.Fatalf("racing booking error = %v, want ErrInvoiceLocked", err)
+	if err := <-bookingDone; err != nil {
+		t.Fatalf("later booking error = %v", err)
 	}
 	live, _, err := st.NeighborTotal(context.Background(), neighborID, yearID)
 	if err != nil {
 		t.Fatalf("live total: %v", err)
 	}
-	if !issued.invoice.Content.Net.Equal(live) || !live.Equal(decimal.NewFromInt(100)) {
-		t.Fatalf("frozen/live net = %s/%s, want 100/100", issued.invoice.Content.Net, live)
+	if !issued.invoice.Content.Net.Equal(decimal.NewFromInt(100)) || !live.Equal(decimal.NewFromInt(150)) {
+		t.Fatalf("frozen/live net = %s/%s, want 100/150", issued.invoice.Content.Net, live)
 	}
 }
 
 func TestRecurringAndReplayRespectInvoiceFreeze(t *testing.T) {
-	t.Run("blocked recurrence stays pending", func(t *testing.T) {
-		st, pool, yearID, neighborID, entryID := invoiceFixture(t, false)
+	t.Run("later recurrence remains bookable", func(t *testing.T) {
 		ctx := context.Background()
-		today := time.Date(2026, 9, 10, 0, 0, 0, 0, time.Local)
+		now := time.Now()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		st, pool, yearID, neighborID, entryID := invoiceFixtureYear(t, false, today.Year())
 		tmpl := models.RecurTemplate{
 			TaskLabel: "recurring review", Unit: "Pauschale",
 			Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(25), Cost: decimal.NewFromInt(25),
@@ -255,12 +256,11 @@ func TestRecurringAndReplayRespectInvoiceFreeze(t *testing.T) {
 			`SELECT id, next_run FROM recurring_entries WHERE neighbor_id=$1`, neighborID).Scan(&ruleID, &before); err != nil {
 			t.Fatalf("load recurring: %v", err)
 		}
-		issueFixtureInvoice(t, st, yearID, neighborID)
-		// The issued invoice is the rule's waiting state, not a failed tick:
-		// nothing is booked, nothing advances, and the reason is recorded.
+		iv := issueFixtureInvoiceYear(t, st, yearID, neighborID, today.Year())
+		// Later occurrences create unclaimed work without altering this invoice.
 		created, err := st.RunDueRecurring(ctx)
-		if err != nil || created != 0 {
-			t.Fatalf("due recurrence: created=%d err=%v, want 0/nil (waiting)", created, err)
+		if err != nil || created != 1 {
+			t.Fatalf("due recurrence: created=%d err=%v, want 1/nil", created, err)
 		}
 		var after time.Time
 		var lastError string
@@ -268,11 +268,15 @@ func TestRecurringAndReplayRespectInvoiceFreeze(t *testing.T) {
 			`SELECT next_run, last_error FROM recurring_entries WHERE id=$1`, ruleID).Scan(&after, &lastError); err != nil {
 			t.Fatalf("reload recurring: %v", err)
 		}
-		if !after.Equal(before) {
-			t.Fatalf("blocked occurrence advanced from %v to %v", before, after)
+		if after.Format("2006-01-02") <= before.Format("2006-01-02") {
+			t.Fatalf("occurrence did not advance from %v to %v", before, after)
 		}
-		if !strings.Contains(lastError, "Rechnung") {
-			t.Fatalf("waiting rule records last_error %q, want the invoice reason", lastError)
+		if lastError != "" {
+			t.Fatalf("successful rule records last_error %q", lastError)
+		}
+		frozen, err := st.GetInvoice(ctx, yearID, neighborID)
+		if err != nil || frozen.Content == nil || frozen.Content.Hash != iv.Content.Hash {
+			t.Fatalf("recurrence changed issued document: %+v, %v", frozen, err)
 		}
 	})
 

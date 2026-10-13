@@ -36,6 +36,9 @@ func (s *Store) AddEntryPhoto(ctx context.Context, entryID int64, image []byte, 
 	if err := lockMutableBookingAccount(ctx, tx, yearID, neighborID); err != nil {
 		return 0, err
 	}
+	if err := lockUninvoicedEntry(ctx, tx, entryID); err != nil {
+		return 0, err
+	}
 	// bytea equality compares lengths first, so differing photos cost no
 	// detoasting; only a same-sized candidate is compared byte by byte.
 	var id int64
@@ -96,6 +99,9 @@ func (s *Store) DeleteEntryPhoto(ctx context.Context, entryID, photoID int64) er
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := lockMutableBookingAccount(ctx, tx, yearID, neighborID); err != nil {
+		return err
+	}
+	if err := lockUninvoicedEntry(ctx, tx, entryID); err != nil {
 		return err
 	}
 	_, err = tx.ExecContext(ctx,

@@ -3,6 +3,7 @@
 package store_test
 
 import (
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -218,22 +219,27 @@ func TestUpdateEntryGroupIntegration(t *testing.T) {
 	}
 }
 
-// TestEntryGroupAccountGuards proves invoice/year/privacy locks cover the entire
-// group, while a complete original offline retry remains a safe no-op.
+// TestEntryGroupAccountGuards proves issued sources remain locked while new
+// groups remain possible; year/privacy guards and complete retries stay intact.
 func TestEntryGroupAccountGuards(t *testing.T) {
 	for _, lock := range []string{"invoice", "completed", "anonymized"} {
 		t.Run(lock, func(t *testing.T) {
 			st, _, yearID, neighborID, _ := invoiceFixture(t, false)
 			ctx := t.Context()
 			main, people := integrationEntryGroup(yearID, neighborID, "guarded")
-			id, _, err := st.CreateEntryGroup(ctx, main, nil, people)
+			id, helperIDs, err := st.CreateEntryGroup(ctx, main, nil, people)
 			if err != nil {
 				t.Fatal(err)
 			}
 			want := store.ErrInvoiceLocked
+			var frozen []byte
 			switch lock {
 			case "invoice":
-				issueFixtureInvoice(t, st, yearID, neighborID)
+				invoice := issueFixtureInvoice(t, st, yearID, neighborID)
+				frozen, err = json.Marshal(invoice.Content)
+				if err != nil {
+					t.Fatal(err)
+				}
 			case "completed":
 				want = store.ErrYearCompleted
 				if err := st.SetYearStatus(ctx, yearID, "completed"); err != nil {
@@ -251,14 +257,50 @@ func TestEntryGroupAccountGuards(t *testing.T) {
 				}
 			}
 			fresh := *main
-			fresh.IdempotencyKey = "new-blocked"
-			if _, _, err := st.CreateEntryGroup(ctx, &fresh, nil, people); !errors.Is(err, want) {
+			fresh.IdempotencyKey = "new-group"
+			freshID, freshHelpers, err := st.CreateEntryGroup(ctx, &fresh, nil, people)
+			if lock == "invoice" {
+				if err != nil || freshID == 0 || freshID == id || len(freshHelpers) != len(people) {
+					t.Fatalf("new uninvoiced group = %d, %v, %v", freshID, freshHelpers, err)
+				}
+				for _, entryID := range append([]int64{freshID}, freshHelpers...) {
+					entry, err := st.GetEntry(ctx, entryID)
+					if err != nil || entry.InvoiceLocked {
+						t.Fatalf("new source unexpectedly claimed: id=%d err=%v", entryID, err)
+					}
+				}
+				for _, helperID := range helperIDs {
+					if err := st.SetEntryVoided(ctx, helperID, true, "attempt to change issued helper"); !errors.Is(err, store.ErrInvoiceLocked) {
+						t.Fatalf("issued helper %d was mutable: %v", helperID, err)
+					}
+				}
+			} else if !errors.Is(err, want) {
 				t.Fatalf("create behind %s = %v, want %v", lock, err, want)
 			}
 			edit := *main
 			edit.ID = id
 			if err := st.UpdateEntryGroup(ctx, &edit, nil, nil); !errors.Is(err, want) {
 				t.Fatalf("update behind %s = %v, want %v", lock, err, want)
+			}
+			if lock == "invoice" {
+				invoice, err := st.GetInvoice(ctx, yearID, neighborID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				after, err := json.Marshal(invoice.Content)
+				if err != nil || string(after) != string(frozen) {
+					t.Fatalf("new work or rejected edit changed the frozen invoice: %v", err)
+				}
+				for i, entryID := range append([]int64{id}, helperIDs...) {
+					entry, err := st.GetEntry(ctx, entryID)
+					wantCost := main.Cost
+					if i > 0 {
+						wantCost = people[i-1].Cost
+					}
+					if err != nil || !entry.InvoiceLocked || entry.Voided || !entry.Cost.Equal(wantCost) {
+						t.Fatalf("issued source changed: id=%d entry=%+v err=%v", entryID, entry, err)
+					}
+				}
 			}
 		})
 	}

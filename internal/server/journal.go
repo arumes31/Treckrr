@@ -587,11 +587,11 @@ func (s *Server) handleAnzahlungCreate(w http.ResponseWriter, r *http.Request) {
 	// An Abschlag anticipates the Schlussrechnung; once that exists there is
 	// nothing left to anticipate, and a second document requesting money would
 	// only confuse what is owed.
-	if _, err := s.store.GetInvoice(r.Context(), yearID, neighborID); err == nil {
+	if invoices, err := s.store.ListActiveInvoices(r.Context(), yearID, neighborID); err == nil && len(invoices) > 0 {
 		s.setFlash(w, r, "error", "Es gibt bereits eine festgeschriebene Rechnung — ein Abschlag ist nicht mehr sinnvoll.")
 		redirect(w, r, back)
 		return
-	} else if !errors.Is(err, store.ErrNotFound) {
+	} else if err != nil {
 		s.serverError(w, "anzahlung: lookup", err)
 		return
 	}

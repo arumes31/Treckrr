@@ -24,6 +24,10 @@ func TestPartialDocumentsIntegration(t *testing.T) {
 		"gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-06-01"},
 		"hours": {"2"}, "unit": {"h"},
 	})
+	pendingBefore, err := e.st.BuildPendingInvoiceContent(e.ctx, yid, nid)
+	if err != nil || len(pendingBefore.Lines) != 1 || !pendingBefore.Net.Equal(decimal.NewFromInt(92)) {
+		t.Fatalf("initial pending work: %+v, err=%v", pendingBefore, err)
+	}
 
 	// Sub-cent input is rejected instead of silently becoming a different cent
 	// amount in the persisted document.
@@ -62,9 +66,29 @@ func TestPartialDocumentsIntegration(t *testing.T) {
 	if _, err := e.st.GetInvoice(e.ctx, yid, nid); err == nil {
 		t.Errorf("an Abschlag must not occupy the invoice slot")
 	}
-	if page := e.get(belegURL); !strings.Contains(page, "Rechnung ausstellen") {
+	confirmURL := fmt.Sprintf("/neighbors/%d/invoice/confirm?year=%d", nid, yid)
+	if page := e.get(belegURL); !strings.Contains(page, `href="`+confirmURL+`"`) {
 		t.Errorf("issuing a Rechnung must still be offered while only Abschläge exist")
 	}
+	if page := e.get(confirmURL); !strings.Contains(page, `name="content_hash" value="`+pendingBefore.Hash+`"`) {
+		t.Error("invoice confirmation no longer offers the original pending work")
+	}
+	assertAdvanceNeutral := func() {
+		t.Helper()
+		pending, err := e.st.BuildPendingInvoiceContent(e.ctx, yid, nid)
+		if err != nil || pending.Hash != pendingBefore.Hash {
+			t.Fatalf("advance documents changed pending work: hash=%q err=%v", pending.Hash, err)
+		}
+		remaining, err := e.st.AccountRemaining(e.ctx, yid, nid)
+		if err != nil || !remaining.Equal(pendingBefore.Net) {
+			t.Fatalf("advance documents changed the account: remaining=%s err=%v", remaining, err)
+		}
+		sources, err := e.st.ListNeighborInvoiceSourceExport(e.ctx, yid, nid)
+		if err != nil || len(sources) != 0 {
+			t.Fatalf("advance documents claimed invoice sources: %+v err=%v", sources, err)
+		}
+	}
+	assertAdvanceNeutral()
 
 	// Journal: both Abschläge are listed but carry no revenue.
 	page = e.get(fmt.Sprintf("/rechnungsjournal?year=%d", yid))
@@ -91,12 +115,20 @@ func TestPartialDocumentsIntegration(t *testing.T) {
 				row.Number, row.Kind, row.Status, row.RefKind)
 		}
 	}
+	assertAdvanceNeutral()
 
 	// Now the Schlussrechnung: the single tax document, at its full amount.
 	e.postIssue(nid, url.Values{"year_id": {itoa64(yid)}})
 	iv, err := e.st.GetInvoice(e.ctx, yid, nid)
-	if err != nil {
+	if err != nil || iv.Content == nil {
 		t.Fatalf("Schlussrechnung: %v", err)
+	}
+	if !iv.Content.Gross.Equal(pendingBefore.Gross) || !iv.Content.Net.Equal(pendingBefore.Net) || len(iv.Content.Lines) != 1 {
+		t.Fatalf("final invoice differs from the booked work: %+v", iv.Content)
+	}
+	sources, err := e.st.ListNeighborInvoiceSourceExport(e.ctx, yid, nid)
+	if err != nil || len(sources) != 1 || sources[0].InvoiceID != iv.ID || !sources[0].Active {
+		t.Fatalf("only the final invoice must claim the booking: %+v err=%v", sources, err)
 	}
 	// The invariant, not a magic number: the Abschläge (50, one of them
 	// stornoed) contributed NOTHING, so the only revenue is the Schlussrechnung

@@ -60,8 +60,8 @@ func lockBulkBookingAccounts(ctx context.Context, tx *sql.Tx, entryIDs, ledgerID
 	return lockSettlementAccounts(ctx, tx, accounts...)
 }
 
-// VoidBookings reversibly changes a mixed selection, skipping frozen accounts
-// and carry transfers. Both sources commit together without deleting history.
+// VoidBookings reversibly changes a mixed selection, skipping claimed entries,
+// closed years and carry transfers. Both sources commit without deleting history.
 func (s *Store) VoidBookings(ctx context.Context, refs []BookingRef, voided bool, reason string) (int, error) {
 	entryIDs, ledgerIDs, err := bookingRefIDs(refs)
 	if err != nil || len(refs) == 0 {
@@ -80,15 +80,12 @@ func (s *Store) VoidBookings(ctx context.Context, refs []BookingRef, voided bool
 		 AND EXISTS(SELECT 1 FROM billing_year_neighbors m WHERE m.billing_year_id=b.billing_year_id AND m.neighbor_id=b.neighbor_id)
 		 AND EXISTS(SELECT 1 FROM billing_years y WHERE y.id=b.billing_year_id AND y.status<>'completed')
 		 AND EXISTS(SELECT 1 FROM neighbors n WHERE n.id=b.neighbor_id AND NOT n.anonymized)
-		 AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.billing_year_id=b.billing_year_id
-		 AND i.neighbor_id=b.neighbor_id AND i.kind='invoice' AND i.status='issued')`
+		 AND NOT EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=b.id AND ie.active)`
 	const ledgerQuery = `UPDATE neighbor_ledger b SET voided=$2,void_reason=CASE WHEN $2 THEN $3 ELSE '' END
 		 WHERE b.id=ANY($1) AND b.voided<>$2
 		 AND EXISTS(SELECT 1 FROM billing_year_neighbors m WHERE m.billing_year_id=b.billing_year_id AND m.neighbor_id=b.neighbor_id)
 		 AND EXISTS(SELECT 1 FROM billing_years y WHERE y.id=b.billing_year_id AND y.status<>'completed')
 		 AND EXISTS(SELECT 1 FROM neighbors n WHERE n.id=b.neighbor_id AND NOT n.anonymized)
-		 AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.billing_year_id=b.billing_year_id
-		 AND i.neighbor_id=b.neighbor_id AND i.kind='invoice' AND i.status='issued')
 		 AND b.transfer_id=''`
 	targets := []struct {
 		query string

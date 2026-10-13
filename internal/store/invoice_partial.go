@@ -140,12 +140,15 @@ func (s *Store) FreeGutschrift(ctx context.Context, yearID, neighborID int64, ye
 	// payment ever backed; the IssueInvoice refusal only helped if an invoice was
 	// ever issued.
 	var invGross decimal.Decimal
+	var invoiceCount int
 	err = tx.QueryRowContext(ctx,
-		`SELECT gross FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued' FOR UPDATE`,
-		yearID, neighborID).Scan(&invGross)
+		`SELECT COALESCE(SUM(gross),0),count(*) FROM invoices
+		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'`,
+		yearID, neighborID).Scan(&invGross, &invoiceCount)
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return models.Invoice{}, err
+	case invoiceCount == 0:
 		wouldBe, err := s.buildInvoiceContentTx(ctx, tx, yearID, neighborID)
 		if err != nil {
 			return models.Invoice{}, err
@@ -176,8 +179,6 @@ func (s *Store) FreeGutschrift(ctx context.Context, yearID, neighborID int64, ye
 			}
 			return models.Invoice{}, err
 		}
-	case err != nil:
-		return models.Invoice{}, err
 	default:
 		if err := checkCreditCap(ctx, tx, yearID, neighborID, invGross, gross); err != nil {
 			return models.Invoice{}, err

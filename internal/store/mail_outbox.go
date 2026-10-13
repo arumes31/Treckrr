@@ -39,6 +39,7 @@ type OutboxMail struct {
 	Kind          string
 	NeighborID    int64
 	BillingYearID int64
+	InvoiceID     int64 // zero preserves legacy account-only delivery metadata
 	Recipient     string
 	Subject       string
 	Body          string
@@ -137,6 +138,7 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 		m.DeliveryKey = defaultDeliveryKey(m, meta)
 	}
 	requestedMessageID := m.MessageID
+	var storedInvoiceID int64
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return OutboxMail{}, false, err
@@ -147,6 +149,18 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 			return OutboxMail{}, false, err
 		}
 	}
+	if m.InvoiceID != 0 {
+		var valid bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM invoices
+			WHERE id=$1 AND neighbor_id=$2 AND billing_year_id=$3
+			  AND kind='invoice' AND status='issued' AND content_hash <> '')`,
+			m.InvoiceID, m.NeighborID, m.BillingYearID).Scan(&valid); err != nil {
+			return OutboxMail{}, false, err
+		}
+		if !valid {
+			return OutboxMail{}, false, ErrNotFound
+		}
+	}
 	// Serialize admission across replicas so two concurrent inserts cannot both
 	// observe the last free slot/byte budget. Return an existing idempotent intent
 	// before applying capacity limits: repeated requests add no storage.
@@ -154,10 +168,15 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 		return OutboxMail{}, false, err
 	}
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, status, attempts, message_id
+		SELECT id, status, attempts, message_id, COALESCE(invoice_id,0)
 		  FROM mail_outbox WHERE delivery_key=$1`, m.DeliveryKey).
-		Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID)
+		Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID, &storedInvoiceID)
 	if err == nil {
+		if storedInvoiceID != 0 && storedInvoiceID != m.InvoiceID {
+			return OutboxMail{}, false, ErrIdempotencyConflict
+		}
+		// Never retroactively attribute an unbound historical delivery.
+		m.InvoiceID = storedInvoiceID
 		reopenStatus := ""
 		switch {
 		case m.RetryFailed && m.Status == MailStatusFailed:
@@ -185,10 +204,10 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 				   SET recipient=$2, subject=$3, body=$4, att_name=$5, att_type=$6,
 				       att_data=$7, meta=$8, message_id=$9, status='pending', attempts=0,
 				       next_attempt_at=now(), claimed_at=NULL, terminal_at=NULL,
-				       sent_at=NULL, redacted_at=NULL, last_error=''
+				       sent_at=NULL, redacted_at=NULL, last_error='', invoice_id=$11
 				 WHERE id=$1 AND status=$10
 				 RETURNING status, attempts`, m.ID, m.Recipient, m.Subject, m.Body,
-				m.AttName, m.AttType, m.AttData, meta, m.MessageID, reopenStatus).
+				m.AttName, m.AttType, m.AttData, meta, m.MessageID, reopenStatus, nullable(m.InvoiceID)).
 				Scan(&m.Status, &m.Attempts)
 			if err != nil {
 				return OutboxMail{}, false, err
@@ -223,19 +242,20 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO mail_outbox
 		       (kind, neighbor_id, billing_year_id, recipient, subject, body,
-		        att_name, att_type, att_data, next_attempt_at, meta, delivery_key, message_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now() + make_interval(secs => $10),$11,$12,$13)
+		        att_name, att_type, att_data, next_attempt_at, meta, delivery_key, message_id, invoice_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now() + make_interval(secs => $10),$11,$12,$13,$14)
 		ON CONFLICT (delivery_key) WHERE delivery_key IS NOT NULL DO NOTHING
 		RETURNING id, status, attempts, next_attempt_at`,
 		m.Kind, nullable(m.NeighborID), nullable(m.BillingYearID), m.Recipient, m.Subject, m.Body,
 		m.AttName, m.AttType, m.AttData, outboxBackoff(1).Seconds(), meta,
-		m.DeliveryKey, m.MessageID).Scan(&m.ID, &m.Status, &m.Attempts, &next)
+		m.DeliveryKey, m.MessageID, nullable(m.InvoiceID)).Scan(&m.ID, &m.Status, &m.Attempts, &next)
 	if errors.Is(err, sql.ErrNoRows) {
 		created = false
 		err = tx.QueryRowContext(ctx, `
-			SELECT id, status, attempts, message_id
+			SELECT id, status, attempts, message_id, COALESCE(invoice_id,0)
 			  FROM mail_outbox WHERE delivery_key=$1`, m.DeliveryKey).
-			Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID)
+			Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID, &storedInvoiceID)
+		m.InvoiceID = storedInvoiceID
 	}
 	if err != nil {
 		return OutboxMail{}, false, err

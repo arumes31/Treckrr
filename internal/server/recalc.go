@@ -115,7 +115,7 @@ func (s *Server) recalcApply(w http.ResponseWriter, r *http.Request, yearID int6
 }
 
 // handleNeighborRecalcPreview scopes the price comparison to one neighbor and
-// the requested year, rejecting an invoice lock before rendering the preview.
+// the requested year. The store excludes immutable invoice sources.
 func (s *Server) handleNeighborRecalcPreview(w http.ResponseWriter, r *http.Request) {
 	neighborID, err := pathID(r)
 	if err != nil {
@@ -127,16 +127,13 @@ func (s *Server) handleNeighborRecalcPreview(w http.ResponseWriter, r *http.Requ
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	if s.invoiceLocked(w, r, yearID, neighborID) {
-		return
-	}
 	back := neighborURL(neighborID, yearID)
 	s.recalcPreview(w, r, yearID, &neighborID, s.neighborName(r, neighborID), back,
 		fmt.Sprintf("/neighbors/%d/recalc", neighborID))
 }
 
 // handleNeighborRecalcApply reprices one neighbor's bookings in the submitted year
-// after checking its invoice lock, then returns to that neighbor's account.
+// after the store rechecks source claims, then returns to the account.
 func (s *Server) handleNeighborRecalcApply(w http.ResponseWriter, r *http.Request) {
 	neighborID, err := pathID(r)
 	if err != nil {
@@ -150,9 +147,6 @@ func (s *Server) handleNeighborRecalcApply(w http.ResponseWriter, r *http.Reques
 	yearID := s.yearIDFromForm(r)
 	if yearID == 0 {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
-		return
-	}
-	if s.invoiceLocked(w, r, yearID, neighborID) {
 		return
 	}
 	s.recalcApply(w, r, yearID, &neighborID, "neighbor", neighborID, neighborURL(neighborID, yearID))

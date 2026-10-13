@@ -85,23 +85,6 @@ func rejectLedgerReplay(ctx context.Context, tx *sql.Tx, key string) error {
 	return nil
 }
 
-// protectStructuredLedger extends invoice freezing to direct store callers of
-// legacy edit/void/delete methods, without changing settlement-only postings.
-// The caller already owns the year/account and posting locks in canonical order.
-func protectStructuredLedger(ctx context.Context, tx *sql.Tx, id, yearID, neighborID int64) error {
-	var locked bool
-	err := tx.QueryRowContext(ctx, `SELECT booking IS NOT NULL AND EXISTS(
-		SELECT 1 FROM invoices WHERE billing_year_id=$2 AND neighbor_id=$3 AND kind='invoice' AND status='issued')
-		FROM neighbor_ledger WHERE id=$1`, id, yearID, neighborID).Scan(&locked)
-	if err != nil {
-		return err
-	}
-	if locked {
-		return ErrInvoiceLocked
-	}
-	return nil
-}
-
 // LedgerBookingInput describes a signed counterclaim or fixed account position.
 // Amount is computed from Booking, never accepted as a separate client total.
 type LedgerBookingInput struct {

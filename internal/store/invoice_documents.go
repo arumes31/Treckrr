@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -79,13 +78,19 @@ func reverseContent(c models.InvoiceContent, origNumber, reason string) models.I
 	return rev
 }
 
-// StornoInvoice cancels the active issued invoice for a neighbor+year by issuing a
-// Storno document (kind='storno', number <orig>-S) that fully reverses it, and
-// marks the original 'canceled'. This frees the active-invoice slot — unlocking
-// the neighbor's basis and returning the Beleg to its live/draft view — so a
-// corrected invoice can be re-issued. Returns ErrNotFound if there is no active
-// invoice to cancel. The optional reason is recorded on the Storno document.
+// StornoInvoice reverses the sole active invoice for an account and releases
+// only that document's sources. It rejects ambiguous accounts; callers must use
+// StornoInvoiceByID to choose among multiple invoices. The optional reason is
+// recorded on the reversing document, and the original snapshot is retained.
 func (s *Store) StornoInvoice(ctx context.Context, yearID, neighborID int64, reason string) (models.Invoice, error) {
+	return s.StornoInvoiceByID(ctx, yearID, neighborID, 0, reason)
+}
+
+// StornoInvoiceByID reverses one selected invoice and releases only its sources.
+// A zero ID preserves the legacy unique-only route; ambiguity is rejected.
+func (s *Store) StornoInvoiceByID(
+	ctx context.Context, yearID, neighborID, invoiceID int64, reason string,
+) (models.Invoice, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.Invoice{}, err
@@ -98,20 +103,14 @@ func (s *Store) StornoInvoice(ctx context.Context, yearID, neighborID int64, rea
 	if !ok {
 		return models.Invoice{}, ErrNotFound
 	}
-	orig, err := scanInvoice(tx.QueryRowContext(ctx,
-		`SELECT `+invoiceCols+` FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued' FOR UPDATE`,
-		yearID, neighborID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return models.Invoice{}, ErrNotFound
-	}
+	orig, err := activeInvoiceTx(ctx, tx, yearID, neighborID, invoiceID)
 	if err != nil {
 		return models.Invoice{}, err
 	}
-	content, err := s.contentOrBuild(ctx, orig, yearID, neighborID)
-	if err != nil {
-		return models.Invoice{}, err
+	if orig.Content == nil {
+		return models.Invoice{}, ErrInvoiceIncomplete
 	}
+	content := *orig.Content
 	now := time.Now()
 	// A full Storno reverses the whole invoice, so its issued credit notes go
 	// with it — never leave active Gutschriften pointing at a canceled original.
@@ -133,6 +132,10 @@ func (s *Store) StornoInvoice(ctx context.Context, yearID, neighborID int64, rea
 		return models.Invoice{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE invoices SET status='canceled' WHERE id=$1`, orig.ID); err != nil {
+		return models.Invoice{}, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE invoice_entries SET active=false WHERE invoice_id=$1 AND active`, orig.ID); err != nil {
 		return models.Invoice{}, err
 	}
 	if err := addInvoiceAudit(ctx, tx, "invoice_storno", sv); err != nil {
@@ -188,10 +191,20 @@ func stornoDocumentTx(ctx context.Context, tx *sql.Tx, orig models.Invoice, reas
 // that reduces the active invoice by a gross amount (§ 16 UStG Entgeltminderung,
 // e.g. a Skonto). The reduction is split into net and VAT at the invoice's own
 // rate so the USt correction is booked correctly; for a no-VAT (Kleinunternehmer)
-// invoice the whole amount is net. The original invoice stays active — the
-// neighbor remains locked and the Gutschrift only lowers what is owed. Amounts are
-// stored negative. Returns ErrNotFound if there is no active invoice.
+// invoice the whole amount is net. The original invoice and its source claims
+// stay active; later work on the account remains possible. Amounts are stored
+// negative. Multiple active invoices require selection through GutschriftInvoiceByID.
 func (s *Store) GutschriftInvoice(ctx context.Context, yearID, neighborID int64, grossReduction decimal.Decimal, note string) (models.Invoice, error) {
+	return s.GutschriftInvoiceByID(ctx, yearID, neighborID, 0, grossReduction, note)
+}
+
+// GutschriftInvoiceByID credits one selected frozen invoice without rewriting it.
+func (s *Store) GutschriftInvoiceByID(
+	ctx context.Context,
+	yearID, neighborID, invoiceID int64,
+	grossReduction decimal.Decimal,
+	note string,
+) (models.Invoice, error) {
 	// Whole cents: invoices.gross is NUMERIC(14,2), so an unrounded amount was
 	// hashed as -10.005 while the row stored -10.01.
 	grossReduction = models.RoundMoney(grossReduction)
@@ -210,21 +223,15 @@ func (s *Store) GutschriftInvoice(ctx context.Context, yearID, neighborID int64,
 	if !ok {
 		return models.Invoice{}, ErrNotFound
 	}
-	orig, err := scanInvoice(tx.QueryRowContext(ctx,
-		`SELECT `+invoiceCols+` FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued' FOR UPDATE`,
-		yearID, neighborID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return models.Invoice{}, ErrNotFound
-	}
+	orig, err := activeInvoiceTx(ctx, tx, yearID, neighborID, invoiceID)
 	if err != nil {
 		return models.Invoice{}, err
 	}
-	base, err := s.contentOrBuild(ctx, orig, yearID, neighborID)
-	if err != nil {
-		return models.Invoice{}, err
+	if orig.Content == nil {
+		return models.Invoice{}, ErrInvoiceIncomplete
 	}
-	if err := checkCreditCap(ctx, tx, yearID, neighborID, base.Gross, grossReduction); err != nil {
+	base := *orig.Content
+	if err := checkInvoiceCreditCap(ctx, tx, orig, grossReduction); err != nil {
 		return models.Invoice{}, err
 	}
 	gv, err := issueGutschriftTx(ctx, tx, orig, base, grossReduction, note)
@@ -232,6 +239,33 @@ func (s *Store) GutschriftInvoice(ctx context.Context, yearID, neighborID int64,
 		return models.Invoice{}, err
 	}
 	return gv, tx.Commit()
+}
+
+// checkInvoiceCreditCap enforces both the selected document's attached-credit cap
+// and the account-wide cap, so unrelated documents cannot fund an excessive credit.
+func checkInvoiceCreditCap(
+	ctx context.Context, tx *sql.Tx, invoice models.Invoice, gross decimal.Decimal,
+) error {
+	if invoice.Content == nil {
+		return ErrInvoiceIncomplete
+	}
+	var attached, accountGross decimal.Decimal
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(-SUM(gross),0) FROM invoices
+		 WHERE references_invoice_id=$1 AND kind='gutschrift' AND status='issued'`,
+		invoice.ID).Scan(&attached); err != nil {
+		return err
+	}
+	if gross.GreaterThan(invoice.Content.Gross.Sub(attached)) {
+		return ErrGutschriftTooLarge
+	}
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(gross),0) FROM invoices
+		 WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'`,
+		invoice.BillingYearID, invoice.NeighborID).Scan(&accountGross); err != nil {
+		return err
+	}
+	return checkCreditCap(ctx, tx, invoice.BillingYearID, invoice.NeighborID, accountGross, gross)
 }
 
 // checkCreditCap refuses a credit note that would push the neighbor+year's
@@ -256,7 +290,7 @@ func checkCreditCap(ctx context.Context, tx *sql.Tx, yearID, neighborID int64, c
 }
 
 // issueGutschriftTx writes an attached credit note against orig (whose frozen
-// or rebuilt content is base) and audits it. The caller holds the account lock
+// content is base) and audits it. The caller holds the account lock
 // and has already checked the cap.
 func issueGutschriftTx(
 	ctx context.Context,
@@ -311,23 +345,19 @@ func issueGutschriftTx(
 	return gv, nil
 }
 
-// contentOrBuild returns the invoice's frozen content, or — for a legacy row whose
-// snapshot was never backfilled — reconstructs it from current live data so a
-// correction can still be issued. A build failure is propagated rather than
-// swallowed, so a Storno/Gutschrift never freezes an empty (zero-amount) document.
-func (s *Store) contentOrBuild(ctx context.Context, iv models.Invoice, yearID, neighborID int64) (models.InvoiceContent, error) {
-	if iv.Content != nil {
-		return *iv.Content, nil
-	}
-	return s.BuildInvoiceContent(ctx, yearID, neighborID)
-}
-
-// contentOrBuildWith is contentOrBuild with the company already in hand — the
-// journal exports rebuild many legacy rows in a loop and the company row is
-// the same for every one of them.
+// contentOrBuildWith preserves the journal fallback only before source claims
+// exist. After migration, missing historical snapshots must never be invented
+// from current annual work. The company is shared across the legacy export loop.
 func (s *Store) contentOrBuildWith(ctx context.Context, company models.Company, iv models.Invoice, yearID, neighborID int64) (models.InvoiceContent, error) {
 	if iv.Content != nil {
 		return *iv.Content, nil
+	}
+	assigned, err := invoiceSourcesAvailable(ctx, s.db)
+	if err != nil {
+		return models.InvoiceContent{}, err
+	}
+	if assigned {
+		return models.InvoiceContent{}, ErrInvoiceIncomplete
 	}
 	return s.buildInvoiceContentWith(ctx, company, yearID, neighborID)
 }

@@ -1,13 +1,11 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/d0linger/treckrr/internal/models"
-	"github.com/d0linger/treckrr/internal/store"
 )
 
 // newBookingValues starts a new form without copying another party's rates.
@@ -168,16 +166,13 @@ func (s *Server) setLedgerBookingForm(r *http.Request, data pageData, entry *mod
 	data["BookingEdit"], data["BookingCopy"], data["BookingVoided"] = !copyMode, copyMode, entry.Voided
 	data["PhotoAction"], data["RecurringAction"] = "/ledger/"+strconv.FormatInt(entry.ID, 10)+"/photos", "/ledger/"+strconv.FormatInt(entry.ID, 10)+"/recur"
 	data["NextWeek"] = time.Now().AddDate(0, 0, 7).Format("2006-01-02")
-	_, err := s.store.GetInvoice(r.Context(), year.ID, neighborID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
-	data["BookingLocked"] = year.Completed() || err == nil
+	data["BookingLocked"] = year.Completed()
 	if !copyMode {
-		data["Photos"], err = s.store.ListLedgerPhotos(r.Context(), entry.ID)
+		photos, err := s.store.ListLedgerPhotos(r.Context(), entry.ID)
 		if err != nil {
 			return err
 		}
+		data["Photos"] = photos
 	}
 	return nil
 }

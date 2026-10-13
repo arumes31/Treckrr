@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -102,7 +103,7 @@ func (s *Server) handleMahnwesen(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	lastNotices, err := s.store.LastDunningNotices(r.Context(), year.ID)
+	lastNotices, err := s.store.LastDunningNoticesByInvoice(r.Context(), scopeYear)
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
@@ -209,28 +210,44 @@ func (s *Server) buildMahnungDataWith(r *http.Request, neighborID int64, stage i
 		return nil, false, err
 	}
 	// A reminder only makes sense for a formally issued invoice.
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
+	iv, err := s.requestInvoice(r, yearID, neighborID, true)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, false, nil
 	} else if err != nil {
 		return nil, false, err
 	}
-	// Open = amount STILL PAYABLE on the frozen invoice (gross less credits, ledger,
-	// payments) — same figure the Beleg/EPC-QR use. paid = payments total (info line).
-	open, err := s.store.InvoiceRemaining(r.Context(), yearID, neighborID)
+	// Both displayed figures come from one repeatable-read allocation snapshot.
+	allocations, err := s.store.AccountInvoiceAllocations(r.Context(), yearID, neighborID)
 	if err != nil {
 		return nil, false, err
 	}
-	_, paid, err := s.store.NeighborNetPaid(r.Context(), yearID, neighborID)
-	if err != nil {
-		return nil, false, err
+	var open, paid decimal.Decimal
+	found := false
+	for _, allocation := range allocations.Invoices {
+		if allocation.InvoiceID == iv.ID {
+			open, paid, found = allocation.Remaining, allocation.Paid, true
+			break
+		}
+	}
+	if !found {
+		return nil, false, nil
 	}
 	title, intro := dunningStage(stage)
+	if iv.Content == nil {
+		return nil, false, store.ErrNotFound
+	}
+	// Historical snapshots did not persist payment terms; retain the existing
+	// due-date policy rather than interpreting a missing value as immediate.
 	term := company.EffectiveTermDays()
-	// The neighbor's own payment term wins over the company default (Nr. 36).
 	if neighbor.PaymentTermDays != nil {
 		term = *neighbor.PaymentTermDays
 	}
+	// Correspondence keeps current delivery address but displays frozen parties.
+	neighborCopy := *neighbor
+	neighborCopy.Name, neighborCopy.Address, neighborCopy.TaxID = iv.Content.Recipient.Name, iv.Content.Recipient.Address, iv.Content.Recipient.TaxID
+	neighbor = &neighborCopy
+	company.Name, company.Address, company.TaxID, company.IBAN = iv.Content.Issuer.Name,
+		iv.Content.Issuer.Address, iv.Content.Issuer.TaxID, iv.Content.Issuer.IBAN
 	v := &mahnungView{
 		Neighbor: neighbor, Year: year, Company: company, Invoice: iv,
 		Title: title, Intro: intro, Stage: stage, Open: open, Paid: paid,
@@ -281,7 +298,7 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 	}
 	v, ok, err := s.buildMahnungData(r, neighborID, yearID, stage)
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	if !ok {
@@ -302,6 +319,7 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 	data["TotalDue"] = v.TotalDue
 	data["GraceUntil"] = v.GraceUntil
 	data["InvoiceNo"] = v.Invoice.Number
+	data["InvoiceID"] = v.Invoice.ID
 	data["IssuedOn"] = v.Invoice.IssuedOn
 	if !v.DueOn.IsZero() {
 		data["DueOn"] = v.DueOn
@@ -342,7 +360,7 @@ func (s *Server) handleMahnungPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	v, ok, err := s.buildMahnungData(r, neighborID, yearID, stage)
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	if !ok {
@@ -378,9 +396,15 @@ func (s *Server) handleMahnungEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	back := fmt.Sprintf("/neighbors/%d/mahnung?year=%d&stufe=%d", neighborID, yearID, stage)
+	if invoiceID, selected, err := requestedInvoiceID(r); err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	} else if selected {
+		back += "&invoice_id=" + itoa64(invoiceID)
+	}
 	v, ok, err := s.buildMahnungData(r, neighborID, yearID, stage)
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	if !ok {
@@ -446,7 +470,7 @@ func (s *Server) deliverMahnung(ctx context.Context, v *mahnungView, explicitRes
 	subject := v.Title + " · Rechnung " + v.Invoice.Number
 	messageID := mail.StableMessageID(s.cfg.SMTPFrom, v.Neighbor.Email, subject, body, []mail.Attachment{att})
 	intent, created, err := s.store.CreateMailIntent(ctx, store.OutboxMail{
-		Kind: "mahnung", NeighborID: v.Neighbor.ID, BillingYearID: v.Invoice.BillingYearID,
+		Kind: "mahnung", NeighborID: v.Neighbor.ID, BillingYearID: v.Invoice.BillingYearID, InvoiceID: v.Invoice.ID,
 		Recipient: v.Neighbor.Email, Subject: subject, Body: body,
 		AttName: att.Filename, AttType: att.ContentType, AttData: att.Data,
 		Meta: store.OutboxMeta{Stage: v.Stage, Fee: v.Fee, GraceUntil: v.GraceUntil, InvoiceNumber: v.Invoice.Number},
@@ -516,18 +540,18 @@ func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	company, err := s.store.GetCompany(r.Context())
-	if err != nil || strings.TrimSpace(company.IBAN) == "" {
+	if err != nil {
 		s.notFound(w, r)
 		return
 	}
 	// Require a formally issued invoice: the QR carries its number as the payment
 	// reference, and there is nothing to dun without one. Mirrors handleNeighborMahnung.
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
+	iv, err := s.requestInvoice(r, yearID, neighborID, true)
 	if err != nil {
 		s.notFound(w, r)
 		return
 	}
-	open, err := s.store.InvoiceRemaining(r.Context(), yearID, neighborID)
+	open, err := s.store.InvoiceDocumentRemaining(r.Context(), iv.ID)
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
@@ -544,7 +568,11 @@ func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 	case 2:
 		total = total.Add(company.DunningFee2)
 	}
-	png, err := qrPNG(epcPayload(company.Name, company.IBAN, total, iv.Number))
+	if iv.Content == nil || strings.TrimSpace(iv.Content.Issuer.IBAN) == "" {
+		s.notFound(w, r)
+		return
+	}
+	png, err := qrPNG(epcPayload(iv.Content.Issuer.Name, iv.Content.Issuer.IBAN, total, iv.Number))
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
@@ -580,7 +608,7 @@ func (s *Server) handleMahnungMarkSent(w http.ResponseWriter, r *http.Request) {
 	}
 	v, ok, err := s.buildMahnungData(r, neighborID, yearID, stage)
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	if !ok {
@@ -666,7 +694,13 @@ func (s *Server) handleMahnwesenBatchEmail(w http.ResponseWriter, r *http.Reques
 			}
 			// Company and year are loop-invariant (see buildMahnungDataWith); only
 			// the per-neighbor rows are fetched inside the loop.
-			v, ok, err := s.buildMahnungDataWith(r.WithContext(taskCtx), row.NeighborID, stage, company, year)
+			request := r.Clone(taskCtx)
+			request.Form = make(url.Values, len(r.Form)+1)
+			for key, values := range r.Form {
+				request.Form[key] = append([]string(nil), values...)
+			}
+			request.Form.Set("invoice_id", itoa64(row.InvoiceID))
+			v, ok, err := s.buildMahnungDataWith(request, row.NeighborID, stage, company, year)
 			if err != nil {
 				slog.Error("mahnwesen batch data failed", "neighbor", row.NeighborID, "err", sanitizeLog(err.Error()))
 				failed++

@@ -36,10 +36,8 @@ func requestedInvoiceID(r *http.Request) (int64, bool, error) {
 	return id, true, nil
 }
 
-// requestInvoice is preparation only; no handler uses it yet. It resolves an
-// explicitly selected immutable invoice within the route account. The legacy
-// branch remains safe only while the current single-active-invoice constraint
-// holds; multi-invoice activation also requires GetInvoice to reject ambiguity.
+// requestInvoice resolves a frozen invoice within the route account. Legacy
+// callers may omit selection only while exactly one active invoice exists.
 func (s *Server) requestInvoice(r *http.Request, yearID, neighborID int64, active bool) (models.Invoice, error) {
 	id, selected, err := requestedInvoiceID(r)
 	if err != nil {
@@ -60,4 +58,33 @@ func (s *Server) requestInvoice(r *http.Request, yearID, neighborID int64, activ
 		return models.Invoice{}, store.ErrNotFound
 	}
 	return invoice, nil
+}
+
+func (s *Server) invoiceRequestError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, errInvoiceSelection), errors.Is(err, store.ErrInvoiceAmbiguous):
+		s.badRequest(w, "Bitte eine eindeutige Rechnung auswählen.")
+	case errors.Is(err, store.ErrNotFound):
+		s.notFound(w, r)
+	default:
+		s.serverError(w, "invoice selection", err)
+	}
+}
+
+func invoiceDocumentURL(invoice models.Invoice) string {
+	return "/neighbors/" + itoa64(invoice.NeighborID) + "/beleg?year=" +
+		itoa64(invoice.BillingYearID) + "&invoice_id=" + itoa64(invoice.ID)
+}
+
+// optionalPaymentInvoiceID treats only absent/one empty value as FIFO.
+func optionalPaymentInvoiceID(r *http.Request) (int64, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		return 0, errInvoiceSelection
+	}
+	values, present := r.Form["invoice_id"]
+	if !present || (len(values) == 1 && values[0] == "") {
+		return 0, nil
+	}
+	id, _, err := requestedInvoiceID(r)
+	return id, err
 }

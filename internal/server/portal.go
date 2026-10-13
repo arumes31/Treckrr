@@ -13,7 +13,7 @@ import (
 
 // resolvePortalShare applies the same bounded, rate-limited token resolution to
 // every public portal action. Only token hashes ever reach the store.
-func (s *Server) resolvePortalShare(w http.ResponseWriter, r *http.Request) (shareID, neighborID, yearID int64, token string, ok bool) {
+func (s *Server) resolvePortalShare(w http.ResponseWriter, r *http.Request) (shareID, neighborID, yearID, invoiceID int64, token string, ok bool) {
 	token = r.PathValue("token")
 	if token == "" || len(token) > maxBelegShareTokenLen {
 		s.notFound(w, r)
@@ -24,33 +24,36 @@ func (s *Server) resolvePortalShare(w http.ResponseWriter, r *http.Request) (sha
 		s.notFound(w, r)
 		return
 	}
+	// Legacy HMAC links encode an account, not a document. Their origin cannot
+	// be proved after storno/reissue, so never retarget them to a new invoice.
 	if strings.Contains(token, ".") {
-		neighborID, yearID, ok = s.verifyLegacyBelegShare(token)
-	} else {
-		var err error
-		shareID, neighborID, yearID, ok, err = s.store.ResolveBelegShareAccess(r.Context(), store.HashToken(token))
-		if err != nil {
-			s.serverError(w, "portal: resolve", err)
-			return 0, 0, 0, token, false
-		}
+		s.logins.shareMiss(r.Context(), clientIP)
+		s.notFound(w, r)
+		return
+	}
+	var err error
+	shareID, neighborID, yearID, invoiceID, ok, err = s.store.ResolveInvoiceBelegShareAccess(r.Context(), store.HashToken(token))
+	if err != nil {
+		s.serverError(w, "portal: resolve", err)
+		return 0, 0, 0, 0, token, false
 	}
 	if !ok {
 		s.logins.shareMiss(r.Context(), clientIP)
 		s.notFound(w, r)
-		return 0, 0, 0, token, false
+		return 0, 0, 0, 0, token, false
 	}
-	return shareID, neighborID, yearID, token, true
+	return
 }
 
 // handleSharedInvoicePDF serves the immutable invoice through the same
 // revocable portal credential and records the download event.
 func (s *Server) handleSharedInvoicePDF(w http.ResponseWriter, r *http.Request) {
-	shareID, neighborID, yearID, _, ok := s.resolvePortalShare(w, r)
+	shareID, neighborID, yearID, invoiceID, _, ok := s.resolvePortalShare(w, r)
 	if !ok {
 		return
 	}
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
-	if err != nil || iv.Content == nil {
+	iv, err := s.store.GetInvoiceDocument(r.Context(), invoiceID)
+	if err != nil || iv.Content == nil || iv.Status != "issued" || iv.Kind != "invoice" || iv.NeighborID != neighborID || iv.BillingYearID != yearID {
 		s.notFound(w, r)
 		return
 	}
@@ -73,7 +76,7 @@ func (s *Server) handleSharedInvoicePDF(w http.ResponseWriter, r *http.Request) 
 // handlePortalFeedback records communication against the immutable snapshot;
 // it never edits bookings, ledger entries or invoice values.
 func (s *Server) handlePortalFeedback(w http.ResponseWriter, r *http.Request) {
-	shareID, neighborID, yearID, token, ok := s.resolvePortalShare(w, r)
+	shareID, neighborID, yearID, invoiceID, token, ok := s.resolvePortalShare(w, r)
 	if !ok {
 		return
 	}
@@ -104,8 +107,8 @@ func (s *Server) handlePortalFeedback(w http.ResponseWriter, r *http.Request) {
 		s.badRequest(w, "Ungültige Rechnungsposition.")
 		return
 	}
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
-	if err != nil || iv.Content == nil {
+	iv, err := s.store.GetInvoiceDocument(r.Context(), invoiceID)
+	if err != nil || iv.Content == nil || iv.Status != "issued" || iv.Kind != "invoice" || iv.NeighborID != neighborID || iv.BillingYearID != yearID {
 		s.notFound(w, r)
 		return
 	}
@@ -133,4 +136,18 @@ func (s *Server) handlePortalFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/s/portal/"+token+"?feedback="+status)
+}
+
+func (s *Server) handleSharedInvoiceEpcQR(w http.ResponseWriter, r *http.Request) {
+	_, neighborID, yearID, invoiceID, _, ok := s.resolvePortalShare(w, r)
+	if !ok {
+		return
+	}
+	iv, err := s.store.GetInvoiceDocument(r.Context(), invoiceID)
+	if err != nil || iv.Status != "issued" || iv.Kind != "invoice" ||
+		iv.NeighborID != neighborID || iv.BillingYearID != yearID {
+		s.notFound(w, r)
+		return
+	}
+	s.writeInvoiceEpcQR(w, r, iv)
 }

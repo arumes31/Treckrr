@@ -44,6 +44,12 @@ func TestSavedBookingViewsIntegration(t *testing.T) {
 // delivery and public-link records without reading mail bodies or tokens.
 func TestNeighborCommunicationIntegration(t *testing.T) {
 	e := newItEnv(t)
+	e.post("/entries", url.Values{
+		"year_id": {itoa64(e.yearID64)}, "neighbor_id": {itoa64(e.neighborID)},
+		"gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-03-01"},
+		"hours": {"1"}, "unit": {"h"},
+	})
+	e.postIssue(e.neighborID, url.Values{"year_id": {itoa64(e.yearID64)}})
 	if _, err := e.pool.ExecContext(e.ctx, `
 		INSERT INTO beleg_sends (billing_year_id,neighbor_id,channel) VALUES ($1,$2,'persönlich')`,
 		e.yearID64, e.neighborID); err != nil {

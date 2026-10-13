@@ -48,7 +48,7 @@ func (r paymentImportRow) Importable() bool { return r.Matched && !r.AlreadyImpo
 
 // matchTxns resolves each transaction, in this order: the invoice reference in
 // the remittance text, then the payer IBAN against the neighbor master data
-// (booking against the neighbor's newest issued invoice), then a manual
+// (choosing an unambiguous billing-year account for FIFO), then a manual
 // assignment from the preview (keyed by transaction hash, validated against the
 // assignable-invoice list so a crafted id cannot book against arbitrary rows).
 // Already-imported credits are flagged and never re-booked.
@@ -87,23 +87,20 @@ func (s *Server) matchTxns(r *http.Request, txns []bankimport.Txn, assign map[st
 	// Reference matching mirrors InvoiceByReferenceText: the reference must
 	// appear in the remittance text on non-alphanumeric boundaries, the longest
 	// reference wins (2026-0001 must not lose to a neighbor whose reference is
-	// its prefix). Newest issued invoice per neighbor doubles as the IBAN
-	// fallback target, exactly as LatestOpenInvoiceForNeighbor picked it.
+	// its prefix). IBAN identifies a neighbor, not a chosen invoice. It is an
+	// automatic account match only when that neighbor has one invoiced year.
 	type refPattern struct {
 		re *regexp.Regexp
 		t  store.InvoiceRefTarget
 	}
 	patterns := make([]refPattern, 0, len(targets))
-	newest := map[int64]store.InvoiceRefTarget{} // neighbor id → newest issued invoice
+	accounts := ibanInvoiceAccounts(targets) // neighbor ID → one unambiguous year
 	for _, t := range targets {
 		if ref := strings.TrimSpace(t.PaymentReference); ref != "" {
 			re, err := regexp.Compile(`(^|[^0-9A-Za-z])` + regexp.QuoteMeta(ref) + `([^0-9A-Za-z]|$)`)
 			if err == nil {
 				patterns = append(patterns, refPattern{re: re, t: t})
 			}
-		}
-		if cur, ok := newest[t.NeighborID]; !ok || t.ID > cur.ID {
-			newest[t.NeighborID] = t
 		}
 	}
 	sort.SliceStable(patterns, func(i, j int) bool {
@@ -122,12 +119,11 @@ func (s *Server) matchTxns(r *http.Request, txns []bankimport.Txn, assign map[st
 			}
 		}
 		if match == nil && t.IBAN != "" {
-			// Fallback: a known payer account books against that neighbor's
-			// newest issued invoice — under neighbors the remittance text is
-			// often just "Aushilfe" with no reference at all.
+			// A payer IBAN requests FIFO in one year, never a preference for an
+			// arbitrary invoice. Multiple years require explicit manual selection.
 			norm := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(t.IBAN), " ", ""))
 			if nid := ibans[norm]; nid != 0 {
-				if nv, ok := newest[nid]; ok {
+				if nv, ok := accounts[nid]; ok {
 					match = &nv
 					row.MatchedBy = "IBAN"
 				}
@@ -140,8 +136,10 @@ func (s *Server) matchTxns(r *http.Request, txns []bankimport.Txn, assign map[st
 			}
 			row.NeighborID = match.NeighborID
 			row.YearID = match.YearID
-			row.InvoiceID = match.ID
-			row.InvoiceNumber = match.Number
+			if row.MatchedBy != "IBAN" {
+				row.InvoiceID = match.ID
+				row.InvoiceNumber = match.Number
+			}
 			row.NeighborName = match.NeighborName
 		} else if id, ok := assign[t.Hash]; ok {
 			if a, ok := assignable[id]; ok {
@@ -160,6 +158,28 @@ func (s *Server) matchTxns(r *http.Request, txns []bankimport.Txn, assign map[st
 		rows = append(rows, row)
 	}
 	return rows, importable, nil
+}
+
+// ibanInvoiceAccounts only resolves the account. Invoice identity is cleared so
+// an IBAN match cannot accidentally become an explicit newest-invoice choice.
+func ibanInvoiceAccounts(targets []store.InvoiceRefTarget) map[int64]store.InvoiceRefTarget {
+	accounts := make(map[int64]store.InvoiceRefTarget)
+	ambiguous := make(map[int64]bool)
+	for _, target := range targets {
+		if ambiguous[target.NeighborID] {
+			continue
+		}
+		if current, ok := accounts[target.NeighborID]; ok {
+			if current.YearID != target.YearID {
+				delete(accounts, target.NeighborID)
+				ambiguous[target.NeighborID] = true
+			}
+			continue
+		}
+		target.ID, target.Number, target.PaymentReference = 0, "", ""
+		accounts[target.NeighborID] = target
+	}
+	return accounts
 }
 
 // handlePaymentImportForm renders the upload form.

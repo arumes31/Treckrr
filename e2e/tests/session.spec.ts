@@ -58,7 +58,8 @@ test("record a payment and see it in the cross-year history", async ({ page }) =
   await expect(page.locator("body")).toContainText("E2E Teilzahlung");
 });
 
-test("bookings list filters, and bulk storno leaves a reason", async ({ page }) => {
+test("bookings list filters, and bulk storno leaves a reason", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
   await login(page);
   await page.goto("/buchungen?year=1");
   await expect(page.locator("body")).toContainText("Buchung(en)");
@@ -67,32 +68,58 @@ test("bookings list filters, and bulk storno leaves a reason", async ({ page }) 
   await page.goto("/buchungen?year=1&task=gibtesnicht");
   await expect(page.locator("body")).toContainText("0 Buchung(en)");
 
-  // The specs share one database and invoice.spec may have frozen an invoice,
-  // which locks this neighbor's bookings against any bulk action. Undo that
-  // first — exactly what an operator does before correcting a booking — so the
-  // test states something about bulk storno rather than about test ordering.
+  // Preserve existing invoices. A bulk booking test must not cancel documents
+  // created by another scenario merely to unlock their historical sources.
   await page.goto("/neighbors/1/beleg?year=1");
-  const storno = page.getByRole("button", { name: "Rechnung stornieren" });
-  if (await storno.count()) {
-    await storno.click();
-    await confirmModal(page);
+  const documentURLs = [...new Set(await page.locator('a[href*="/beleg?"][href*="invoice_id="]')
+    .evaluateAll((links) => links.map((link) => link.getAttribute("href")!)))];
+  const frozenDocuments: { url: string; lines: string }[] = [];
+  for (const url of documentURLs) {
+    await page.goto(url);
+    frozenDocuments.push({ url, lines: await page.getByRole("table").innerText() });
   }
 
-  // Select every booking and cancel it with a reason.
-  await page.goto("/buchungen?year=1");
+  // Two fresh, mutable bookings isolate this test from previous financial work
+  // and from any partially completed retry, without changing an old invoice.
+  const task = `E2E Bulk ${testInfo.retry} ${Date.now()}`;
+  const reason = `${task} Sammelstorno`;
+  for (const suffix of ["A", "B"]) {
+    await page.goto("/neighbors/1?year=1&view=booking");
+    await page.locator("[data-booking-kind]").selectOption("quantity");
+    await page.locator("[data-unit]").selectOption("Ballen");
+    await page.locator('input[name="quantity"]').fill("1");
+    await page.locator('input[name="unit_price"]').fill("2.50");
+    await page.locator('input[name="task_label"]').fill(`${task} ${suffix}`);
+    await page.getByRole("button", { name: "Buchung speichern", exact: true }).click();
+    await expect(page.getByText(`${task} ${suffix}`, { exact: true }).first()).toBeVisible();
+    await page.waitForLoadState("load");
+  }
+  const filteredURL = `/buchungen?year=1&task=${encodeURIComponent(task)}`;
+  await page.goto(filteredURL);
   const boxes = page.locator('input[name="booking_id"]');
-  const count = await boxes.count();
-  expect(count).toBeGreaterThan(0);
-  for (let i = 0; i < count; i++) await boxes.nth(i).check();
-  await page.locator('input[name="reason"]').fill("E2E Sammelstorno");
+  await expect(boxes).toHaveCount(2);
+  const entryIDs = await boxes.evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value.split(":")[1]));
+  for (const box of await boxes.all()) await box.check();
+  await page.locator('input[name="reason"]').fill(reason);
   await page.getByRole("button", { name: "Stornieren", exact: true }).click();
   await confirmModal(page, /\/buchungen/);
 
   // The count in the flash must be the selection, not zero — a bulk action that
   // silently does nothing is the failure mode worth pinning.
-  await expect(page.locator("body")).toContainText(`${count} Buchung(en) storniert`);
-  await page.goto("/buchungen?year=1&voided=only");
-  await expect(page.locator("body")).toContainText(`${count} Buchung(en)`);
+  // Exact text avoids falsely accepting "0 von 2 Buchung(en) storniert".
+  await expect(page.getByText("2 Buchung(en) storniert.", { exact: true })).toBeVisible();
+  await page.goto(`${filteredURL}&voided=only`);
+  await expect(page.locator('tbody tr.dtable__row--bad')).toHaveCount(2);
+  await page.goto("/neighbors/1?year=1&view=bookings");
+  for (const id of entryIDs) {
+    await expect(page.locator(`#entry-${id}`)).toHaveClass(/bcard--void/);
+    await expect(page.locator(`#entry-${id}`)).toContainText(`Storno: ${reason}`);
+  }
+  for (const document of frozenDocuments) {
+    await page.goto(document.url);
+    await expect(page.getByRole("table")).toHaveText(document.lines, { useInnerText: true });
+    await expect(page.locator("#beleg")).toContainText("festgeschrieben");
+  }
 });
 
 test("year closing review lists what is open, and closing locks documents", async ({ page }) => {

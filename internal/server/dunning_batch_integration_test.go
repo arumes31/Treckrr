@@ -7,6 +7,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/models"
 )
 
 func TestDunningBatchContinuesAfterInvalidSnapshotIntegration(t *testing.T) {
@@ -18,21 +23,32 @@ func TestDunningBatchContinuesAfterInvalidSnapshotIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		ids = append(ids, id)
+		if err := e.st.AddNeighborToYear(e.ctx, e.yearID64, id); err != nil {
+			t.Fatal(err)
+		}
 		e.post(fmt.Sprintf("/neighbors/%d/update", id), url.Values{
 			"name": {label + " " + e.uname}, "email": {"batch@example.invalid"}, "payment_term_days": {"0"},
+			"address": {"Synthetic batch lane 1"},
 		})
-		// Seed synthetic snapshots directly so B has valid JSON of the wrong
-		// shape. DunningRows can list it; GetInvoice must reject its content.
-		lines := "[]"
-		if label == "B" {
-			lines = "{}"
-		}
-		_, err = e.pool.ExecContext(e.ctx, `INSERT INTO invoices
-			(billing_year_id,neighbor_id,number,issued_on,net,gross,issuer,recipient,lines)
-			VALUES($1,$2,$3,CURRENT_DATE-1,100,100,'{}','{}',$4::jsonb)`,
-			e.yearID64, id, "batch-"+label+"-"+e.uname, lines)
+		// A and C are complete source-bound invoices. Corrupt only B's JSON
+		// shape afterward: listing its amount must not abort the other sends.
+		issuedOn := time.Now().AddDate(0, 0, -1)
+		_, err = e.st.CreateEntry(e.ctx, &models.Entry{
+			NeighborID: id, BillingYearID: e.yearID64, Date: issuedOn,
+			TaskLabel: "Batch dunning", Unit: "h", Hours: decimal.NewFromInt(1),
+			HourlyRate: decimal.NewFromInt(100), Cost: decimal.NewFromInt(100),
+		}, nil)
 		if err != nil {
 			t.Fatal(err)
+		}
+		invoice, err := e.st.IssueInvoice(e.ctx, e.yearID64, id, e.year, issuedOn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if label == "B" {
+			if _, err := e.pool.ExecContext(e.ctx, `UPDATE invoices SET lines='{}'::jsonb WHERE id=$1`, invoice.ID); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	body := e.post("/mahnwesen/batch-email", url.Values{"year": {itoa64(e.yearID64)}, "stufe": {"1"}})

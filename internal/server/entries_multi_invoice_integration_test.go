@@ -11,10 +11,18 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TestInvoiceYearCloseSettlementPreservesValuesIntegration establishes the
-// existing workflow's preservation contract before any multi-invoice activation.
-// It uses only current APIs and does not relax the annual invoice booking lock.
+// TestInvoiceYearCloseSettlementPreservesValuesIntegration preserves the usual
+// book-close-settle workflow with one invoice and with several invoices.
 func TestInvoiceYearCloseSettlementPreservesValuesIntegration(t *testing.T) {
+	for _, count := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d invoices", count), func(t *testing.T) {
+			testInvoiceYearCloseSettlement(t, count)
+		})
+	}
+}
+
+func testInvoiceYearCloseSettlement(t *testing.T, invoiceCount int) {
+	t.Helper()
 	e := newItEnv(t)
 	nid, yid := e.neighborID, e.yearID64
 	e.book(nid, "2026-06-01")
@@ -24,6 +32,18 @@ func TestInvoiceYearCloseSettlementPreservesValuesIntegration(t *testing.T) {
 		t.Fatalf("issued invoice: %v", err)
 	}
 	gross := invoice.Content.Gross
+	if invoiceCount > 1 {
+		e.book(nid, "2026-06-02")
+		e.postIssue(nid, url.Values{"year_id": {itoa64(yid)}})
+		invoices, err := e.st.ListActiveInvoices(e.ctx, yid, nid)
+		if err != nil || len(invoices) != invoiceCount {
+			t.Fatalf("subsequent invoice: count=%d error=%v", len(invoices), err)
+		}
+		gross = decimal.Zero
+		for _, document := range invoices {
+			gross = gross.Add(document.Content.Gross)
+		}
+	}
 	partial := decimal.NewFromInt(10)
 	if !gross.GreaterThan(partial) {
 		t.Fatalf("fixture gross %s must exceed partial payment %s", gross, partial)

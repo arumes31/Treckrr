@@ -313,13 +313,20 @@ func (s *Server) buildBelegView(r *http.Request, neighbor *models.Neighbor, year
 	// Payments toward this year and the resulting live open balance. Formal
 	// invoice settlement is reconciled separately below from the frozen gross.
 	payments, paidSum := account.Payments, account.PaidSum
-	saldo, remaining := account.Saldo, account.Remaining
+	remaining, err := s.settlements().PayableRemaining(r.Context(), year.ID, neighbor.ID)
+	if err != nil {
+		return belegView{}, err
+	}
+	// Frozen gross for issued work plus pending net, credits and ledger,
+	// before cash already received. Live service cost stays separately labeled net.
+	saldo := remaining.Add(paidSum)
 	paid := remaining.IsZero() // fully settled; a negative rest is a Guthaben I owe
 
 	// Invoice (Rechnung) mode: sender settings + the issued number (if any).
 	company, _ := s.store.GetCompany(r.Context())
-	invoice, invErr := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	hasInvoice := invErr == nil
+	// Annual account data never masquerades as a frozen invoice.
+	var invoice models.Invoice
+	hasInvoice := false
 	// Document history (invoice, its storno, credit notes) and the total credited by
 	// active Gutschriften (their gross is stored negative). Not best-effort: a lookup
 	// failure would understate the credited amount and thus overstate what is still
@@ -329,9 +336,13 @@ func (s *Server) buildBelegView(r *http.Request, neighbor *models.Neighbor, year
 		return belegView{}, err
 	}
 	var invCredits decimal.Decimal // negative: sum of active credit-note gross
+	var issuedVAT decimal.Decimal
 	for _, d := range documents {
 		if d.Kind == "gutschrift" && d.Status == "issued" && d.Content != nil {
 			invCredits = invCredits.Add(d.Content.Gross)
+		}
+		if d.Kind == "invoice" && d.Status == "issued" && d.Content != nil {
+			issuedVAT = issuedVAT.Add(d.Content.VATAmount)
 		}
 	}
 
@@ -341,7 +352,11 @@ func (s *Server) buildBelegView(r *http.Request, neighbor *models.Neighbor, year
 		Bundle:    r.URL.Query().Get("bundeln") == "1",
 		TotalCost: cost, TotalHours: hours,
 		Ledger: ledger, LedgerSum: ledgerSum, Saldo: saldo,
-		Completed: year.Completed(), Paid: paid, Credit: remaining.IsNegative(),
+		IssuedVAT: issuedVAT,
+		// Reconcile only stored account/document values; never recalculate old
+		// invoices using today's tax rate or rewrite their rounding differences.
+		InvoiceReconciliation: saldo.Sub(cost).Sub(ledgerSum).Sub(invCredits).Sub(issuedVAT),
+		Completed:             year.Completed(), Paid: paid, Credit: remaining.IsNegative(),
 		Payments: payments, PaidSum: paidSum, Remaining: remaining,
 		HasPayments: len(payments) > 0,
 		Company:     company, HasInvoice: hasInvoice, Invoice: invoice,
@@ -425,7 +440,7 @@ func (s *Server) buildBelegView(r *http.Request, neighbor *models.Neighbor, year
 	view.InvLedger = ledgerSum
 	view.InvPaidUSt = invPaidUSt
 	view.Documents = documents
-	view.HasDocuments = len(documents) > 1 // more than the invoice itself
+	view.HasDocuments = len(documents) > 0
 	// Abschläge (Nr. 54): listed with their own storno action while no
 	// Schlussrechnung exists; afterwards they stay in the Belegverlauf.
 	anzahlungen, err := s.store.ListAnzahlungen(r.Context(), year.ID, neighbor.ID)
@@ -497,6 +512,22 @@ func (s *Server) handleNeighborBeleg(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	_, selected, err := requestedInvoiceID(r)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	if selected || r.URL.Query().Get("rechnung") == "1" {
+		invoice, err := s.requestInvoice(r, year.ID, neighbor.ID, false)
+		if err == nil {
+			s.renderInvoiceDocument(w, r, neighbor, year, invoice, "", 0)
+			return
+		}
+		if selected || !errors.Is(err, store.ErrNotFound) {
+			s.invoiceRequestError(w, r, err)
+			return
+		}
+	}
 	view, err := s.buildBelegView(r, neighbor, year)
 	if err != nil {
 		s.serverError(w, "beleg", err)
@@ -508,7 +539,13 @@ func (s *Server) handleNeighborBeleg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view.bind(data)
-	data["LastSend"], _ = s.store.LastBelegSend(r.Context(), year.ID, neighbor.ID) // best-effort marker
+	data["HasActiveInvoices"] = false
+	for _, document := range view.Documents {
+		if document.Kind == "invoice" && document.Status == "issued" {
+			data["HasActiveInvoices"] = true
+			break
+		}
+	}
 	data["MailEnabled"] = s.cfg.MailEnabled()
 	data["NeighborEmail"] = neighbor.Email
 	data["Feedback"], _ = s.store.ListBelegFeedback(r.Context(), neighbor.ID, year.ID)
@@ -614,12 +651,9 @@ func (s *Server) handleBelegShareCreate(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if _, err := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID); errors.Is(err, store.ErrNotFound) {
-		s.setFlash(w, r, "error", "Ein öffentlicher Link ist erst nach dem Festschreiben der Rechnung möglich.")
-		redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
-		return
-	} else if err != nil {
-		s.serverError(w, "share create: invoice lookup", err)
+	invoice, err := s.requestInvoice(r, year.ID, neighbor.ID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	// Self-service: the owner picks the validity; the raw token exists only in
@@ -636,7 +670,7 @@ func (s *Server) handleBelegShareCreate(w http.ResponseWriter, r *http.Request) 
 	if u := userFromCtx(r); u != nil { // behind s.auth — no need to re-resolve the session
 		createdBy = u.Username
 	}
-	if _, err := s.store.CreateBelegShare(r.Context(), hash, neighbor.ID, year.ID, expires, createdBy); err != nil {
+	if _, err := s.store.CreateInvoiceBelegShare(r.Context(), hash, neighbor.ID, year.ID, invoice.ID, expires, createdBy); err != nil {
 		s.serverError(w, "share create: store", err)
 		return
 	}
@@ -646,7 +680,7 @@ func (s *Server) handleBelegShareCreate(w http.ResponseWriter, r *http.Request) 
 	// URL (browser history, Referer). setCookie enforces HttpOnly + Lax.
 	s.setCookie(w, r, &http.Cookie{Name: shareOnceCookie, Value: raw, MaxAge: 60})
 	s.setCookie(w, r, &http.Cookie{Name: shareQRCookie, Value: raw, MaxAge: 300})
-	redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
+	redirect(w, r, invoiceDocumentURL(invoice))
 }
 
 // handleBelegShareQR renders the freshly created portal link without exposing
@@ -686,12 +720,17 @@ func (s *Server) handleBelegShareRevoke(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	invoice, err := s.requestInvoice(r, year.ID, id, false)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
 	shareID := formInt64(r, "share_id")
 	if shareID <= 0 {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	revoked, err := s.store.RevokeBelegShare(r.Context(), shareID, id, year.ID)
+	revoked, err := s.store.RevokeInvoiceBelegShare(r.Context(), shareID, id, year.ID, invoice.ID)
 	if err != nil {
 		s.serverError(w, "share revoke", err)
 		return
@@ -702,19 +741,20 @@ func (s *Server) handleBelegShareRevoke(w http.ResponseWriter, r *http.Request) 
 	} else {
 		s.setFlash(w, r, "info", "Der Link war bereits gelöscht oder abgelaufen.")
 	}
-	redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
+	redirect(w, r, invoiceDocumentURL(invoice))
 }
 
 // handleSharedBeleg renders the read-only public Beleg for a valid share token.
 // Unauthenticated (so the layout drops all chrome) and gated on a festgeschriebene
 // invoice; anything else 404s so a token can't probe live data.
 func (s *Server) handleSharedBeleg(w http.ResponseWriter, r *http.Request) {
-	shareID, nID, yID, token, ok := s.resolvePortalShare(w, r)
+	shareID, nID, yID, invoiceID, token, ok := s.resolvePortalShare(w, r)
 	if !ok {
 		return
 	}
-	neighbor, err := s.store.GetNeighbor(r.Context(), nID)
-	if err != nil {
+	invoice, err := s.store.GetInvoiceDocument(r.Context(), invoiceID)
+	if err != nil || invoice.Kind != "invoice" || invoice.Status != "issued" ||
+		invoice.NeighborID != nID || invoice.BillingYearID != yID || invoice.Content == nil {
 		s.notFound(w, r)
 		return
 	}
@@ -723,32 +763,13 @@ func (s *Server) handleSharedBeleg(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	if _, err := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID); err != nil {
-		s.notFound(w, r) // not festgeschrieben (or gone) → no public view
-		return
-	}
-	view, err := s.buildBelegView(r, neighbor, year)
-	if err != nil {
-		s.serverError(w, "shared beleg", err)
-		return
-	}
-	data := s.newPage(w, r, neighbor.Name+" · Beleg", "dashboard")
-	if err := s.withYearSelector(r, data, year); err != nil {
-		s.serverError(w, "shared beleg: year selector", err)
-		return
-	}
-	view.bind(data)
 	if err := s.store.RecordBelegShareEvent(r.Context(), shareID, nID, yID, "access"); err != nil {
 		s.serverError(w, "shared beleg: event", err)
 		return
 	}
-	data["Shared"] = true
-	data["PortalToken"] = token
-	data["PortalFeedbackEnabled"] = shareID != 0
-	data["PortalFeedbackResult"] = r.URL.Query().Get("feedback")
-	data["Feedback"], _ = s.store.ListBelegFeedback(r.Context(), neighbor.ID, year.ID)
-	w.Header().Set("Cache-Control", "no-store") // per-neighbor PII — don't cache
-	s.render(w, r, "beleg", data)
+	// Public output contains neither current neighbor fields nor annual data.
+	neighbor := &models.Neighbor{ID: nID, Name: invoice.Content.Recipient.Name}
+	s.renderInvoiceDocument(w, r, neighbor, year, invoice, token, shareID)
 }
 
 // handleBelegPDF serves the festgeschriebene Rechnung as a server-rendered PDF —
@@ -769,10 +790,9 @@ func (s *Server) handleBelegPDF(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	iv, err := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	if err != nil || iv.Content == nil {
-		s.setFlash(w, r, "error", "Ein PDF gibt es erst nach dem Festschreiben der Rechnung.")
-		redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
+	iv, err := s.requestInvoice(r, year.ID, neighbor.ID, false)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	blob, err := s.documents().invoicePDF(iv)
@@ -827,12 +847,12 @@ func (s *Server) handleBelegEmail(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back)
 		return
 	}
-	iv, err := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	if err != nil || iv.Content == nil {
-		s.setFlash(w, r, "error", "E-Mail-Versand ist erst nach dem Festschreiben der Rechnung möglich.")
-		redirect(w, r, back)
+	iv, err := s.requestInvoice(r, year.ID, neighbor.ID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
 		return
 	}
+	back = invoiceDocumentURL(iv)
 	// PDF render, the intent write and one bounded SMTP attempt must all fit
 	// before the redirect; the global 30s WriteTimeout is shorter than that.
 	extendWriteDeadline(w, 2*store.MailDeliveryBudget)
@@ -905,15 +925,20 @@ func (s *Server) handleBelegMarkSent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.store.RecordBelegSend(r.Context(), year.ID, neighbor.ID, "manuell"); err != nil {
+	invoice, err := s.requestInvoice(r, year.ID, neighbor.ID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	if err := s.store.RecordInvoiceBelegSend(r.Context(), year.ID, neighbor.ID, invoice.ID, "manuell"); err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
 	}
 	s.audit(r, "beleg_sent", "neighbor", neighbor.ID, neighbor.Name+" · "+s.yearLabel(r, year.ID)+" (manuell)")
 	// A manual mark is a reversible note — offer a one-click Undo in the toast.
 	s.setFlashUndo(w, r, "success", "Als versendet markiert.",
-		"/neighbors/"+itoa64(id)+"/beleg/unsend?year="+itoa64(year.ID))
-	redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
+		"/neighbors/"+itoa64(id)+"/beleg/unsend?year="+itoa64(year.ID)+"&invoice_id="+itoa64(invoice.ID))
+	redirect(w, r, invoiceDocumentURL(invoice))
 }
 
 // handleBelegUnsend reverses the most recent MANUAL "als versendet" mark — the Undo
@@ -934,7 +959,12 @@ func (s *Server) handleBelegUnsend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	undone, err := s.store.DeleteLatestManualBelegSend(r.Context(), year.ID, neighbor.ID)
+	invoice, err := s.requestInvoice(r, year.ID, neighbor.ID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	undone, err := s.store.DeleteLatestManualInvoiceBelegSend(r.Context(), year.ID, neighbor.ID, invoice.ID)
 	switch {
 	case err != nil:
 		s.setFlash(w, r, "error", "Rückgängig machen fehlgeschlagen.")
@@ -944,7 +974,7 @@ func (s *Server) handleBelegUnsend(w http.ResponseWriter, r *http.Request) {
 	default: // nothing manual to undo (e.g. only an e-mail send exists)
 		s.setFlash(w, r, "info", "Keine manuelle Markierung zum Entfernen.")
 	}
-	redirect(w, r, "/neighbors/"+itoa64(id)+"/beleg?year="+itoa64(year.ID))
+	redirect(w, r, invoiceDocumentURL(invoice))
 }
 
 // handleInvoiceConfirm renders the pre-issuance confirmation: the § 11 checklist
@@ -966,20 +996,17 @@ func (s *Server) handleInvoiceConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	back := fmt.Sprintf("/neighbors/%d/beleg?year=%d", neighborID, yearID)
-	// Already issued → nothing to confirm; show the Beleg (storno/gutschrift live there).
-	if _, err := s.store.GetInvoice(r.Context(), yearID, neighborID); err == nil {
-		redirect(w, r, back+"&rechnung=1")
-		return
-	} else if !errors.Is(err, store.ErrNotFound) {
-		s.serverError(w, "invoice confirm: lookup", err)
-		return
-	}
 	neighbor, err := s.store.GetNeighbor(r.Context(), neighborID)
 	if err != nil {
 		s.notFound(w, r)
 		return
 	}
-	content, err := s.store.BuildInvoiceContent(r.Context(), yearID, neighborID)
+	content, err := s.store.BuildPendingInvoiceContent(r.Context(), yearID, neighborID)
+	if errors.Is(err, store.ErrNoPendingEntries) {
+		s.setFlash(w, r, "info", "Keine neuen Leistungen zum Festschreiben vorhanden.")
+		redirect(w, r, back)
+		return
+	}
 	if err != nil {
 		s.serverError(w, "invoice confirm: build", err)
 		return
@@ -1066,33 +1093,17 @@ func (s *Server) handleInvoiceIssue(w http.ResponseWriter, r *http.Request) {
 	// the preview again instead of freezing lines nobody looked at.
 	confirmedHash := strings.TrimSpace(r.FormValue("content_hash"))
 	confirmURL := fmt.Sprintf("/neighbors/%d/invoice/confirm?year=%d", neighborID, yearID)
-	// § 11 UStG: only fix a number once every mandatory field is present. Build the
-	// content that will be frozen and block issuance if anything is missing, listing
-	// exactly what to fix. Skipped for an already-issued invoice (idempotent re-issue).
-	if _, err := s.store.GetInvoice(r.Context(), yearID, neighborID); errors.Is(err, store.ErrNotFound) {
-		content, err := s.store.BuildInvoiceContent(r.Context(), yearID, neighborID)
-		if err != nil {
-			s.serverError(w, "invoice: build content", err)
-			return
-		}
-		if missing := content.MissingMandatory(); len(missing) > 0 {
-			s.setFlash(w, r, "error", "Rechnung unvollständig (§ 11 UStG). Bitte ergänzen: "+strings.Join(missing, ", ")+".")
-			redirect(w, r, fmt.Sprintf("/neighbors/%d/beleg?year=%d", neighborID, yearID))
-			return
-		}
-		if confirmedHash != content.Hash {
-			s.setFlash(w, r, "error", msgInvoiceContentChanged)
-			redirect(w, r, confirmURL)
-			return
-		}
-	} else if err != nil {
-		s.serverError(w, "invoice: lookup", err)
+	// The source-bound confirmation hash is rechecked under the account lock.
+	// An exact retry is resolved by the store before looking for new work.
+	if confirmedHash == "" {
+		s.setFlash(w, r, "error", msgInvoiceContentChanged)
+		redirect(w, r, confirmURL)
 		return
 	}
 	// The store re-checks the hash under the account lock, closing the window
 	// between the check above and the numbering.
 	iv, err := s.store.IssueInvoiceConfirmed(r.Context(), yearID, neighborID, year.Year, issuedOn, confirmedHash)
-	if errors.Is(err, store.ErrInvoiceContentChanged) {
+	if errors.Is(err, store.ErrInvoiceContentChanged) || errors.Is(err, store.ErrNoPendingEntries) {
 		s.setFlash(w, r, "error", msgInvoiceContentChanged)
 		redirect(w, r, confirmURL)
 		return
@@ -1110,7 +1121,7 @@ func (s *Server) handleInvoiceIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setFlash(w, r, "success", "Rechnung "+iv.Number+" ausgestellt."+s.kuIssueNote(r, company, iv.IssuedOn.Year()))
-	redirect(w, r, fmt.Sprintf("/neighbors/%d/beleg?year=%d&rechnung=1", neighborID, yearID))
+	redirect(w, r, invoiceDocumentURL(iv))
 }
 
 // handleInvoiceStorno cancels the active invoice (issues a Storno document and
@@ -1139,7 +1150,12 @@ func (s *Server) handleInvoiceStorno(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, back)
 		return
 	}
-	sv, err := s.store.StornoInvoice(r.Context(), yearID, neighborID, reason)
+	invoice, err := s.requestInvoice(r, yearID, neighborID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	sv, err := s.store.StornoInvoiceByID(r.Context(), yearID, neighborID, invoice.ID, reason)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		s.setFlash(w, r, "error", "Keine aktive Rechnung zum Stornieren.")
@@ -1152,7 +1168,7 @@ func (s *Server) handleInvoiceStorno(w http.ResponseWriter, r *http.Request) {
 		if reversed := s.reversedCreditNumbers(r, yearID, neighborID, sv); len(reversed) > 0 {
 			msg += " Gutschrift-Stornos: " + strings.Join(reversed, ", ") + "."
 		}
-		s.setFlash(w, r, "success", msg+" Die Buchungen sind wieder bearbeitbar.")
+		s.setFlash(w, r, "success", msg+" Die Positionen dieser Rechnung sind wieder bearbeitbar.")
 	}
 	redirect(w, r, back)
 }
@@ -1223,7 +1239,13 @@ func (s *Server) handleInvoiceGutschrift(w http.ResponseWriter, r *http.Request)
 		redirect(w, r, back)
 		return
 	}
-	gv, err := s.store.GutschriftInvoice(r.Context(), yearID, neighborID, amount, note)
+	invoice, err := s.requestInvoice(r, yearID, neighborID, true)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	back = invoiceDocumentURL(invoice)
+	gv, err := s.store.GutschriftInvoiceByID(r.Context(), yearID, neighborID, invoice.ID, amount, note)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		s.setFlash(w, r, "error", "Keine aktive Rechnung für eine Gutschrift.")
@@ -1247,43 +1269,36 @@ func (s *Server) handleInvoiceEpcQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	yearID := formInt64(r, "year")
-	if yearID == 0 {
-		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
+	if yearID <= 0 {
+		s.badRequest(w, "Ungültige Anfrage")
 		return
 	}
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
-	if err != nil || iv.Content == nil {
-		s.notFound(w, r)
-		return
-	}
-	// Encode the amount STILL PAYABLE (gross less credits/ledger/payments), not the
-	// full gross — so scanning a partly-paid or credited invoice pays the right sum.
-	rest, err := s.store.InvoiceRemaining(r.Context(), yearID, neighborID)
+	invoice, err := s.requestInvoice(r, yearID, neighborID, true)
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
-	if !rest.IsPositive() {
+	s.writeInvoiceEpcQR(w, r, invoice)
+}
+
+func (s *Server) writeInvoiceEpcQR(w http.ResponseWriter, r *http.Request, invoice models.Invoice) {
+	remaining, err := s.store.InvoiceDocumentRemaining(r.Context(), invoice.ID)
+	if errors.Is(err, store.ErrNotFound) {
 		s.notFound(w, r)
 		return
 	}
-	iban := iv.Content.Issuer.IBAN // frozen at issuance
-	if strings.TrimSpace(iban) == "" {
-		if c, cerr := s.store.GetCompany(r.Context()); cerr == nil {
-			iban = c.IBAN // legacy invoice without a frozen IBAN → live
-		}
-	}
-	if strings.TrimSpace(iban) == "" {
-		s.notFound(w, r)
-		return
-	}
-	ref := iv.PaymentReference
-	if ref == "" {
-		ref = iv.Number
-	}
-	png, err := qrPNG(epcPayload(iv.Content.Issuer.Name, iban, rest, ref))
 	if err != nil {
-		s.serverError(w, r.URL.Path, err)
+		s.serverError(w, "invoice qr: remaining", err)
+		return
+	}
+	view, err := newInvoiceDocumentView(invoice, remaining)
+	if err != nil || !view.HasEpcQR {
+		s.notFound(w, r)
+		return
+	}
+	png, err := qrPNG(epcPayload(invoice.Content.Issuer.Name, invoice.Content.Issuer.IBAN, remaining, view.PaymentReference))
+	if err != nil {
+		s.serverError(w, "invoice qr", err)
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")

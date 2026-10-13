@@ -90,23 +90,7 @@ func (s *Store) RecalcPreview(ctx context.Context, yearID int64, neighborID *int
 	if err != nil {
 		return nil, err
 	}
-	// Festschreibung: a neighbor with an issued invoice has frozen bookings — never
-	// re-price them (BAO §131). Drop their entries here so both the preview and the
-	// apply (which iterates the preview rows) leave the invoiced basis untouched,
-	// whether the scope is one neighbor or the whole year.
-	locked, err := s.InvoicedNeighborIDs(ctx, yearID)
-	if err != nil {
-		return nil, err
-	}
-	if len(locked) > 0 {
-		kept := entries[:0]
-		for _, e := range entries {
-			if !locked[e.NeighborID] {
-				kept = append(kept, e)
-			}
-		}
-		entries = kept
-	}
+
 	emMap, err := s.entryMachineIDs(ctx, yearID, neighborID)
 	if err != nil {
 		return nil, err
@@ -122,7 +106,7 @@ func (s *Store) RecalcPreview(ctx context.Context, yearID int64, neighborID *int
 
 	out := make([]RecalcRow, 0, len(entries))
 	for _, e := range entries {
-		if e.Voided {
+		if e.Voided || e.InvoiceLocked {
 			continue
 		}
 		row := RecalcRow{
@@ -298,6 +282,11 @@ func (s *Store) ApplyRecalc(ctx context.Context, yearID int64, neighborID *int64
 	}
 
 	for _, r := range rows {
+		// An invoice may have claimed this source since the preview. The
+		// account lock now prevents another claim until the transaction ends.
+		if e := lockUninvoicedEntry(ctx, tx, r.EntryID); e != nil {
+			return 0, oldTotal, newTotal, e
+		}
 		if !r.Changed {
 			// Stamp it anyway. The money did not move, but the booking WAS
 			// revalidated against the current basis, so it is not stale. Skipping
@@ -372,15 +361,11 @@ const basisRevisionSQL = `SELECT b.items_updated_at
 	  FROM billing_years y JOIN price_bases b ON b.id = y.base_id
 	 WHERE y.id = $1`
 
-// notInvoiced keeps the gate's scope identical to RecalcPreview's, which skips
-// neighbors whose invoice is already issued — their bookings are frozen and are
-// never re-priced. Counting them meant the gate could never reach zero for such a
-// year, so the expensive preview ran on every render and then found nothing to do.
+// notInvoiced keeps the gate's scope identical to RecalcPreview's: only sources
+// already included in an active invoice are frozen, not later work on the account.
 const notInvoiced = `
-	   AND NOT EXISTS (SELECT 1 FROM invoices iv
-	                    WHERE iv.billing_year_id = e.billing_year_id
-	                      AND iv.neighbor_id     = e.neighbor_id
-	                      AND iv.kind = 'invoice' AND iv.status = 'issued')`
+	   AND NOT EXISTS (SELECT 1 FROM invoice_entries ie
+	                    WHERE ie.entry_id=e.id AND ie.active)`
 
 func (s *Store) CountPotentiallyStale(ctx context.Context, yearID int64, neighborID *int64) (int, error) {
 	var n int

@@ -47,7 +47,10 @@ func (s documentService) invoiceMail(
 		return invoiceMailDocument{}, err
 	}
 	subject := "Rechnung " + invoice.Number
-	body := mailBody(company, neighbor.Name, "anbei die Rechnung "+invoice.Number+" als PDF.")
+	// Delivery address/settings remain current; document parties remain frozen.
+	company.Name, company.Address, company.TaxID, company.IBAN = invoice.Content.Issuer.Name,
+		invoice.Content.Issuer.Address, invoice.Content.Issuer.TaxID, invoice.Content.Issuer.IBAN
+	body := mailBody(company, invoice.Content.Recipient.Name, "anbei die Rechnung "+invoice.Number+" als PDF.")
 	attachment := mail.Attachment{
 		Filename:    "Rechnung_" + sanitizeFilename(invoice.Number) + ".pdf",
 		ContentType: "application/pdf",
@@ -65,7 +68,7 @@ func (s documentService) invoiceMail(
 		Body:       body,
 		Attachment: attachment,
 		Outbox: store.OutboxMail{
-			Kind: "beleg", NeighborID: neighbor.ID, BillingYearID: yearID,
+			Kind: "beleg", NeighborID: neighbor.ID, BillingYearID: yearID, InvoiceID: invoice.ID,
 			Recipient: neighbor.Email, Subject: subject, Body: body,
 			AttName: attachment.Filename, AttType: attachment.ContentType, AttData: attachment.Data,
 			DeliveryKey: fmt.Sprintf("beleg:%d:%s", invoice.ID,

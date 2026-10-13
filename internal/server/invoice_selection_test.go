@@ -78,3 +78,34 @@ func TestRequestedInvoiceIDMultipart(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionalPaymentInvoiceID(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, query, body string
+		want              int64
+		invalid           bool
+	}{
+		{name: "absent is FIFO"},
+		{name: "empty is FIFO", body: "invoice_id="},
+		{name: "selected", body: "invoice_id=42", want: 42},
+		{name: "duplicate empty", body: "invoice_id=&invoice_id=", invalid: true},
+		{name: "query and body", query: "invoice_id=41", body: "invoice_id=42", invalid: true},
+		{name: "negative", body: "invoice_id=-1", invalid: true},
+		{name: "malformed", body: "invoice_id=invalid", invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/?"+tc.query, strings.NewReader(tc.body))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			id, err := optionalPaymentInvoiceID(r)
+			if id != tc.want || (err != nil) != tc.invalid {
+				t.Fatalf("selection=(%d,%v), want %d invalid=%v", id, err, tc.want, tc.invalid)
+			}
+		})
+	}
+	r := httptest.NewRequest("POST", "/", strings.NewReader("broken"))
+	r.Header.Set("Content-Type", "multipart/form-data")
+	if _, err := optionalPaymentInvoiceID(r); err == nil {
+		t.Fatal("malformed multipart must not become FIFO")
+	}
+}

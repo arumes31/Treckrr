@@ -190,24 +190,18 @@ func parseImportCSV(text string, members map[string]int64) ([]importRow, error) 
 	return out, nil
 }
 
-// markLockedRows rejects any importable row whose neighbor already has a
-// festgeschriebene (issued) invoice for the year — mirroring the invoiceLocked
-// guard that the single-entry create enforces (§131/Festschreibung). Without it a
-// bulk import would silently add bookings to a frozen invoice basis. Looked up
-// once per distinct neighbor; a non-"not found" store error fails closed (locked).
+// markLockedRows checks the year at preview and commit. New rows never alter
+// frozen invoice sources; the store independently rechecks open-year membership.
 func (s *Server) markLockedRows(ctx context.Context, yearID int64, rows []importRow) {
-	locked := make(map[int64]bool)
+	year, err := s.store.GetBillingYear(ctx, yearID)
 	for i := range rows {
 		if !rows[i].OK() {
 			continue
 		}
-		nid := rows[i].NeighborID
-		if _, seen := locked[nid]; !seen {
-			_, err := s.store.GetInvoice(ctx, yearID, nid)
-			locked[nid] = !errors.Is(err, store.ErrNotFound) // invoice present (or lookup failed) → locked
-		}
-		if locked[nid] {
-			rows[i].Err = "Rechnung festgeschrieben"
+		if err != nil {
+			rows[i].Err = "Abrechnungsjahr konnte nicht geprüft werden"
+		} else if year.Completed() {
+			rows[i].Err = "Abrechnungsjahr abgeschlossen"
 		}
 	}
 }

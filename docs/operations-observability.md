@@ -111,8 +111,10 @@ source comparison, not approval of the tax calculation, proof that a future
 migration is safe, or a reservation against later changes. Rerun after any data
 change. Historical snapshots do not contain source IDs; a match does not prove
 original row identity or revalidate the stored content hash.
-Multiple invoices per neighbor/year are **not enabled** by this check;
-the existing issuance and payment behavior stays in force.
+The check itself never enables multiple invoices. Migration 0081 and the
+coordinated runtime introduce that model; after migration, this report compares
+each invoice with its own assigned sources rather than the complete account.
+See [Multiple-invoice rollout](multi-invoice-rollout.md) for deployment safeguards.
 
 The recurring-format consolidation shares only the person-existence lookup.
 Legacy single-helper templates still skip a removed person; current helper-list

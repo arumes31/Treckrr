@@ -1,7 +1,6 @@
--- TEST REHEARSAL ONLY: not embedded in migrations and never run on app startup.
--- This is not a deployable rollout: coordinated store/document APIs and their
--- end-to-end coverage are still required. Snapshot hashes are kept opaque;
--- source matching here does not establish full document-hash validity.
+-- Keep existing snapshots and amounts byte-for-byte unchanged. Only provenance
+-- and document-selection metadata is added; ambiguous history aborts startup.
+-- Snapshot hashes remain opaque: source matching never rebuilds an old document.
 -- Multi-invoice provenance and explicit payment/document selection.
 -- The migration runner applies this entire file in one transaction. A legacy
 -- ambiguity aborts all DDL and backfills; financial rows are never rounded,
@@ -12,6 +11,19 @@ LOCK TABLE invoices, entries, payments, neighbor_ledger, beleg_shares,
 DO $$
 DECLARE bad_id BIGINT;
 BEGIN
+    SELECT id INTO bad_id FROM invoices
+     WHERE kind IN ('invoice','gutschrift') AND status='issued'
+       AND (issued_on='0001-01-01'::date OR NOT isfinite(issued_on))
+     ORDER BY id LIMIT 1;
+    IF bad_id IS NOT NULL THEN
+        RAISE EXCEPTION 'multi-invoice migration: invalid issued date for invoice %', bad_id;
+    END IF;
+    SELECT id INTO bad_id FROM payments
+     WHERE paid_on='0001-01-01'::date OR NOT isfinite(paid_on)
+     ORDER BY id LIMIT 1;
+    IF bad_id IS NOT NULL THEN
+        RAISE EXCEPTION 'multi-invoice migration: invalid payment date for payment %', bad_id;
+    END IF;
     SELECT id INTO bad_id FROM invoices
      WHERE kind='invoice' AND status='issued'
        AND (net IS NULL OR gross IS NULL OR lines IS NULL
@@ -39,7 +51,7 @@ BEGIN
          OR COALESCE(jsonb_typeof(l.value->'qty'),'null') NOT IN ('number','string')
          OR COALESCE(jsonb_typeof(l.value->'unit_price'),'null') NOT IN ('number','string')
          OR COALESCE(jsonb_typeof(l.value->'cost'),'null') NOT IN ('number','string')
-         OR (l.value->>'date') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$'
+         OR (l.value->>'date') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])$'
          OR (l.value->>'date')='0001-01-01T00:00:00Z')
      ORDER BY i.id LIMIT 1;
     IF bad_id IS NOT NULL THEN
@@ -50,6 +62,15 @@ BEGIN
     PERFORM (l.value->>'date')::timestamptz FROM invoices i
       CROSS JOIN LATERAL jsonb_array_elements(i.lines) AS l(value)
      WHERE i.kind='invoice' AND i.status='issued';
+
+    IF EXISTS(
+        SELECT 1 FROM invoices i
+        CROSS JOIN LATERAL jsonb_array_elements(i.lines) AS l(value)
+        WHERE i.kind='invoice' AND i.status='issued'
+          AND (l.value->>'date')::timestamptz='0001-01-01 00:00:00+00'::timestamptz
+    ) THEN
+        RAISE EXCEPTION 'multi-invoice migration: zero snapshot date';
+    END IF;
 
     -- Match the issuer's exact ordered projection, including legacy empty hour
     -- units and four-decimal booking costs. Mutable party/master data and tax

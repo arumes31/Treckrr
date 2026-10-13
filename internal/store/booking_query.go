@@ -69,7 +69,8 @@ const bookingRowsSQL = `WITH bookings AS (
 	       'entry'::text AS source, 'out'::text AS direction,
 	       CASE WHEN e.person_id IS NOT NULL OR e.unit = 'Mannstunde' THEN 'labor'
 	            WHEN e.unit = 'h' THEN 'equipment' ELSE 'quantity' END AS kind,
-	       NULL::jsonb AS booking, ''::text AS detail
+	       NULL::jsonb AS booking, ''::text AS detail,
+	       EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=e.id AND ie.active) AS invoice_locked
 	  FROM entries e WHERE e.billing_year_id = $1
 	UNION ALL
 	SELECT l.id, l.billing_year_id, l.neighbor_id, l.posting_date,
@@ -82,7 +83,7 @@ const bookingRowsSQL = `WITH bookings AS (
 	       CASE WHEN l.amount < 0 THEN 'in' ELSE 'out' END,
 	       CASE WHEN COALESCE(l.transfer_id, '') <> '' THEN 'transfer'
 	            ELSE COALESCE(l.booking->>'kind', 'manual') END,
-	       l.booking, l.description
+	       l.booking, l.description, false AS invoice_locked
 	  FROM neighbor_ledger l WHERE l.billing_year_id = $1
 ) `
 
@@ -124,7 +125,7 @@ func scanBookingRow(rows *sql.Rows) (BookingRow, error) {
 	var booking []byte
 	err := rows.Scan(&r.ID, &r.NeighborID, &r.Date, &r.TaskLabel, &r.Note,
 		&r.Unit, &r.Hours, &r.Quantity, &r.UnitPrice, &r.Cost, &r.Voided,
-		&r.LinkedEntryID, &r.NeighborName, &r.Source, &r.Direction, &r.Kind, &booking)
+		&r.LinkedEntryID, &r.NeighborName, &r.Source, &r.Direction, &r.Kind, &booking, &r.InvoiceLocked)
 	if err != nil {
 		return r, fmt.Errorf("scan unified booking: %w", err)
 	}
@@ -138,7 +139,7 @@ func scanBookingRow(rows *sql.Rows) (BookingRow, error) {
 
 const bookingSelectSQL = `SELECT e.id, e.neighbor_id, e.entry_date,
 	e.task_label, e.note, e.unit, e.hours, e.quantity, e.unit_price, e.cost,
-	e.voided, e.linked_entry_id, n.name, e.source, e.direction, e.kind, e.booking
+	e.voided, e.linked_entry_id, n.name, e.source, e.direction, e.kind, e.booking, e.invoice_locked
 	FROM bookings e JOIN neighbors n ON n.id = e.neighbor_id`
 
 // FilterBookings returns one combined page and exact signed totals for all

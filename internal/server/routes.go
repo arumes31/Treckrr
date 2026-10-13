@@ -43,6 +43,7 @@ func (s *Server) registerDocumentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /s/beleg/{token}", s.handleSharedBeleg)
 	mux.HandleFunc("GET /s/portal/{token}", s.handleSharedBeleg)
 	mux.HandleFunc("GET /s/portal/{token}/invoice.pdf", s.handleSharedInvoicePDF)
+	mux.HandleFunc("GET /s/portal/{token}/epc-qr.png", s.handleSharedInvoiceEpcQR)
 	mux.HandleFunc("POST /s/portal/{token}/feedback", s.handlePortalFeedback)
 	mux.Handle("GET /years/{id}/issue-all", s.auth(s.handleBatchIssuePreview))
 	mux.Handle("POST /years/{id}/issue-all", s.auth(s.handleBatchIssueCommit))

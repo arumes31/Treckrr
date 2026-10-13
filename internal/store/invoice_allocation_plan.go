@@ -10,9 +10,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// This planner is deliberately not connected to database writes or document
-// consumers. Enabling multiple invoices also requires the migration, immutable
-// source assignments, and every balance consumer to adopt the same contract.
+// This pure planner never writes financial data. Runtime adapters supply one
+// consistent account snapshot; annual balances additionally include pending
+// source entries, which are deliberately outside the document allocation.
 
 var errInvalidAllocationInput = errors.New("invalid invoice allocation input")
 
@@ -69,7 +69,7 @@ type invoiceAllocationPlan struct {
 //
 // No input is mutated, no amount is silently rounded, and an invalid input
 // returns no partial plan. This function neither changes invoices nor creates
-// cash. It can be used to test the allocation contract before live adoption.
+// cash. Runtime readers and invariant tests use the same allocation contract.
 func planInvoiceAllocation(input invoiceAllocationInput) (invoiceAllocationPlan, error) {
 	if !wholeAllocationCents(input.Ledger) || !wholeAllocationCents(input.StandaloneCredits) || input.StandaloneCredits.IsPositive() {
 		return invoiceAllocationPlan{}, fmt.Errorf("%w: ledger or standalone credit", errInvalidAllocationInput)

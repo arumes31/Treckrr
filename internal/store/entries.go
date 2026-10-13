@@ -290,6 +290,22 @@ func ensureUnit(e *models.Entry) {
 // offline booking is a safe no-op, not a failure.
 func insertEntryTx(ctx context.Context, tx *sql.Tx, e *models.Entry, machineIDs []int64) (int64, error) {
 	ensureUnit(e)
+	if e.LinkedEntryID != nil {
+		// All writers own this account boundary before inserting. A parent
+		// from another account would escape that serialization boundary.
+		var ownParent bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM entries
+			WHERE id=$1 AND billing_year_id=$2 AND neighbor_id=$3)`,
+			*e.LinkedEntryID, e.BillingYearID, e.NeighborID).Scan(&ownParent); err != nil {
+			return 0, err
+		}
+		if !ownParent {
+			return 0, ErrNotFound
+		}
+		if err := lockUninvoicedEntry(ctx, tx, *e.LinkedEntryID); err != nil {
+			return 0, err
+		}
+	}
 	var id int64
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO entries
@@ -591,7 +607,7 @@ func (s *Store) CreateEntryPairAudited(ctx context.Context, e *models.Entry, mac
 	if err != nil {
 		return 0, 0, err
 	}
-	_, storedCompanionLink, companionExists, err := existingEntryForReplay(
+	storedCompanionID, storedCompanionLink, companionExists, err := existingEntryForReplay(
 		ctx,
 		tx,
 		companion.IdempotencyKey,
@@ -607,6 +623,15 @@ func (s *Store) CreateEntryPairAudited(ctx context.Context, e *models.Entry, mac
 	}
 	if err := lockMutableBookingAccount(ctx, tx, e.BillingYearID, e.NeighborID); err != nil {
 		return 0, 0, err
+	}
+	// A complete replay above remains a no-op. Repairing a partial pair must
+	// not relink or extend a group already represented in a frozen invoice.
+	for _, storedID := range []int64{storedMainID, storedCompanionID} {
+		if storedID != 0 {
+			if err := lockUninvoicedEntry(ctx, tx, storedID); err != nil {
+				return 0, 0, err
+			}
+		}
 	}
 	mainID, err = insertEntryTx(ctx, tx, e, machineIDs)
 	if err != nil {
@@ -704,6 +729,11 @@ func (s *Store) DeleteEntryPair(ctx context.Context, id, partnerID int64) error 
 		id, partnerID = partnerID, id
 	}
 	for _, eid := range []int64{id, partnerID} {
+		if err := lockEntryDeletion(ctx, tx, eid); err != nil {
+			return err
+		}
+	}
+	for _, eid := range []int64{id, partnerID} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM entries WHERE id=$1`, eid); err != nil {
 			return err
 		}
@@ -748,6 +778,9 @@ func (s *Store) SyncPairHours(ctx context.Context, partnerID int64, hours decima
 // syncPairHoursTx is SyncPairHours inside a transaction that already holds the
 // partner's account lock.
 func syncPairHoursTx(ctx context.Context, tx *sql.Tx, partnerID int64, hours decimal.Decimal) (decimal.Decimal, error) {
+	if err := lockUninvoicedEntry(ctx, tx, partnerID); err != nil {
+		return decimal.Zero, err
+	}
 	var unit string
 	if err := tx.QueryRowContext(ctx, `SELECT unit FROM entries WHERE id=$1 FOR UPDATE`, partnerID).Scan(&unit); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -844,6 +877,9 @@ func (s *Store) DeleteEntry(ctx context.Context, id int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := lockMutableBookingAccount(ctx, tx, yearID, neighborID); err != nil {
+		return err
+	}
+	if err := lockEntryDeletion(ctx, tx, id); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM entries WHERE id=$1`, id)
@@ -986,16 +1022,14 @@ func (s *Store) YearPaymentTotals(ctx context.Context, yearID int64) (paid, open
 // constant, never built from input.
 const perNeighborPayablePaid = `
 		  SELECT byn.billing_year_id AS year_id,
-		    COALESCE(
-		      (SELECT iv.gross FROM invoices iv
+		    COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		        WHERE iv.neighbor_id = byn.neighbor_id
 		          AND iv.billing_year_id = byn.billing_year_id
-		          AND iv.kind='invoice' AND iv.status='issued'),
-		      (SELECT COALESCE(SUM(e.cost),0) FROM entries e
+		          AND iv.kind='invoice' AND iv.status='issued'), 0)
+		    + (SELECT COALESCE(SUM(e.cost),0) FROM entries e
 		        WHERE e.neighbor_id = byn.neighbor_id
-		          AND e.billing_year_id = byn.billing_year_id
-		          AND NOT e.voided),
-		      0)
+		          AND e.billing_year_id = byn.billing_year_id AND NOT e.voided
+		          AND NOT EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=e.id AND ie.active))
 		    + COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		                 WHERE iv.neighbor_id = byn.neighbor_id
 		                   AND iv.billing_year_id = byn.billing_year_id
@@ -1076,14 +1110,13 @@ func (s *Store) YearNeighborSummaries(ctx context.Context, yearID int64) ([]Year
 		  + COALESCE((SELECT SUM(l.amount) FROM neighbor_ledger l
 		               WHERE l.neighbor_id = n.id AND l.billing_year_id = byn.billing_year_id
 		                 AND NOT l.voided), 0) AS net,
-		  COALESCE(
-		    (SELECT iv.gross FROM invoices iv
+		  COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		      WHERE iv.neighbor_id = n.id AND iv.billing_year_id = byn.billing_year_id
-		        AND iv.kind='invoice' AND iv.status='issued'),
-		    (SELECT COALESCE(SUM(e.cost),0) FROM entries e
+		        AND iv.kind='invoice' AND iv.status='issued'), 0)
+		  + (SELECT COALESCE(SUM(e.cost),0) FROM entries e
 		      WHERE e.neighbor_id = n.id AND e.billing_year_id = byn.billing_year_id
-		        AND NOT e.voided),
-		    0)
+		        AND NOT e.voided
+		        AND NOT EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=e.id AND ie.active))
 		  + COALESCE((SELECT SUM(iv.gross) FROM invoices iv
 		               WHERE iv.neighbor_id = n.id AND iv.billing_year_id = byn.billing_year_id
 		                 AND iv.kind='gutschrift' AND iv.status='issued'), 0)
@@ -1153,6 +1186,9 @@ func (s *Store) UpdateEntry(ctx context.Context, e *models.Entry, machineIDs []i
 // updateEntryTx replaces the editable snapshot without changing account,
 // linkage, void state or original request identity. The caller holds its locks.
 func updateEntryTx(ctx context.Context, tx *sql.Tx, e *models.Entry, machineIDs []int64) error {
+	if err := lockUninvoicedEntry(ctx, tx, e.ID); err != nil {
+		return err
+	}
 	ensureUnit(e)
 	res, err := tx.ExecContext(ctx, `
 		UPDATE entries SET entry_date=$1, task_label=$2, gespann_id=$3, tractor_id=$4,
@@ -1198,6 +1234,9 @@ func (s *Store) SetEntryVoided(ctx context.Context, id int64, voided bool, reaso
 	if err := lockMutableBookingAccount(ctx, tx, yearID, neighborID); err != nil {
 		return err
 	}
+	if err := lockUninvoicedEntry(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx,
 		`UPDATE entries SET voided=$1, void_reason=$2 WHERE id=$3`, voided, reason, id)
 	if err != nil {
@@ -1217,7 +1256,9 @@ const entryCols = `id, neighbor_id, billing_year_id, entry_date, task_label, ges
 	hours, hourly_rate, fuel_adjustment_label, fuel_adjustment_per_h, cost, note, voided, void_reason, created_at,
 	unit, quantity, unit_price, person_id, linked_entry_id, request_fingerprint, person_name`
 
-const entrySelect = `SELECT ` + entryCols + ` FROM entries`
+const entrySelect = `SELECT ` + entryCols + `,
+	EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=entries.id AND ie.active) AS invoice_locked
+	FROM entries`
 
 func collectEntries(rows *sql.Rows) ([]models.Entry, error) {
 	var out []models.Entry
@@ -1247,7 +1288,7 @@ func scanEntry(sc scanner) (models.Entry, error) {
 		&tractor, &load, &e.TractorLabel, &e.LoadLabel, &e.MachineLabels,
 		&e.Hours, &e.HourlyRate, &e.FuelAdjustmentLabel, &e.FuelAdjustmentPerH,
 		&e.Cost, &e.Note, &e.Voided, &e.VoidReason, &e.Created,
-		&e.Unit, &e.Quantity, &e.UnitPrice, &person, &linked, &fingerprint, &e.PersonName}
+		&e.Unit, &e.Quantity, &e.UnitPrice, &person, &linked, &fingerprint, &e.PersonName, &e.InvoiceLocked}
 	if err := sc.Scan(dest...); err != nil {
 		return e, err
 	}

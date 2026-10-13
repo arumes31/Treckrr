@@ -177,6 +177,15 @@ func (s *Store) CreateEntryGroup(ctx context.Context, e *models.Entry, machineID
 	if err := lockMutableBookingAccount(ctx, tx, main.BillingYearID, main.NeighborID); err != nil {
 		return 0, nil, err
 	}
+	// Only incomplete retries reach this path. Never repair or extend a
+	// surviving member once its source has been included in an invoice.
+	for _, state := range states {
+		if state.exists {
+			if err := lockUninvoicedEntry(ctx, tx, state.id); err != nil {
+				return 0, nil, err
+			}
+		}
+	}
 	var mainID int64
 	if !states[0].exists {
 		mainID, err = insertEntryTx(ctx, tx, main, machineIDs)
@@ -270,6 +279,14 @@ func (s *Store) UpdateEntryGroup(ctx context.Context, e *models.Entry, machineID
 	before, stored, err := lockedEntryGroup(ctx, tx, e)
 	if err != nil {
 		return err
+	}
+	if before.InvoiceLocked {
+		return ErrInvoiceLocked
+	}
+	for _, person := range stored {
+		if person.InvoiceLocked {
+			return ErrInvoiceLocked
+		}
 	}
 	for _, person := range helpers {
 		if person.ID != 0 {

@@ -33,6 +33,7 @@ type neighborDetailView struct {
 	Remaining          decimal.Decimal
 	CreditAmount       decimal.Decimal
 	HasInvoice         bool
+	Invoices           []models.Invoice
 	PhotoCounts        map[int64]int
 	LedgerPhotoCounts  map[int64]int
 	Photos             []store.PhotoRef
@@ -77,6 +78,7 @@ func (v neighborDetailView) bind(data pageData) {
 	data["Remaining"] = v.Remaining
 	data["CreditAmount"] = v.CreditAmount
 	data["HasInvoice"] = v.HasInvoice
+	data["Invoices"] = v.Invoices
 	data["PhotoCounts"] = v.PhotoCounts
 	data["LedgerPhotoCounts"] = v.LedgerPhotoCounts
 	data["Photos"] = v.Photos

@@ -13,7 +13,10 @@ import { test, expect } from "@playwright/test";
 const USER = process.env.E2E_ADMIN_USER || "admin";
 const PASS = process.env.E2E_ADMIN_PASS || "e2e-admin-password-123";
 
-test.describe.configure({ mode: "serial" });
+// These scenarios intentionally share issued documents. Retrying a failed
+// serial group against its already-mutated database can reissue or duplicate
+// work and mask the original failure; rerun it only on a fresh E2E stack.
+test.describe.configure({ mode: "serial", retries: 0 });
 
 /** Signs into the seeded admin account before changing the isolated invoice fixture through the UI. */
 async function login(page) {
@@ -109,16 +112,17 @@ test("issue an invoice, see it on the Beleg, mark sent + undo", async ({ page })
     okBtn.click({ force: true }),
   ]);
 
-  // --- the Beleg now shows a frozen invoice number + the due-date line ---
+  // --- selected document contains only its frozen invoice lines ---
   await page.goto("/neighbors/1/beleg?year=1&rechnung=1");
-  await expect(page.getByText(/RECHNUNG Nr\./)).toBeVisible();
-  await expect(page.locator(".beleg__inv-due")).toBeVisible();
+  await expect(page.locator("#beleg").getByRole("heading", { name: /^Rechnung / })).toBeVisible();
+  await expect(page.getByRole("table")).toContainText("E2E Ballen");
+  await expect(page.locator(".beleg__inv-due")).toContainText("Fällig am");
 
-  // Both booking paths remain disabled after their scripts initialize.
+  // An issued invoice freezes only its own sources, not future work.
   await page.goto("/neighbors/1?year=1&view=booking");
-  await expect(page.getByRole("button", { name: "Buchung speichern", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Buchung speichern", exact: true })).toBeEnabled();
   await page.getByText("Schnellerfassung (mehrere Zeilen)", { exact: true }).click();
-  await expect(page.getByRole("button", { name: "Zeilen speichern", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Zeilen speichern", exact: true })).toBeEnabled();
 
   // A reminder always uses the formal document presentation, including parties
   // and the open amount; it has no invoice-mode toggle to reveal hidden details.
@@ -138,7 +142,7 @@ test("issue an invoice, see it on the Beleg, mark sent + undo", async ({ page })
   await page.setViewportSize({ width: 1280, height: 720 });
 
   // --- mark sent (confirm modal) → chip flips → undo via toast ---
-  await page.goto("/neighbors/1/beleg?year=1");
+  await page.goto("/neighbors/1/beleg?year=1&rechnung=1");
   await page.locator('form[action*="mark-sent"] button').click();
   const okBtn2 = page.locator("#confirmModal [data-modal-ok]");
   await okBtn2.waitFor({ state: "visible", timeout: 4000 });
@@ -153,6 +157,135 @@ test("issue an invoice, see it on the Beleg, mark sent + undo", async ({ page })
     page.locator(".toast .toast__undo button").click(),
   ]);
   await expect(page.locator('form[action*="mark-sent"] button.is-sent')).toHaveCount(0);
+});
+
+test("new work creates a separate invoice; selected and FIFO payments preserve both documents", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page);
+  await page.goto("/neighbors/1/beleg?year=1&rechnung=1");
+  const firstLink = await page.getByRole("link", { name: "Rechnung als PDF", exact: true }).getAttribute("href");
+  const firstID = new URL(firstLink!, page.url()).searchParams.get("invoice_id")!;
+  const firstURL = `/neighbors/1/beleg?year=1&invoice_id=${firstID}`;
+  const firstLines = await page.getByRole("table").innerText();
+  const firstOpen = await page.locator(".beleg__payinfo strong").innerText();
+  const firstAmount = Number(firstOpen.replace("Offen: ", "").replace(/\./g, "").replace(",", ".").replace(/[^0-9.-]/g, ""));
+  expect(firstAmount).toBeGreaterThan(7);
+
+  const book = async (label: string, price: string) => {
+    await page.goto("/neighbors/1?year=1&view=booking");
+    await expect(page.getByRole("button", { name: "Buchung speichern", exact: true })).toBeEnabled();
+    await page.locator("[data-booking-kind]").selectOption("quantity");
+    await page.locator("[data-unit]").selectOption("Ballen");
+    await page.locator('input[name="quantity"]').fill("10");
+    await page.locator('input[name="unit_price"]').fill(price);
+    await page.locator('input[name="task_label"]').fill(label);
+    await page.getByRole("button", { name: "Buchung speichern", exact: true }).click();
+    await expect(page.getByText(label).first()).toBeVisible();
+    await page.waitForLoadState("load");
+  };
+  await book("E2E Folgearbeit B", "4.00");
+  await page.goto("/neighbors/1/beleg?year=1");
+  await page.getByRole("link", { name: /festschreiben/i }).click();
+  await page.waitForLoadState("load");
+  await expect(page.locator("main")).toContainText("E2E Folgearbeit B");
+  await expect(page.locator("main")).not.toContainText("E2E Ballen");
+  await page.getByRole("button", { name: "Jetzt festschreiben", exact: true }).click();
+  const confirm = page.locator("#confirmModal [data-modal-ok]");
+  await expect(confirm).toBeVisible();
+  await Promise.all([page.waitForURL(/\/neighbors\/1\/beleg\?.*invoice_id=/), confirm.click()]);
+  const secondID = new URL(page.url()).searchParams.get("invoice_id")!;
+  expect(secondID).not.toBe(firstID);
+  const secondURL = `/neighbors/1/beleg?year=1&invoice_id=${secondID}`;
+  await expect(page.getByRole("table")).toContainText("E2E Folgearbeit B");
+  await expect(page.getByRole("table")).not.toContainText("E2E Ballen");
+  const secondLines = await page.getByRole("table").innerText();
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 40,00 €");
+
+  // Bounded responsive checks using only this synthetic frozen document.
+  // Successful CI runs must not generate additional screenshot artifacts.
+  for (const viewport of [{ name: "mobile", width: 320, height: 844 }, { name: "desktop", width: 1280, height: 720 }]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    for (const theme of ["light", "dark"] as const) {
+      // Exercise the real top-bar control; an initial "auto" can require two clicks.
+      for (let attempt = 0; attempt < 2 && await page.locator("html").getAttribute("data-theme") !== theme; attempt++) {
+        await page.getByRole("button", { name: "Hell/Dunkel umschalten", exact: true }).click();
+      }
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), `${viewport.name}/${theme}: page overflow`).toBeLessThanOrEqual(1);
+      const overflow = await page.locator("#beleg").evaluate((sheet) =>
+        [sheet, ...sheet.querySelectorAll<HTMLElement>("*")]
+          .filter((node) => node instanceof HTMLElement && node.clientWidth > 0 &&
+            node.scrollWidth > node.clientWidth + 1 && !node.closest(".tablewrap"))
+          .map((node) => `${node.tagName}.${node.className}`));
+      expect(overflow, `${viewport.name}/${theme}: only the invoice table may scroll horizontally`).toEqual([]);
+      const tableRegion = page.getByRole("region", { name: "Festgeschriebene Rechnungspositionen", exact: true });
+      await tableRegion.scrollIntoViewIfNeeded();
+      await tableRegion.focus();
+      await expect(tableRegion).toBeFocused();
+      for (const action of [
+        page.getByRole("link", { name: "Rechnung als PDF", exact: true }),
+        page.getByRole("link", { name: "Zahlung verbuchen", exact: true }),
+        page.locator('form[action*="mark-sent"] button'),
+      ]) {
+        // Center the action explicitly: Chromium may regard a button clipped by
+        // a fraction of a pixel as already in view and otherwise leave it there.
+        await action.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+        await expect(action).toBeVisible();
+        await expect(action).toBeInViewport({ ratio: 1 });
+        await action.focus();
+        await expect(action).toBeFocused();
+        await action.click({ trial: true }); // reachability only: no send/payment mutation
+      }
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await book("E2E Noch nicht abgerechnet C", "1.00");
+  await page.goto(firstURL);
+  await expect(page.getByRole("table")).toHaveText(firstLines, { useInnerText: true });
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText(firstOpen);
+  await page.goto(secondURL);
+  await expect(page.getByRole("table")).toHaveText(secondLines, { useInnerText: true });
+  await expect(page.getByRole("table")).not.toContainText("E2E Noch nicht abgerechnet C");
+  await page.goto("/neighbors/1/beleg?year=1");
+  for (const label of ["E2E Ballen", "E2E Folgearbeit B", "E2E Noch nicht abgerechnet C"]) {
+    await expect(page.locator("#beleg")).toContainText(label);
+  }
+
+  const pay = async (invoiceID: string, amount: string) => {
+    await page.goto("/neighbors/1?year=1&view=payments");
+    const form = page.locator('form[action="/neighbors/1/payments"]');
+    await form.locator('select[name="invoice_id"]').selectOption(invoiceID);
+    await form.locator('input[name="amount"]').fill(amount);
+    await form.getByRole("button", { name: "Zahlung erfassen", exact: true }).click();
+    await page.waitForLoadState("load");
+  };
+  await pay(secondID, "5.00");
+  await page.goto(secondURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 35,00 €");
+  await page.goto(firstURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText(firstOpen);
+  await pay("", "7.00");
+  await page.goto(firstURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText(`Offen: ${(firstAmount - 7).toLocaleString("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`);
+  await page.goto(secondURL);
+  await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 35,00 €");
+
+  // The existing one-click action settles the entire year, including pending
+  // work, independently of which invoice is selected in the payment form.
+  await page.goto("/neighbors/1?year=1&view=payments");
+  await page.locator('select[name="invoice_id"]').selectOption(secondID);
+  await page.getByRole("button", { name: "Gesamten Rest bezahlen", exact: true }).click();
+  await page.waitForLoadState("load");
+  await page.goto("/neighbors/1?year=1&view=payments");
+  await expect(page.locator("header.summary-card .summary-card__label").first()).toContainText("Ausgeglichen");
+  await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("0,00 €");
+  for (const [url, lines] of [[firstURL, firstLines], [secondURL, secondLines]]) {
+    await page.goto(url);
+    await expect(page.getByRole("table")).toHaveText(lines, { useInnerText: true });
+    await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
+  }
 });
 
 test("dashboard shows a payment-status chip; Mahnwesen CSV export downloads", async ({ page }) => {

@@ -17,20 +17,18 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 )
 
-// This candidate is test-only: the application's migrations embed excludes it.
+// Rehearse the exact shipped migration against historical synthetic schemas.
 //
-//go:embed testdata/invoice_source_assignments.sql
+//go:embed migrations/0081_invoice_sources.sql
 var invoiceSourceRehearsalSQL string
 
-const invoiceSourceRehearsalName = "test_only_invoice_source_assignments.sql"
+const invoiceSourceRehearsalName = "0081_invoice_sources.sql"
 
 // TestInvoiceSourceMigrationPreservesHistory rehearses provenance metadata without
 // changing the stored invoice, source values, payments, ledger or account balance.
 func TestInvoiceSourceMigrationPreservesHistory(t *testing.T) {
 	pool := invoiceSourceRehearsalDatabase(t)
-	if err := Migrate(t.Context(), pool); err != nil {
-		t.Fatal(err)
-	}
+	migrateBeforeInvoiceSources(t, pool)
 	seedInvoiceSourceRehearsal(t, pool)
 	before := invoiceSourceRehearsalSnapshot(t, pool)
 	if err := applyMigrationOnce(t.Context(), pool, invoiceSourceRehearsalName, invoiceSourceRehearsalSQL); err != nil {
@@ -85,6 +83,17 @@ func TestInvoiceSourceMigrationRejectsAmbiguity(t *testing.T) {
 		{"missing line quantity", false, `UPDATE invoices SET lines=lines #- '{0,qty}' WHERE id=1`},
 		{"invalid line quantity", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,qty}','"invalid"') WHERE id=1`},
 		{"malformed full line date", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,date}','"2026-05-01Tinvalid"') WHERE id=1`},
+		{"invalid day end hour", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,date}','"2026-05-01T24:00:00Z"') WHERE id=1`},
+		{"invalid leap second", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,date}','"2026-05-01T00:00:60Z"') WHERE id=1`},
+		{"invalid timezone", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,date}','"2026-05-01T00:00:00+25:00"') WHERE id=1`},
+		{"zero date with explicit offset", false, `UPDATE invoices SET lines=jsonb_set(lines,'{0,date}','"0001-01-01T00:00:00+00:00"') WHERE id=1`},
+		{"zero invoice date", false, `UPDATE invoices SET issued_on='0001-01-01' WHERE id=1`},
+		{"infinite invoice date", false, `UPDATE invoices SET issued_on='infinity' WHERE id=1`},
+		{"zero payment date", false, `UPDATE payments SET paid_on='0001-01-01' WHERE id=1`},
+		{"infinite payment date", false, `UPDATE payments SET paid_on='infinity' WHERE id=1`},
+		{"zero credit date", false, `
+			INSERT INTO invoices (billing_year_id,neighbor_id,number,kind,status,gross,references_invoice_id,issued_on)
+			VALUES (1,1,'2026-G001','gutschrift','issued',-10,1,'0001-01-01')`},
 		{"numeric label matching live text", false, `
 			UPDATE entries SET task_label='42' WHERE id=1;
 			UPDATE invoices SET lines=jsonb_set(lines,'{0,label}','42') WHERE id=1`},
@@ -115,17 +124,15 @@ func TestInvoiceSourceMigrationRejectsAmbiguity(t *testing.T) {
 			pool := invoiceSourceRehearsalDatabase(t)
 			if tc.legacyCash {
 				migrateBeforeCentsGuards(t, pool)
-			} else if err := Migrate(t.Context(), pool); err != nil {
-				t.Fatal(err)
+			} else {
+				migrateBeforeInvoiceSources(t, pool)
 			}
 			seedInvoiceSourceRehearsal(t, pool)
 			rehearsalExec(t, pool, tc.mutate)
 			if tc.legacyCash {
 				// Reproduce legal pre-0062 values, then install normal guards.
 				// No trigger or integrity check is disabled for this fixture.
-				if err := Migrate(t.Context(), pool); err != nil {
-					t.Fatal(err)
-				}
+				migrateBeforeInvoiceSources(t, pool)
 			}
 			before := invoiceSourceRehearsalSnapshot(t, pool)
 			if err := applyMigrationOnce(t.Context(), pool, invoiceSourceRehearsalName, invoiceSourceRehearsalSQL); err == nil {
@@ -195,6 +202,37 @@ func invoiceSourceRehearsalDatabase(t *testing.T) *sql.DB {
 		t.Fatalf("refuse fixture writes outside owned database: got %q", connected)
 	}
 	return pool
+}
+
+// migrateBeforeInvoiceSources applies the real prior migrations, never a toy schema.
+func migrateBeforeInvoiceSources(t *testing.T, pool *sql.DB) {
+	t.Helper()
+	rehearsalExec(t, pool, `CREATE TABLE IF NOT EXISTS schema_migrations (
+		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+	files, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if file.IsDir() || file.Name() >= invoiceSourceRehearsalName {
+			continue
+		}
+		var applied bool
+		if err := pool.QueryRowContext(t.Context(),
+			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name=$1)`, file.Name()).Scan(&applied); err != nil {
+			t.Fatal(err)
+		}
+		if applied {
+			continue
+		}
+		content, err := migrationFS.ReadFile("migrations/" + file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applyMigrationOnce(t.Context(), pool, file.Name(), string(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // migrateBeforeCentsGuards builds a real historical schema before inserting old

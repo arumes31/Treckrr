@@ -48,8 +48,8 @@ type invoiceSourceLine struct {
 	Cost      *decimal.Decimal `json:"cost"`
 }
 
-// CheckInvoiceSourceAssignments checks whether every active single-account
-// invoice matches its current non-voided source entries. It intentionally uses a
+// CheckInvoiceSourceAssignments checks active invoices against their claimed
+// sources, or the complete account before assignments exist. It uses a
 // read-only repeatable-read transaction: counts, snapshots and source lines come
 // from one consistent view, without locks that reserve a future migration. Old
 // canceled documents and mutable issuer/recipient master data are not remapped.
@@ -64,7 +64,44 @@ func (s *Store) CheckInvoiceSourceAssignments(ctx context.Context) (InvoiceSourc
 	if err != nil {
 		return report, fmt.Errorf("invoice source check: snapshots: %w", err)
 	}
-	rows, err := tx.QueryContext(ctx, entrySelect+`
+	assigned, err := invoiceSourcesAvailable(ctx, tx)
+	if err != nil {
+		return report, err
+	}
+	if assigned {
+		byInvoice, assignmentIssues, err := readAssignedInvoiceSources(ctx, tx)
+		if err != nil {
+			return report, fmt.Errorf("invoice source check: assigned sources: %w", err)
+		}
+		for _, snapshot := range snapshots {
+			report.Checked++
+			sources := byInvoice[snapshot.id]
+			reason := assignmentIssues[snapshot.id]
+			for _, source := range sources {
+				if source.NeighborID != snapshot.neighborID || source.BillingYearID != snapshot.yearID {
+					reason = "source_account_mismatch"
+				}
+			}
+			if reason == "" {
+				reason = invoiceSourceMismatch(snapshot, sources)
+			}
+			if reason != "" {
+				report.Issues = append(report.Issues, InvoiceSourceIssue{
+					InvoiceID: snapshot.id, YearID: snapshot.yearID, NeighborID: snapshot.neighborID, Reason: reason,
+				})
+				continue
+			}
+			report.Matched++
+			report.MatchedEntries += len(sources)
+		}
+		if err := tx.Commit(); err != nil {
+			return report, fmt.Errorf("invoice source check: finish: %w", err)
+		}
+		return report, nil
+	}
+	// This preflight must also run before the source-assignment migration.
+	// Do not reference invoice_entries, which is intentionally absent then.
+	rows, err := tx.QueryContext(ctx, `SELECT `+entryCols+`, false AS invoice_locked FROM entries
 		WHERE NOT voided AND EXISTS (
 			SELECT 1 FROM invoices i WHERE i.billing_year_id=entries.billing_year_id
 			AND i.neighbor_id=entries.neighbor_id AND i.kind='invoice' AND i.status='issued')

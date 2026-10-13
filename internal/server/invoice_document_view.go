@@ -14,8 +14,8 @@ import (
 var errInvalidInvoiceDocument = errors.New("invalid invoice document")
 
 // invoiceDocumentView deliberately contains no live annual bookings, catalog
-// data, ledger rows or payment rows. It is preparation for document consumers;
-// no handler uses it until the coordinated multi-invoice rollout is ready.
+// data, ledger rows or payment rows. Document consumers use this projection;
+// annual account consumers retain their separate, live settlement view.
 type invoiceDocumentView struct {
 	Invoice           models.Invoice
 	Remaining         decimal.Decimal

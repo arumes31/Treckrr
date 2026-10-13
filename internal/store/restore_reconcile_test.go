@@ -2,7 +2,9 @@ package store_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -51,25 +53,43 @@ func TestResetPoolKeepsPoolUsable(t *testing.T) {
 // on every run and needs no cleanup discipline at all.
 func TestReconcileAfterRestoreReappliesMigration(t *testing.T) {
 	ctx := context.Background()
-	st, pool := scratchStore(t)
+	st, pool := scratchUnmigratedStore(t)
 
-	// Simulate restoring a pre-0024 dump: drop the columns/index 0024 added and
-	// remove its migrations row — exactly the state a restored older backup
-	// leaves behind. The database is ours alone, so no shared fixture can be hit.
-	if _, err := pool.ExecContext(ctx, `ALTER TABLE invoices
-		DROP COLUMN IF EXISTS net, DROP COLUMN IF EXISTS vat_rate, DROP COLUMN IF EXISTS vat_amount,
-		DROP COLUMN IF EXISTS gross, DROP COLUMN IF EXISTS show_vat, DROP COLUMN IF EXISTS tax_mode,
-		DROP COLUMN IF EXISTS tax_note, DROP COLUMN IF EXISTS service_from, DROP COLUMN IF EXISTS service_to,
-		DROP COLUMN IF EXISTS issuer, DROP COLUMN IF EXISTS recipient, DROP COLUMN IF EXISTS lines,
-		DROP COLUMN IF EXISTS content_hash, DROP COLUMN IF EXISTS kind, DROP COLUMN IF EXISTS status,
-		DROP COLUMN IF EXISTS references_invoice_id, DROP COLUMN IF EXISTS payment_reference`); err != nil {
-		t.Fatalf("simulate old backup (drop invoice columns): %v", err)
+	// Apply the actual historical migrations to this otherwise empty owned DB.
+	// Dropping only 0024's columns from a current schema leaves newer migration
+	// markers behind, so 0081 would never remove the recreated single-invoice index.
+	migrations := os.DirFS("../db/migrations")
+	names, err := fs.ReadDir(migrations, ".")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `ALTER TABLE company DROP COLUMN IF EXISTS iban`); err != nil {
-		t.Fatalf("simulate old backup (drop company.iban): %v", err)
+	if _, err := pool.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := pool.ExecContext(ctx, `DELETE FROM schema_migrations WHERE name='0024_invoice_snapshot.sql'`); err != nil {
-		t.Fatalf("simulate old backup (migrations row): %v", err)
+	for _, name := range names {
+		if name.IsDir() || !strings.HasSuffix(name.Name(), ".sql") || name.Name() >= "0024_" {
+			continue
+		}
+		content, err := fs.ReadFile(migrations, name.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := pool.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("historical migration %s: %v", name.Name(), err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(name) VALUES($1)`, name.Name()); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// Precondition: a query using a 0024 column now fails — the "stale schema" state.
 	if _, err := pool.ExecContext(ctx, `SELECT net FROM invoices LIMIT 1`); err == nil {
@@ -91,5 +111,14 @@ func TestReconcileAfterRestoreReappliesMigration(t *testing.T) {
 	}
 	if _, err := pool.ExecContext(ctx, `SELECT iban FROM company LIMIT 1`); err != nil {
 		t.Errorf("company.iban must exist after reconcile: %v", err)
+	}
+	if err := pool.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name='0081_invoice_sources.sql')`).Scan(&has); err != nil || !has {
+		t.Errorf("migration 0081 must be applied after restore (has=%v err=%v)", has, err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT to_regclass('invoices_active_per_neighbor_year') IS NULL
+		AND to_regclass('invoices_active_account') IS NOT NULL
+		AND to_regclass('invoice_entries_active_source') IS NOT NULL`).Scan(&has); err != nil || !has {
+		t.Errorf("restored schema must support multiple invoices with unique source claims (has=%v err=%v)", has, err)
 	}
 }

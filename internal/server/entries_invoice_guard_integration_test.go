@@ -13,9 +13,8 @@ import (
 	"github.com/d0linger/treckrr/internal/models"
 )
 
-// TestSingleInvoiceBookingGuardsIntegration characterizes the current annual
-// invoice lock, including companion sources and evidence. It does not enable or
-// assume multiple invoices in one account.
+// TestSingleInvoiceBookingGuardsIntegration freezes existing invoice sources and
+// evidence while allowing new work in the same open account.
 func TestSingleInvoiceBookingGuardsIntegration(t *testing.T) {
 	e := newItEnv(t)
 	nid, yid := e.neighborID, e.yearID64
@@ -69,11 +68,17 @@ func TestSingleInvoiceBookingGuardsIntegration(t *testing.T) {
 	for _, path := range []string{
 		neighborBookingURL(nid, yid),
 		fmt.Sprintf("/entries/%d/copy", mainID),
+	} {
+		if page := e.get(path); strings.Contains(page, "data-booking-locked") {
+			t.Errorf("new work is unexpectedly locked on %s", path)
+		}
+	}
+	for _, path := range []string{
 		fmt.Sprintf("/entries/%d/edit", mainID),
 		fmt.Sprintf("/entries/%d/edit", helperID),
 	} {
 		if page := e.get(path); !strings.Contains(page, "data-booking-locked") {
-			t.Errorf("current annual invoice lock not visible on %s", path)
+			t.Errorf("frozen source lock not visible on %s", path)
 		}
 	}
 	for _, tc := range []struct {
@@ -105,22 +110,6 @@ func TestSingleInvoiceBookingGuardsIntegration(t *testing.T) {
 			name: "delete evidence", path: fmt.Sprintf("/entries/%d/photos/%d/delete", mainID, photoID),
 			form: url.Values{},
 		},
-		{
-			name: "new outgoing work", path: "/entries",
-			form: url.Values{"year_id": {itoa64(yid)}, "neighbor_id": {itoa64(nid)},
-				"gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-03-01"}, "hours": {"1"}, "unit": {"h"}},
-		},
-		{
-			name: "new incoming work", path: "/entries",
-			form: url.Values{"year_id": {itoa64(yid)}, "neighbor_id": {itoa64(nid)},
-				"booking_form_version": {"2"}, "booking_kind": {"equipment"}, "booking_direction": {"in"},
-				"mode": {"gespann"}, "gespann_id": {itoa64(e.gespannID)},
-				"entry_date": {"2026-03-01"}, "hours": {"1"}},
-		},
-		{
-			name: "reprice account", path: fmt.Sprintf("/neighbors/%d/recalc", nid),
-			form: url.Values{"year_id": {itoa64(yid)}},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			subEnv := *e
@@ -141,9 +130,48 @@ func TestSingleInvoiceBookingGuardsIntegration(t *testing.T) {
 	if after, err := e.st.AccountRemaining(e.ctx, yid, nid); err != nil || !after.Equal(remaining) {
 		t.Fatalf("blocked mutations changed balance: %v, got=%s want=%s", err, after, remaining)
 	}
+	// Repricing has no pending sources yet, so it must be a harmless no-op.
+	e.post(fmt.Sprintf("/neighbors/%d/recalc", nid), url.Values{"year_id": {itoa64(yid)}})
+	if after := invoiceGuardSnapshot(t, e); after != before {
+		t.Fatal("repricing rewrote frozen sources")
+	}
+	// Only newly created rows may change; preserve the original pair, invoice,
+	// payment and evidence byte-for-byte while accepting both work directions.
+	frozen := func() string {
+		var value string
+		err := e.pool.QueryRowContext(e.ctx, `SELECT jsonb_build_object(
+			'entries',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM entries x WHERE id IN ($1,$2)),
+			'invoice',(SELECT to_jsonb(x) FROM invoices x WHERE id=$3),
+			'payments',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM payments x WHERE billing_year_id=$4 AND neighbor_id=$5),
+			'photos',(SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM entry_photos x WHERE entry_id IN ($1,$2)))::text`,
+			mainID, helperID, invoice.ID, yid, nid).Scan(&value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	original := frozen()
+	e.post("/entries", url.Values{"year_id": {itoa64(yid)}, "neighbor_id": {itoa64(nid)},
+		"gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-03-01"}, "hours": {"1"}, "unit": {"h"}})
+	newEntries, err := e.st.ListEntries(e.ctx, nid, yid)
+	if err != nil || len(newEntries) != 3 {
+		t.Fatalf("new outgoing work after invoice: count=%d, err=%v", len(newEntries), err)
+	}
+	e.post("/entries", url.Values{"year_id": {itoa64(yid)}, "neighbor_id": {itoa64(nid)},
+		"booking_form_version": {"2"}, "booking_kind": {"equipment"}, "booking_direction": {"in"},
+		"mode": {"gespann"}, "gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-03-01"}, "hours": {"1"}})
+	var incoming int
+	if err := e.pool.QueryRowContext(e.ctx, `SELECT count(*) FROM neighbor_ledger
+		WHERE billing_year_id=$1 AND neighbor_id=$2 AND amount<0 AND NOT voided`, yid, nid).Scan(&incoming); err != nil || incoming != 1 {
+		t.Fatalf("new incoming work after invoice: count=%d, err=%v", incoming, err)
+	}
+	if frozen() != original {
+		t.Fatal("new work changed existing invoice sources, payment or evidence")
+	}
 
 	// Year completion remains an independent lock, including an uninvoiced member.
 	unbilled := e.secondNeighbor("Unbilled guard")
+	beforeClose := invoiceGuardSnapshot(t, e)
 	if err := e.st.SetYearStatus(e.ctx, yid, models.YearCompleted); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +180,7 @@ func TestSingleInvoiceBookingGuardsIntegration(t *testing.T) {
 	if err != nil || len(closed) != 0 {
 		t.Fatalf("closed year accepted uninvoiced work: %v, count=%d", err, len(closed))
 	}
-	if after := invoiceGuardSnapshot(t, e); after != before {
+	if after := invoiceGuardSnapshot(t, e); after != beforeClose {
 		t.Fatal("closed-year request changed the invoiced account")
 	}
 }
