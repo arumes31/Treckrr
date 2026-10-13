@@ -307,7 +307,7 @@ func billingUpgradeRows(t *testing.T, ctx context.Context, pool *sql.DB) map[str
 		UNION ALL SELECT 'entry_machines',to_jsonb(r) FROM entry_machines r
 		UNION ALL SELECT 'neighbor_ledger',to_jsonb(r) FROM neighbor_ledger r
 		UNION ALL SELECT 'audit_log',to_jsonb(r) FROM audit_log r
-		UNION ALL SELECT 'invoices',to_jsonb(r)-'issue_request_hash' FROM invoices r
+		UNION ALL SELECT 'invoices',to_jsonb(r)-'issue_request_hash'-'payment_term_days' FROM invoices r
 		UNION ALL SELECT 'payments',to_jsonb(r)-'preferred_invoice_id' FROM payments r
 		UNION ALL SELECT 'beleg_sends',to_jsonb(r)-'invoice_id' FROM beleg_sends r
 		UNION ALL SELECT 'beleg_shares',to_jsonb(r)-'invoice_id' FROM beleg_shares r

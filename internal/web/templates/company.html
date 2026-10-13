@@ -40,14 +40,15 @@
 		</div>
 		</section>
 		<details class="disclosure form-details">
-			<summary>Mahnwesen <span class="muted small">{{.DunningGraceDays}} Tage · {{money .DunningFee1}} / {{money .DunningFee2}}</span></summary>
+			<summary>Mahnwesen <span class="muted small">{{.DunningGraceDays}} Tage Nachfrist</span></summary>
 		<div class="form__grid form__grid--two">
 		<label class="field"><span>Nachfrist auf Mahnungen (Tage, „zahlbar bis")</span>
 			<input class="input" type="number" min="0" max="365" step="1" name="dunning_grace_days" value="{{.DunningGraceDays}}" placeholder="14"></label>
 		<label class="field"><span>Mahnspesen 1. Mahnung (€) – 0 = keine</span>
-			<input class="input" name="dunning_fee_1" inputmode="decimal" value="{{num .DunningFee1}}"></label>
+			<input class="input" name="dunning_fee_1" inputmode="decimal" value="{{num .DunningFee1}}" readonly></label>
 		<label class="field"><span>Mahnspesen 2. Mahnung (€) – 0 = keine</span>
-			<input class="input" name="dunning_fee_2" inputmode="decimal" value="{{num .DunningFee2}}"></label>
+			<input class="input" name="dunning_fee_2" inputmode="decimal" value="{{num .DunningFee2}}" readonly></label>
+		<p class="muted small">Gespeicherte Mahnspesen werden derzeit nicht automatisch gebucht und deshalb nicht angefordert. Mahnungen verwenden ausschließlich den offenen Rechnungsbetrag.</p>
 		</div>
 		</details>
 		<details class="disclosure form-details">

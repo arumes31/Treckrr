@@ -424,6 +424,11 @@ func TestMultiInvoiceAllocationConcurrentPaymentReplayIntegration(t *testing.T) 
 func TestMultiInvoiceAllocationDunningAndDeliveryIdentityIntegration(t *testing.T) {
 	f := newMultiAllocationFixture(t)
 	ctx := t.Context()
+	// This case exercises historical invoices whose due terms were not stored.
+	// Newly issued terms are covered separately by the SQL roundtrip regression.
+	if _, err := f.pool.ExecContext(ctx, `UPDATE invoices SET payment_term_days=NULL WHERE billing_year_id=$1`, f.yearID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.pool.ExecContext(ctx, `UPDATE neighbors SET payment_term_days=30 WHERE id=$1`, f.neighborID); err != nil {
 		t.Fatal(err)
 	}

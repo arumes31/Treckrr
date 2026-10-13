@@ -520,6 +520,9 @@ type InvoiceContent struct {
 	Recipient       InvoiceParty    `json:"recipient"`
 	Lines           []InvoiceLine   `json:"lines"`
 	PaymentTermDays int             `json:"payment_term_days,omitempty"`
+	// PaymentTermFrozen distinguishes an explicitly frozen zero-day term from
+	// legacy snapshots whose term was never stored. It is not invoice substance.
+	PaymentTermFrozen bool `json:"-"`
 	// Skonto terms FROZEN at issuance (zero = no clause): the discount is part of
 	// the invoice's payment terms, so it must appear identically on the Beleg,
 	// the PDF and the share link, and must never change after Festschreibung.

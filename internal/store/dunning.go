@@ -56,7 +56,7 @@ func (s *Store) DunningRows(ctx context.Context, yearID int64, termDays int, asO
 // closing checklist. Materialize metadata before issuing the allocation queries.
 func invoiceOpenRows(ctx context.Context, tx *sql.Tx, yearID int64, termDays int) ([]DunningRow, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT iv.id,iv.billing_year_id,y.year,iv.neighbor_id,n.name,
-		iv.number,iv.issued_on,COALESCE(n.payment_term_days,$2)
+		iv.number,iv.issued_on,COALESCE(iv.payment_term_days,n.payment_term_days,$2)
 		FROM invoices iv JOIN neighbors n ON n.id=iv.neighbor_id JOIN billing_years y ON y.id=iv.billing_year_id
 		WHERE ($1::bigint=0 OR iv.billing_year_id=$1) AND iv.kind='invoice' AND iv.status='issued'
 		ORDER BY iv.issued_on,n.name,iv.id`, yearID, termDays)

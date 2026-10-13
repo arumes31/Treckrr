@@ -139,6 +139,18 @@
 		} catch (e) { /* keep the static favicon */ }
 	})();
 
+	// An explicit invoice selection proposes that document's open amount.
+	// Subsequent edits remain possible for partial payments or account credit.
+	document.querySelectorAll("[data-payment-invoice]").forEach(function (select) {
+		select.addEventListener("change", function () {
+			var field = select.form && select.form.querySelector("[data-payment-amount]");
+			var option = select.options[select.selectedIndex];
+			if (!field || !option) return;
+			var amount = option.dataset.remaining || "";
+			field.value = /^\d+\.\d{2}$/.test(amount) && Number(amount) > 0 ? amount : "";
+		});
+	});
+
 	// Row filtering (Ausbaukarte 76). Text search, an "only open" checkbox and a
 	// category select all hide rows of the SAME list, so they share one
 	// visibility pass keyed by the target selector — otherwise the last control

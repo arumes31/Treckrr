@@ -401,7 +401,7 @@ func invoiceSourceRehearsalSnapshot(t *testing.T, pool *sql.DB) string {
 	var snapshot string
 	if err := pool.QueryRowContext(t.Context(), `SELECT jsonb_build_object(
 		'entries',(SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM entries e),
-		'invoices',(SELECT jsonb_agg(to_jsonb(i)-'issue_request_hash' ORDER BY id) FROM invoices i),
+		'invoices',(SELECT jsonb_agg(to_jsonb(i)-'issue_request_hash'-'payment_term_days' ORDER BY id) FROM invoices i),
 		'payments',(SELECT jsonb_agg(to_jsonb(p)-'preferred_invoice_id' ORDER BY id) FROM payments p),
 		'ledger',(SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM neighbor_ledger l),
 		'shares',(SELECT jsonb_agg(to_jsonb(s)-'invoice_id' ORDER BY id) FROM beleg_shares s),

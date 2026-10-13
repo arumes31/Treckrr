@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -126,8 +127,9 @@ type bankTransaction struct {
 }
 
 type paymentMethod struct {
-	Comment string           `xml:"Comment"`
-	Bank    *bankTransaction `xml:"UniversalBankTransaction,omitempty"`
+	Comment   string           `xml:"Comment"`
+	NoPayment *struct{}        `xml:"NoPayment,omitempty"`
+	Bank      *bankTransaction `xml:"UniversalBankTransaction,omitempty"`
 }
 
 type paymentConditions struct {
@@ -149,9 +151,11 @@ type invoiceXML struct {
 	Details           details           `xml:"Details"`
 	Tax               tax               `xml:"Tax"`
 	TotalGross        amount            `xml:"TotalGrossAmount"`
+	Prepaid           *amount           `xml:"PrepaidAmount,omitempty"`
 	Payable           amount            `xml:"PayableAmount"`
 	PaymentMethod     paymentMethod     `xml:"PaymentMethod"`
 	PaymentConditions paymentConditions `xml:"PaymentConditions"`
+	Comment           string            `xml:"Comment,omitempty"`
 }
 
 func countryName(code string) string {
@@ -189,6 +193,28 @@ func unitCode(unit string) string {
 
 // Render creates an ebInterface 6.1 XML document from a frozen invoice.
 func Render(iv models.Invoice) ([]byte, error) {
+	return render(iv, nil)
+}
+
+// PaymentStatus is a dated settlement projection, separate from frozen totals.
+type PaymentStatus struct {
+	Remaining decimal.Decimal
+	DueOn     time.Time
+	AsOf      time.Time
+}
+
+// RenderWithPaymentStatus requests only the selected invoice's outstanding
+// amount. It never changes its line items, tax, gross or frozen parties.
+func RenderWithPaymentStatus(iv models.Invoice, status PaymentStatus) ([]byte, error) {
+	if iv.Content == nil || iv.Content.Gross.IsNegative() || status.Remaining.IsNegative() ||
+		status.Remaining.GreaterThan(iv.Content.Gross) || !status.Remaining.Equal(status.Remaining.Round(2)) ||
+		status.AsOf.IsZero() || status.DueOn.IsZero() || status.DueOn.Before(iv.IssuedOn) {
+		return nil, errors.New("invalid e-invoice payment status")
+	}
+	return render(iv, &status)
+}
+
+func render(iv models.Invoice, status *PaymentStatus) ([]byte, error) {
 	if missing := MissingFields(iv); len(missing) > 0 {
 		return nil, fmt.Errorf("e-invoice incomplete: %s", strings.Join(missing, ", "))
 	}
@@ -229,6 +255,16 @@ func Render(iv models.Invoice) ([]byte, error) {
 			Reference: iv.PaymentReference,
 		}},
 		PaymentConditions: paymentConditions{DueDate: iv.IssuedOn.AddDate(0, 0, c.PaymentTermDays).Format("2006-01-02")},
+	}
+	if status != nil {
+		doc.Prepaid = &amount{Value: c.Gross.Sub(status.Remaining).StringFixed(2)}
+		doc.Payable = amount{Value: status.Remaining.StringFixed(2)}
+		doc.PaymentConditions.DueDate = status.DueOn.Format("2006-01-02")
+		doc.Comment = "Zahlungsstand vom " + status.AsOf.Format("02.01.2006 15:04 MST") +
+			"; bereits bezahlt oder verrechnet: " + doc.Prepaid.Value + " EUR."
+		if status.Remaining.IsZero() {
+			doc.PaymentMethod = paymentMethod{Comment: "Keine weitere Zahlung erforderlich.", NoPayment: &struct{}{}}
+		}
 	}
 	var buf bytes.Buffer
 	buf.WriteString(xml.Header)

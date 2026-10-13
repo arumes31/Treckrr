@@ -1,4 +1,5 @@
 {{define "content"}}
+	{{if .UnbookedFeeConfigured}}<p class="flash flash--info no-print">Die gespeicherten Mahnspesen werden nicht automatisch gebucht und deshalb nicht angefordert.</p>{{end}}
 <section class="stack beleg-page">
 	<a class="backlink no-print" href="/mahnwesen?year={{.Year.ID}}">‹ Mahnwesen · {{.Year.Year}}</a>
 

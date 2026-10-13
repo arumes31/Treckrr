@@ -68,7 +68,7 @@ const invoiceCols = `id, billing_year_id, neighbor_id, number, issued_on, create
 	kind, status, references_invoice_id, payment_reference,
 	net, vat_rate, vat_amount, gross, show_vat, tax_mode, tax_note,
 	service_from, service_to, issuer, recipient, lines, content_hash,
-	skonto_pct, skonto_until`
+	skonto_pct, skonto_until, payment_term_days`
 
 // scanInvoice reads a full invoice row. The snapshot columns are NULL for legacy
 // rows issued before Festschreibung, in which case Content stays nil.
@@ -82,12 +82,13 @@ func scanInvoice(sc scanner) (models.Invoice, error) {
 	var issuer, recipient, lines []byte
 	var skontoPct decimal.NullDecimal
 	var skontoUntil sql.NullTime
+	var paymentTerm sql.NullInt64
 	if err := sc.Scan(
 		&iv.ID, &iv.BillingYearID, &iv.NeighborID, &iv.Number, &iv.IssuedOn, &iv.Created,
 		&iv.Kind, &iv.Status, &refID, &iv.PaymentReference,
 		&net, &vatRate, &vatAmt, &gross, &showVAT, &taxMode, &taxNote,
 		&sFrom, &sTo, &issuer, &recipient, &lines, &hash,
-		&skontoPct, &skontoUntil,
+		&skontoPct, &skontoUntil, &paymentTerm,
 	); err != nil {
 		return iv, err
 	}
@@ -111,6 +112,10 @@ func scanInvoice(sc scanner) (models.Invoice, error) {
 		}
 		if skontoUntil.Valid {
 			c.SkontoUntil = skontoUntil.Time
+		}
+		if paymentTerm.Valid {
+			c.PaymentTermDays = int(paymentTerm.Int64)
+			c.PaymentTermFrozen = true
 		}
 		if err := json.Unmarshal(issuer, &c.Issuer); err != nil {
 			return iv, fmt.Errorf("scan invoice %d: issuer: %w", iv.ID, err)
@@ -303,9 +308,10 @@ func invoiceContentFromEntries(
 	c := models.InvoiceContent{
 		Net: net, VATRate: company.VATRate, VATAmount: vat, Gross: net.Add(vat),
 		ShowVAT: showVAT, TaxMode: company.TaxMode, TaxNote: company.TaxNote,
-		Issuer:          companyInvoiceParty(company),
-		Recipient:       neighborInvoiceParty(neighbor),
-		PaymentTermDays: company.EffectiveTermDays(),
+		Issuer:            companyInvoiceParty(company),
+		Recipient:         neighborInvoiceParty(neighbor),
+		PaymentTermDays:   company.EffectiveTermDays(),
+		PaymentTermFrozen: true,
 	}
 	if neighbor.PaymentTermDays != nil {
 		c.PaymentTermDays = *neighbor.PaymentTermDays

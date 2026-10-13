@@ -93,11 +93,7 @@ func (s *Server) handleMahnwesen(w http.ResponseWriter, r *http.Request) {
 	// scope=alle switches to the cross-year open-items list (Nr. 37): the same
 	// overdue definition, but yearID 0 pulls every year and the rows carry their
 	// year so the Altersstaffel (30/60/90 tags in the template) means something.
-	scopeYear := year.ID
-	allYears := r.URL.Query().Get("scope") == "alle"
-	if allYears {
-		scopeYear = 0
-	}
+	scopeYear, allYears := dunningScope(r, year.ID)
 	rows, err := s.store.DunningRows(r.Context(), scopeYear, term, time.Now())
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
@@ -133,25 +129,45 @@ func (s *Server) handleMahnwesenExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	term := company.EffectiveTermDays()
-	rows, err := s.store.DunningRows(r.Context(), year.ID, term, time.Now())
+	scopeYear, allYears := dunningScope(r, year.ID)
+	rows, err := s.store.DunningRows(r.Context(), scopeYear, term, time.Now())
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return
 	}
 
-	cw, finish := csvDownload(w, r, fmt.Sprintf("treckrr_mahnwesen_%d.csv", year.Year))
+	filename := fmt.Sprintf("treckrr_mahnwesen_%d.csv", year.Year)
+	if allYears {
+		filename = "treckrr_mahnwesen_alle_jahre.csv"
+	}
+	cw, finish := csvDownload(w, r, filename)
 	defer finish()
-	_ = cw.Write([]string{"Nachbar", "Rechnung", "Rechnungsdatum", "Fällig am", "Tage überfällig", "Offener Betrag (€)"})
+	header := []string{"Nachbar", "Rechnung", "Rechnungsdatum", "Fällig am", "Tage überfällig", "Offener Betrag (€)"}
+	if allYears {
+		header = append(header, "Abrechnungsjahr")
+	}
+	_ = cw.Write(header)
 	for _, dr := range rows {
-		_ = cw.Write([]string{
+		record := []string{
 			csvSafe(dr.Name),
 			csvSafe(dr.InvoiceNo),
 			dr.IssuedOn.Format("02.01.2006"),
 			dr.DueOn.Format("02.01.2006"),
 			strconv.Itoa(dr.DaysOverdue),
 			deDecimal(dr.Open), // German decimal "1234,50", same as the other CSV exports
-		})
+		}
+		if allYears {
+			record = append(record, strconv.Itoa(dr.YearNo))
+		}
+		_ = cw.Write(record)
 	}
+}
+
+func dunningScope(r *http.Request, yearID int64) (int64, bool) {
+	if r.URL.Query().Get("scope") == "alle" {
+		return 0, true
+	}
+	return yearID, false
 }
 
 // handleNeighborMahnung renders a printable reminder/dunning letter for one
@@ -167,12 +183,13 @@ type mahnungView struct {
 	Title, Intro string
 	Stage        int
 	Open, Paid   decimal.Decimal
-	// Fee is the stage's Mahnspesen (0 = none), TotalDue = Open + Fee, and
-	// GraceUntil is the Nachfrist printed as "zahlbar bis".
-	Fee, TotalDue decimal.Decimal
-	GraceUntil    time.Time
-	DueOn         time.Time
-	HasEpcQR      bool
+	// Unbooked fee settings never become payment demands. Fee remains zero;
+	// TotalDue is the document's open amount. GraceUntil is the new deadline.
+	Fee, TotalDue         decimal.Decimal
+	GraceUntil            time.Time
+	DueOn                 time.Time
+	HasEpcQR              bool
+	UnbookedFeeConfigured bool
 }
 
 // buildMahnungData resolves a reminder for a neighbor+year+stage. ok=false when
@@ -238,10 +255,7 @@ func (s *Server) buildMahnungDataWith(r *http.Request, neighborID int64, stage i
 	}
 	// Historical snapshots did not persist payment terms; retain the existing
 	// due-date policy rather than interpreting a missing value as immediate.
-	term := company.EffectiveTermDays()
-	if neighbor.PaymentTermDays != nil {
-		term = *neighbor.PaymentTermDays
-	}
+	term := invoicePaymentTerm(iv, company, *neighbor)
 	// Correspondence keeps current delivery address but displays frozen parties.
 	neighborCopy := *neighbor
 	neighborCopy.Name, neighborCopy.Address, neighborCopy.TaxID = iv.Content.Recipient.Name, iv.Content.Recipient.Address, iv.Content.Recipient.TaxID
@@ -253,15 +267,16 @@ func (s *Server) buildMahnungDataWith(r *http.Request, neighborID int64, stage i
 		Title: title, Intro: intro, Stage: stage, Open: open, Paid: paid,
 		HasEpcQR: strings.TrimSpace(company.IBAN) != "" && open.IsPositive(),
 	}
-	// Mahnspesen per stage (default 0 = letter unchanged); the reminder (stage 0)
-	// never charges. TotalDue is what the payment block asks for.
+	// Explain retained fee settings without charging an unbooked receivable.
 	switch stage {
 	case 1:
-		v.Fee = company.DunningFee1
+		v.UnbookedFeeConfigured = company.DunningFee1.IsPositive()
 	case 2:
-		v.Fee = company.DunningFee2
+		v.UnbookedFeeConfigured = company.DunningFee2.IsPositive()
 	}
-	v.TotalDue = open.Add(v.Fee)
+	// Fee settings are retained, but no fee is requested until it has a real
+	// receivable. Otherwise a payment of that fee would become false credit.
+	v.TotalDue = open
 	// Nachfrist: a CONFIGURED 0 means "zahlbar sofort" — the letter then names
 	// no new deadline at all. Only the letter changes; the column's default (14)
 	// covers the unconfigured case, so no code-side fallback is needed. The old
@@ -301,7 +316,7 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 		s.invoiceRequestError(w, r, err)
 		return
 	}
-	if !ok {
+	if !ok || !v.Open.IsPositive() {
 		s.notFound(w, r)
 		return
 	}
@@ -325,6 +340,7 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 		data["DueOn"] = v.DueOn
 	}
 	data["HasEpcQR"] = v.HasEpcQR
+	data["UnbookedFeeConfigured"] = v.UnbookedFeeConfigured
 	data["MailEnabled"] = s.cfg.MailEnabled()
 	data["NeighborEmail"] = v.Neighbor.Email
 	s.render(w, r, "mahnung", data)
@@ -363,7 +379,7 @@ func (s *Server) handleMahnungPDF(w http.ResponseWriter, r *http.Request) {
 		s.invoiceRequestError(w, r, err)
 		return
 	}
-	if !ok {
+	if !ok || !v.Open.IsPositive() {
 		s.notFound(w, r)
 		return
 	}
@@ -413,7 +429,7 @@ func (s *Server) handleMahnungEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if !v.Open.IsPositive() {
 		s.setFlash(w, r, "error", noOpenAmountMsg(v.Neighbor.Name))
-		redirect(w, r, back)
+		redirect(w, r, invoiceDocumentURL(v.Invoice))
 		return
 	}
 	if !s.cfg.MailEnabled() {
@@ -473,7 +489,8 @@ func (s *Server) deliverMahnung(ctx context.Context, v *mahnungView, explicitRes
 		Kind: "mahnung", NeighborID: v.Neighbor.ID, BillingYearID: v.Invoice.BillingYearID, InvoiceID: v.Invoice.ID,
 		Recipient: v.Neighbor.Email, Subject: subject, Body: body,
 		AttName: att.Filename, AttType: att.ContentType, AttData: att.Data,
-		Meta: store.OutboxMeta{Stage: v.Stage, Fee: v.Fee, GraceUntil: v.GraceUntil, InvoiceNumber: v.Invoice.Number},
+		Meta: store.OutboxMeta{Stage: v.Stage, Fee: v.Fee, GraceUntil: v.GraceUntil,
+			InvoiceNumber: v.Invoice.Number, OpenAmount: &v.Open},
 		DeliveryKey: fmt.Sprintf("mahnung:%d:%d:%s", v.Invoice.ID, v.Stage,
 			strings.ToLower(strings.TrimSpace(v.Neighbor.Email))),
 		MessageID: messageID, RetryFailed: explicitResend, ForceResend: explicitResend,
@@ -519,10 +536,7 @@ func (s *Server) deliverMahnung(ctx context.Context, v *mahnungView, explicitRes
 }
 
 // handleMahnungEpcQR serves the EPC/GiroCode QR for a reminder, encoding the
-// remaining payable on the issued invoice (gross less credits/ledger/payments)
-// PLUS the stage's Mahnspesen, i.e. the same figure the letter and the PDF ask
-// for. Encoding the bare open amount would hand the debtor a code that pays less
-// than the document beside it demands, leaving the fee open after they paid.
+// remaining payable on the issued invoice, matching the letter and PDF.
 func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 	neighborID, err := pathID(r)
 	if err != nil {
@@ -534,14 +548,9 @@ func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Ungültige Anfrage", http.StatusBadRequest)
 		return
 	}
-	stage, ok := dunningStageParam(r)
+	_, ok := dunningStageParam(r)
 	if !ok {
 		http.Error(w, msgInvalidDunningStage, http.StatusBadRequest)
-		return
-	}
-	company, err := s.store.GetCompany(r.Context())
-	if err != nil {
-		s.notFound(w, r)
 		return
 	}
 	// Require a formally issued invoice: the QR carries its number as the payment
@@ -560,19 +569,11 @@ func (s *Server) handleMahnungEpcQR(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	// Same stage → same fee as buildMahnungData; stage 0 (Erinnerung) never charges.
-	total := open
-	switch stage {
-	case 1:
-		total = total.Add(company.DunningFee1)
-	case 2:
-		total = total.Add(company.DunningFee2)
-	}
 	if iv.Content == nil || strings.TrimSpace(iv.Content.Issuer.IBAN) == "" {
 		s.notFound(w, r)
 		return
 	}
-	png, err := qrPNG(epcPayload(iv.Content.Issuer.Name, iv.Content.Issuer.IBAN, total, iv.Number))
+	png, err := qrPNG(epcPayload(iv.Content.Issuer.Name, iv.Content.Issuer.IBAN, open, iv.Number))
 	if err != nil {
 		s.serverError(w, r.URL.Path, err)
 		return

@@ -122,7 +122,7 @@ func TestMailOutboxLifecycleIntegration(t *testing.T) {
 	// Exhaustion: a mail that keeps failing flips to failed with an audit line,
 	// and is never attempted again.
 	if err := st.EnqueueMail(ctx, store.OutboxMail{
-		Kind: "mahnung", Recipient: marker, Subject: "IT-Mahnung", Body: "x",
+		Kind: "beleg", Recipient: marker, Subject: "IT-Mahnung", Body: "x",
 		AttName: "mahnung.pdf", AttType: "application/pdf", AttData: []byte("sensitive-pdf"),
 	}); err != nil {
 		t.Fatalf("enqueue 2: %v", err)
@@ -191,27 +191,9 @@ func TestMailOutboxLifecycleIntegration(t *testing.T) {
 // an empty meta and must NOT fabricate a Stage-0 notice.
 func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 	ctx := context.Background()
-	st, pool := scratchStore(t)
-
-	f := fixtures{Years: []int{2107}, NeighborNames: []string{"Outbox Mahnung 2107"}}
-	purgeFixtures(t, ctx, pool, f)
-	t.Cleanup(func() { purgeFixtures(t, ctx, pool, f) })
-
-	baseID, err := st.CreateEmptyBase(ctx, 2107, "Outbox-Basis")
-	if err != nil {
-		t.Fatalf("base: %v", err)
-	}
-	yearID, err := st.CreateBillingYear(ctx, 2107, baseID, "Outbox-Jahr")
-	if err != nil {
-		t.Fatalf("year: %v", err)
-	}
-	nid, err := st.CreateNeighbor(ctx, "Outbox Mahnung 2107", "")
-	if err != nil {
-		t.Fatalf("neighbor: %v", err)
-	}
-	if err := st.AddNeighborToYear(ctx, yearID, nid); err != nil {
-		t.Fatalf("add neighbor: %v", err)
-	}
+	st, pool, yearID, nid, _ := invoiceFixture(t, false)
+	invoice := issueFixtureInvoice(t, st, yearID, nid)
+	open := invoice.Content.Gross
 
 	marker := fmt.Sprintf("outbox-mahnung-it-%d@example.invalid", os.Getpid())
 	purgeMail := func() {
@@ -222,11 +204,11 @@ func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 	purgeMail()
 	t.Cleanup(purgeMail)
 
-	grace := day(2107, 6, 20)
+	grace := day(2026, 9, 20)
 	if err := st.EnqueueMail(ctx, store.OutboxMail{
-		Kind: "mahnung", NeighborID: nid, BillingYearID: yearID,
-		Recipient: marker, Subject: "2. Mahnung · Rechnung IT-2107-001", Body: "b",
-		Meta: store.OutboxMeta{Stage: 2, Fee: dec("15"), GraceUntil: grace, InvoiceNumber: "IT-2107-001"},
+		Kind: "mahnung", NeighborID: nid, BillingYearID: yearID, InvoiceID: invoice.ID,
+		Recipient: marker, Subject: "2. Mahnung · Rechnung " + invoice.Number, Body: "b",
+		Meta: store.OutboxMeta{Stage: 2, GraceUntil: grace, InvoiceNumber: invoice.Number, OpenAmount: &open},
 	}); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -261,14 +243,14 @@ func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 		Scan(&stage, &invoiceNo, &channel, &fee, &graceGot); err != nil {
 		t.Fatalf("read notice: %v", err)
 	}
-	if stage != 2 || invoiceNo != "IT-2107-001" || channel != "e-mail (Wiederholung)" {
-		t.Errorf("notice = stage %d / %q / %q, want 2 / IT-2107-001 / e-mail (Wiederholung)", stage, invoiceNo, channel)
+	if stage != 2 || invoiceNo != invoice.Number || channel != "e-mail (Wiederholung)" {
+		t.Errorf("notice = stage %d / %q / %q, want 2 / %s / e-mail (Wiederholung)", stage, invoiceNo, channel, invoice.Number)
 	}
-	if dec(fee).Cmp(dec("15")) != 0 {
-		t.Errorf("notice fee = %s, want 15", fee)
+	if !dec(fee).IsZero() {
+		t.Errorf("notice fee = %s, want 0", fee)
 	}
-	if graceGot.Format("2006-01-02") != "2107-06-20" {
-		t.Errorf("notice grace = %s, want 2107-06-20", graceGot.Format("2006-01-02"))
+	if graceGot.Format("2006-01-02") != "2026-09-20" {
+		t.Errorf("notice grace = %s, want 2026-09-20", graceGot.Format("2006-01-02"))
 	}
 	var sends int
 	if err := pool.QueryRowContext(ctx,
@@ -287,8 +269,8 @@ func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 		t.Errorf("send history must populate the complete model: %+v", b)
 	}
 
-	// Legacy row (pre-0052): empty meta must not fabricate a Stage-0 notice —
-	// but the send trail is still written.
+	// Legacy rows have no verifiable payment snapshot. Hold them rather than
+	// sending an unverifiable demand or fabricating delivery history.
 	if _, err := pool.ExecContext(ctx, `
 		INSERT INTO mail_outbox (kind, neighbor_id, billing_year_id, recipient, subject, body,
 		                         att_name, att_type, att_data, next_attempt_at)
@@ -299,7 +281,7 @@ func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 	delivered, _, err = st.ProcessMailOutbox(ctx, func(context.Context, string, string, string, string, string, string, []byte) error {
 		return nil
 	})
-	if err != nil || delivered < 1 {
+	if err != nil || delivered != 0 {
 		t.Fatalf("legacy process: delivered=%d err=%v", delivered, err)
 	}
 	var notices int
@@ -316,8 +298,12 @@ func TestMailOutboxMahnungRetryBookkeepingIntegration(t *testing.T) {
 		yearID, nid).Scan(&sends); err != nil {
 		t.Fatalf("read sends: %v", err)
 	}
-	if sends != 2 {
-		t.Errorf("beleg_sends after legacy delivery = %d, want 2", sends)
+	if sends != 1 {
+		t.Errorf("beleg_sends after legacy hold = %d, want 1", sends)
+	}
+	var held int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM mail_outbox WHERE recipient=$1 AND status='held'`, marker).Scan(&held); err != nil || held != 1 {
+		t.Fatalf("legacy held=%d, err=%v", held, err)
 	}
 }
 

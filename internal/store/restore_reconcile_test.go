@@ -109,6 +109,9 @@ func TestReconcileAfterRestoreReappliesMigration(t *testing.T) {
 	if _, err := pool.ExecContext(ctx, `SELECT net, kind, status, payment_reference FROM invoices LIMIT 1`); err != nil {
 		t.Errorf("invoice snapshot columns must exist after reconcile: %v", err)
 	}
+	if _, err := pool.ExecContext(ctx, `SELECT payment_term_days FROM invoices LIMIT 1`); err != nil {
+		t.Errorf("invoice payment term column must exist after reconcile: %v", err)
+	}
 	if _, err := pool.ExecContext(ctx, `SELECT iban FROM company LIMIT 1`); err != nil {
 		t.Errorf("company.iban must exist after reconcile: %v", err)
 	}

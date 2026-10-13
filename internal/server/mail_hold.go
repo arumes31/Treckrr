@@ -9,7 +9,7 @@ import (
 )
 
 // heldMailFlash explains why a send request found its intent parked.
-const heldMailFlash = "Diese E-Mail wurde nach einer Wiederherstellung angehalten und wird nicht automatisch gesendet. Bitte unter Backup → Angehaltene E-Mails freigeben oder verwerfen."
+const heldMailFlash = "Diese E-Mail wurde angehalten und wird nicht automatisch gesendet. Bitte den Grund im Mailausgang prüfen. Bei veraltetem Zahlungsstand eine neue Mahnung erstellen."
 
 // heldMailListLimit bounds the held-mail table on the backup page.
 const heldMailListLimit = 100
@@ -56,7 +56,7 @@ func (s *Server) settleHeldMail(w http.ResponseWriter, r *http.Request, release 
 		slog.Error("held mail decision failed", "id", id, "err", sanitizeLog(err.Error()))
 		s.setFlash(w, r, "error", "Aktion fehlgeschlagen.")
 	case release:
-		s.setFlash(w, r, "success", "„"+held.Subject+"“ an "+held.Recipient+" freigegeben — wird beim nächsten Wartungslauf gesendet.")
+		s.setFlash(w, r, "success", "„"+held.Subject+"“ an "+held.Recipient+" freigegeben — wird beim nächsten Wartungslauf erneut geprüft.")
 	default:
 		s.setFlash(w, r, "success", "„"+held.Subject+"“ an "+held.Recipient+" verworfen (nicht gesendet).")
 	}

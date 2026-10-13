@@ -30,7 +30,6 @@ func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 			s.serverError(w, "invoice payment term", err)
 			return
 		}
-		term := company.EffectiveTermDays()
 		termNeighbor := neighbor
 		if token != "" {
 			// Public document parties stay frozen; use only the current payment
@@ -42,9 +41,7 @@ func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 			}
 			termNeighbor = liveNeighbor
 		}
-		if termNeighbor.PaymentTermDays != nil {
-			term = *termNeighbor.PaymentTermDays
-		}
+		term := invoicePaymentTerm(invoice, company, *termNeighbor)
 		due := invoice.IssuedOn.AddDate(0, 0, term)
 		data["DueOn"], data["DueDays"] = due, calc.DaysBetween(time.Now(), due)
 	}
