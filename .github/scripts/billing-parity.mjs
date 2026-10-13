@@ -6,6 +6,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compareBillingParity } from './billing-parity-compare.mjs';
+import { sameDaySnapshots } from './billing-parity-clock.mjs';
+
+const runtimeRegressions = process.env.BILLING_PARITY_RUNTIME_REGRESSIONS ?? '1';
+if (!['0', '1'].includes(runtimeRegressions)) {
+  throw new Error('BILLING_PARITY_RUNTIME_REGRESSIONS must be 0 or 1');
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const git = (...args) => {
@@ -53,6 +60,8 @@ const metadata = {
     .update(git('diff', '--no-ext-diff', 'HEAD', '--', 'cmd', 'internal')).digest('hex'),
   testSHA256: Object.fromEntries(testFiles.map(file => [file, createHash('sha256')
     .update(fs.readFileSync(path.join(root, file))).digest('hex')])),
+  runnerSHA256: Object.fromEntries(['billing-parity.mjs', 'billing-parity-compare.mjs', 'billing-parity-clock.mjs'].map(file =>
+    [file, createHash('sha256').update(fs.readFileSync(path.join(root, '.github/scripts', file))).digest('hex')])),
   currentSourceSHA256: { ...sourceManifest(root, 'cmd'), ...sourceManifest(root, 'internal'),
     ...Object.fromEntries(['go.mod', 'go.sum', '.dockerignore', '.github/scripts/billing-parity.Dockerfile'].map(file =>
       [file, createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')])) },
@@ -86,29 +95,12 @@ async function run(command, args, logName, { quiet = false, cleanup = false } = 
 const records = (output, marker) => output.split(/\r?\n/)
   .filter(line => line.includes(marker)).map(line => JSON.parse(line.slice(line.indexOf(marker) + marker.length)));
 
-function differences(before, after, location = '') {
-  if (JSON.stringify(before) === JSON.stringify(after)) return [];
-  if (before && after && typeof before === 'object' && typeof after === 'object'
-      && Array.isArray(before) === Array.isArray(after)) {
-    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
-    return keys.flatMap(key => differences(before[key], after[key], `${location}/${key}`));
-  }
-  return [{ path: location, before: before === undefined ? '<missing>' : before,
-    after: after === undefined ? '<missing>' : after }];
-}
-
-// Reminder/checklist semantics changed intentionally, but all financial fields
-// (including source rows, frozen contents/hashes and annual balances) must agree.
-function financialFields(record) {
-  const { closing, dunning, ...financial } = record;
-  return financial;
-}
-
 async function test(image, label, args, phase = '') {
   const name = `${id}-${label}`;
   activeTests.add(name);
   const database = phase ? 'treckrr_parity_upgrade' : 'treckrr_parity_admin';
   const env = [
+    '-e', 'TZ=UTC',
     '-e', `TEST_DATABASE_URL=postgres://treckrr_test:synthetic-test-only@127.0.0.1:5432/${database}?sslmode=disable`,
     '-e', 'TEST_INVOICE_MIGRATION_DATABASES=1',
   ];
@@ -149,8 +141,14 @@ try {
   if (!ready) throw new Error('Disposable PostgreSQL did not become ready');
   await run('docker', ['volume', 'create', '--label', `treckrr.validation=${id}`, cacheName], 'cache');
   cacheCreated = true;
-  const before = records(await test(images[0], 'matrix-before', ['-run', '^TestBillingCompatibility', './internal/store']), 'BILLING_PARITY ');
-  const after = records(await test(images[1], 'matrix-after', ['-run', '^TestBillingCompatibility', './internal/store']), 'BILLING_PARITY ');
+  const { before, after, matrixUTCDate, matrixAttempts } = await sameDaySnapshots(async attempt => {
+    const suffix = attempt ? '-after-midnight' : '';
+    if (attempt) console.warn('UTC date changed during comparison; repeating both complete matrices in fresh scratch databases.');
+    return {
+      before: records(await test(images[0], `matrix-before${suffix}`, ['-run', '^TestBillingCompatibility', './internal/store']), 'BILLING_PARITY '),
+      after: records(await test(images[1], `matrix-after${suffix}`, ['-run', '^TestBillingCompatibility', './internal/store']), 'BILLING_PARITY '),
+    };
+  });
   if (before.length < 20 || before.length !== after.length) throw new Error(`Incomplete matrix: ${before.length}/${after.length}`);
   for (let index = 0; index < before.length; index++) {
     if (['scenario', 'checkpoint', 'year'].some(key => before[index][key] !== after[index][key])) {
@@ -161,34 +159,38 @@ try {
   const upgradeBefore = records(await test(images[0], 'upgrade-before', ['-run', '^TestBillingUpgradeParityIntegration$', './internal/store'], 'seed'), 'BILLING_UPGRADE ');
   const upgradeAfter = records(await test(images[1], 'upgrade-after', ['-run', '^TestBillingUpgradeParityIntegration$', './internal/store'], 'verify'), 'BILLING_UPGRADE ');
   if (upgradeBefore.length !== 1 || upgradeAfter.length !== 1) throw new Error('Incomplete same-database upgrade comparison');
-  const report = { metadata, before, after, upgradeBefore, upgradeAfter,
-    matrixDifferences: differences(before, after), upgradeDifferences: differences(upgradeBefore, upgradeAfter),
-    financialDifferences: {
-      matrix: differences(before.map(financialFields), after.map(financialFields)),
-      upgrade: differences(upgradeBefore.map(financialFields), upgradeAfter.map(financialFields)),
-    },
+  const report = { metadata, before, after, matrixUTCDate, matrixAttempts, upgradeBefore, upgradeAfter,
+    ...compareBillingParity({ before, after, upgradeBefore, upgradeAfter }),
     regressionRuns: { migration: false, runtime: false },
   };
   const saveReport = () => fs.writeFileSync(path.join(reportDir, 'comparison.json'), JSON.stringify(report, null, 2));
   saveReport();
-  if (report.financialDifferences.matrix.length || report.financialDifferences.upgrade.length) {
-    throw new Error('Financial parity failed; inspect comparison.json before proceeding');
+  if (report.unexpectedDifferences.matrix.length || report.unexpectedDifferences.upgrade.length) {
+    throw new Error('Billing parity failed; inspect comparison.json for unexpected financial or display changes');
   }
   await test(images[1], 'migration-regressions', ['-run', '^TestInvoiceSourceMigration', './internal/db']);
   report.regressionRuns.migration = true;
   saveReport();
-  await test(images[1], 'runtime-regressions', ['./internal/store', './internal/server', './internal/web']);
-  report.regressionRuns.runtime = true;
+  if (runtimeRegressions === '1') {
+    await test(images[1], 'runtime-regressions', ['./internal/store', './internal/server', './internal/web']);
+    report.regressionRuns.runtime = true;
+  } else {
+    console.log('Full runtime regression suite explicitly skipped; CI must run it in its separate required job.');
+  }
   saveReport();
   console.log(`Compared ${before.length} matrix snapshots and the same database before/after migration.`);
   console.log(`Observed field differences: matrix=${report.matrixDifferences.length}, upgrade=${report.upgradeDifferences.length}.`);
-  console.log('Financial parity passed. Reminder/checklist differences still require explicit review.');
+  console.log('Financial parity and the explicit reminder/checklist contract passed.');
 } finally {
   const cleanup = { cleanup: true };
-  for (const name of activeTests) await run('docker', ['rm', '-f', name], `cleanup-${name}`, cleanup).catch(error => console.error(error.message));
-  if (databaseCreated) await run('docker', ['rm', '-f', dbName], 'cleanup-database', cleanup).catch(error => console.error(error.message));
-  if (cacheCreated) await run('docker', ['volume', 'rm', cacheName], 'cleanup-cache', cleanup).catch(error => console.error(error.message));
-  for (const image of images) await run('docker', ['image', 'rm', image], `cleanup-${image.replace(':', '-')}`, cleanup).catch(error => console.error(error.message));
+  const cleanupFailed = error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  };
+  for (const name of activeTests) await run('docker', ['rm', '-f', name], `cleanup-${name}`, cleanup).catch(cleanupFailed);
+  if (databaseCreated) await run('docker', ['rm', '-f', dbName], 'cleanup-database', cleanup).catch(cleanupFailed);
+  if (cacheCreated) await run('docker', ['volume', 'rm', cacheName], 'cleanup-cache', cleanup).catch(cleanupFailed);
+  for (const image of images) await run('docker', ['image', 'rm', image], `cleanup-${image.replace(':', '-')}`, cleanup).catch(cleanupFailed);
   process.removeListener('SIGINT', interrupt);
   process.removeListener('SIGTERM', interrupt);
 }

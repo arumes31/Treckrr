@@ -20,6 +20,21 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  billing-parity:
+    name: Billing compatibility gate
+    uses: ./.github/workflows/billing-parity.yml
+    permissions:
+      contents: read
+
+  browser-validation:
+    name: Browser publication gate
+    # PRs retain their existing standalone E2E check. Every publishing event
+    # runs a same-revision browser gate, including tags and manual dispatches.
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+
   # Publication gate. This workflow is independent of ci.yml, so a push to main
   # published an image whether or not the tests passed — the registry could end up
   # ahead of anything that was ever verified, with only branch protection (a
@@ -224,7 +239,7 @@ jobs:
   promote:
     name: Promote verified digest (no rebuild)
     if: github.event_name != 'pull_request'
-    needs: [build-push, scan-candidate]
+    needs: [build-push, scan-candidate, billing-parity, browser-validation]
     runs-on: ubuntu-latest
     concurrency:
       group: treckrr-release-promotion

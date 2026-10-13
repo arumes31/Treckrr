@@ -1,0 +1,42 @@
+name: Billing compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: Before/after billing and migration parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # The publishing workflow separately runs the complete race/integration suite.
+      BILLING_PARITY_RUNTIME_REGRESSIONS: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Ensure the pinned pre-migration baseline is available
+        env:
+          BILLING_PARITY_BASELINE: f85ca89377f22797dc66f65c37ae37943e18c18d
+        run: |
+          if ! git cat-file -e "${BILLING_PARITY_BASELINE}^{commit}" 2>/dev/null; then
+            if ! git fetch --no-tags --depth=1 origin "$BILLING_PARITY_BASELINE"; then
+              echo "::error::Pinned billing baseline is unavailable. Retain its repository history/ref; do not replace it with current main."
+              exit 1
+            fi
+          fi
+          git cat-file -e "${BILLING_PARITY_BASELINE}^{commit}"
+      - name: Check parity runner and workflow contracts
+        run: node --test .github/scripts/billing-parity.test.mjs .github/scripts/validation-workflows.test.mjs
+      - name: Compare old/new runtimes and migrate an isolated old database
+        # Pin the final pre-0081 implementation, not the moving main branch.
+        # No external database URL, production secret, or uploaded artifact is used.
+        run: node .github/scripts/billing-parity.mjs f85ca89377f22797dc66f65c37ae37943e18c18d

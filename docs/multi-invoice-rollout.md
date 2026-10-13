@@ -174,11 +174,21 @@ sent. They remain unchanged in history, but the new document-scoped closing
 check can request an explicit delivery confirmation again. This neither deletes
 the old record nor automatically resends an invoice.
 
-The runner fails on any financial-field difference. It also records every
-reminder/checklist difference for explicit review and runs race-enabled migration,
-store, server and template regressions. Tests prove these synthetic cases, not
-that all possible production histories will migrate; the isolated real-history
-rehearsal in the deployment checklist is still required.
+The runner fails on any financial-field difference and any unexpected
+reminder/checklist change. A separate reviewed contract permits only the exact
+new account-rest warnings, the two document-versus-account debt corrections and
+the historical annual delivery-marker correction in the fixed fixtures. It also
+requires all 30 checkpoints and the upgrade snapshot. Changed dates, names,
+amounts, counts, missing/extra warnings or dunning rows fail the gate; entire
+objects are never excluded. Node mutation tests verify the comparator itself.
+Both runtimes use UTC. If their pair crosses midnight, the entire pair is retried
+once in fresh scratch databases because cancellation uses today's date. Probe
+failures and financial differences are never retried away; date differences are
+not silently ignored.
+By default it also runs race-enabled migration, store, server and template
+regressions. Tests prove these synthetic cases, not that all possible production
+histories will migrate; the isolated real-history rehearsal in the deployment
+checklist is still required.
 
 The corrected comparison has **zero financial differences**. Its 35 matrix and
 nine upgrade display-field differences are accounted for: the new account-rest
@@ -204,3 +214,68 @@ Final follow-up validation passed on 2026-10-13:
 No production or existing development database was used. Owned test containers,
 images and cache were removed; ignored local reports were retained. No screenshot
 or generated database fixture is included in the commit.
+
+### Additional regression gates
+
+- The Docker publication workflow calls the reusable **Billing compatibility**
+  workflow using the fixed pre-migration commit. Promotion of release tags needs
+  successful parity, browser validation, runtime tests and image scanning.
+  Existing standalone browser check names are retained; publishing events also
+  run their own same-revision browser gate. CI explicitly sets
+  `BILLING_PARITY_RUNTIME_REGRESSIONS=0` only because its required `verify` job
+  already executes the complete race/integration suite. Migration regressions
+  and the same-database upgrade probe remain enabled in the parity job.
+- `make test` / `make check` require explicit
+  `TEST_INVOICE_MIGRATION_DATABASES=1` alongside an isolated test database URL,
+  instead of silently skipping migration tests. `make test-parity` needs no
+  supplied database and owns its disposable Docker resources.
+- Ten ordered lock-contention cases cover issue versus year close, explicitly
+  selected payment versus cancellation/credit, and repeated or competing
+  settlement/carry-forward. The settlement fixture contains two invoices,
+  pending work, account-only debt and both FIFO and preferred partial payments.
+  Existing financial rows must remain byte-identical, apart from the explicitly
+  tested cancellation status.
+- Rounding cases cover `0.004` and `0.005` of legacy pending work with paid and
+  unpaid invoices, plus two separate half-cent accounts. Warnings round each
+  account independently; stored booking precision must not change.
+- The independent mobile WebKit billing journey creates its own neighbor/year,
+  books EUR 100 + 40 on two invoices, pays EUR 5 explicitly and EUR 7 FIFO, closes
+  the year and settles EUR 128. Frozen invoice fields and prior payments stay
+  unchanged; a stale settlement replay must create no further cash.
+- **Billing allocation fuzz** runs weekly or manually for 45 seconds, with two
+  workers and no database. All new reports and failure screenshots stay local to
+  their disposable runners; these workflows do not upload them.
+
+Additional gate validation on 2026-10-13:
+
+- Final PostgreSQL 16 comparison: all 30 matrix checkpoints, the same-database
+  upgrade and migration rollback suite passed with zero financial or unexpected
+  display differences. Complete regular race-enabled store (325.573 s), server
+  (226.482 s) and web/template (14.646 s) suites passed. The upgrade probe runs
+  separately in seed/verify phases; the unrelated opt-in scaling probe was not
+  enabled in this run.
+- PostgreSQL 18.6: the concurrency and rounding groups passed with `-race
+  -count=3` (18 top-level executions and 69 subtest executions, no skips).
+- Final Playwright suite: **165/165 passed**, retries disabled (9.4 minutes),
+  including the independent mobile WebKit write/close/settle workflow.
+- The CI-style parity invocation with the separately covered runtime suite
+  disabled also passed both matrices, the same-database upgrade and migration
+  regressions. Full and CI-style runs removed their owned Docker resources.
+  Source hashes verified that runtime/test files had not changed since the
+  successful full race build. Final clock/financial guards passed their Node
+  mutation and boundary tests.
+- Comparator, UTC-boundary guard and workflow contracts: 30 Node tests passed. An independent
+  mutation check against the real prior comparison rejected all 391 changed
+  reminder/checklist leaves and all 3,465 changed financial/report leaves.
+- The 45-second allocation fuzz run passed 94,953 executions. Native unit tests,
+  integration compilation, vet and golangci-lint 2.13.1 passed (zero lint issues).
+- All four changed/new workflows passed actionlint; external ShellCheck and
+  Pyflakes were unavailable. The local shell runner passed its syntax check and
+  demonstrably refused a missing migration opt-in before setup/database access.
+
+Two test-only assumptions were corrected during validation: normal ledger rows
+use an empty transfer ID rather than NULL, and the synthetic inline-validation
+browser probe must use `checkValidity()` rather than competing native focus
+popups from `reportValidity()`. The latter retained every error/ARIA assertion,
+added an exact input-value check, and passed five independent repetitions with
+retries disabled. No billing runtime or migration change was needed.

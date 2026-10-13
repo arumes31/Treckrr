@@ -13,7 +13,7 @@ docker compose up -d --build  # http://localhost:8080
 ```
 
 For a local Go workflow you need Go ≥ 1.26.6 (the `go.mod` language floor; CI
-and the image build on 1.27.0) and a reachable PostgreSQL:
+and the image build on 1.27.2) and a reachable PostgreSQL:
 
 ```bash
 export DATABASE_URL="postgres://treckrr:treckrr@localhost:5432/treckrr?sslmode=disable"
@@ -43,16 +43,46 @@ model), `web` (templates and embedded assets), plus `auth`, `backup`, `mail`,
 
 ## Before you open a pull request
 
-Run the same checks CI runs:
+Run the fast checks first:
 
 ```bash
 gofmt -l .          # must print nothing
-go vet ./...
-go test ./...       # CI runs this with -race
-# 27 test files skip themselves unless a database is reachable:
-# TEST_DATABASE_URL=postgres://... go test ./...
-golangci-lint run   # if installed locally
+go vet -tags=integration ./...
+go test ./...       # unit-only; does not replace the database-backed CI suite
+golangci-lint run --build-tags=integration   # if installed locally
 ```
+
+For the full race/integration suite, use a **separate disposable PostgreSQL
+server**, never the existing development or production database. The Docker
+`make test` target expects that server on the `treckrr-itest` network and a user
+allowed to create its owned scratch databases:
+
+```bash
+make test TEST_DATABASE_URL='<isolated disposable test database URL>' TEST_INVOICE_MIGRATION_DATABASES=1 PG_MAJOR=16
+# Use PG_MAJOR=18 with a matching disposable PG18 server.
+```
+
+The explicit migration opt-in is required: without it, `make test` fails before
+running tests instead of silently skipping historical-preservation/rollback
+checks. `make check` requires the same variables.
+
+For the old/new financial comparison and same-database upgrade probe, run
+`make test-parity` (or `node .github/scripts/billing-parity.mjs`). This runner owns
+and cleans up new isolated Docker resources, requires no database URL, and needs
+the pre-migration commit `f85ca89377f22797dc66f65c37ae37943e18c18d` in local git
+history. Retain that commit in repository history or a permanent reference: CI
+tries a fixed-SHA fetch if checkout lacks it, but cannot recover an object that
+the server no longer retains. The fetch does not restore checkout credentials;
+if an anonymous fetch is unavailable (for example, for a private repository), it
+fails clearly rather than changing permissions or substituting a newer baseline.
+Reports remain under ignored `tmp/billing-parity/`.
+
+CI runs the parity gate on pull requests and requires parity plus browser success
+before promoting a production image. Existing standalone E2E check names remain
+unchanged; publishing events also run their own browser gate. A separate weekly
+or manually dispatched **Billing allocation fuzz** workflow explores randomized
+allocation cases for 45 seconds without a database. None of these additions
+uploads screenshots or generated comparison reports.
 
 Guidelines:
 

@@ -31,6 +31,14 @@ func TestYearClosingAccountRemaindersIntegration(t *testing.T) {
 		{name: "credit balance", invoiceCount: 1, payment: "150", annual: "-50", documents: "0", residual: "0"},
 		{name: "negative ledger already offsets invoices", invoiceCount: 1, ledger: "-25",
 			annual: "75", documents: "75", residual: "0", unpaidCount: 1},
+		{name: "legacy subcent below half cent", invoiceCount: 2, pending: "0.004",
+			annual: "300", documents: "300", residual: "0", unpaidCount: 2},
+		{name: "legacy half cent rounds up once", invoiceCount: 2, pending: "0.005",
+			annual: "300.01", documents: "300", residual: "0.01", unpaidCount: 2},
+		{name: "paid invoices with legacy subcent below half cent", invoiceCount: 2, payment: "300", pending: "0.004",
+			annual: "0", documents: "0", residual: "0"},
+		{name: "paid invoices with legacy half cent remainder", invoiceCount: 2, payment: "300", pending: "0.005",
+			annual: "0.01", documents: "0", residual: "0.01"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,6 +103,43 @@ func TestYearClosingAccountRemaindersIntegration(t *testing.T) {
 				t.Fatalf("wrong residual account: %+v", residual.Neighbors)
 			}
 		})
+	}
+}
+
+// TestYearClosingRoundsEachAccountIntegration prevents subcent amounts on
+// different accounts from being combined before rounding their warnings.
+func TestYearClosingRoundsEachAccountIntegration(t *testing.T) {
+	ctx := t.Context()
+	f := newMultiAllocationFixture(t)
+	if err := f.store.AddPayment(ctx, f.yearID, f.neighborID, dec("300"), day(2026, 9, 11), "Synthetic payment", "bank"); err != nil {
+		t.Fatal(err)
+	}
+	addMultiAllocationWork(t, f.store, f.yearID, f.neighborID, "0.005")
+	neighborID, err := f.store.CreateNeighbor(ctx, "Synthetic half-cent neighbor", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.AddNeighborToYear(ctx, f.yearID, neighborID); err != nil {
+		t.Fatal(err)
+	}
+	addMultiAllocationWork(t, f.store, f.yearID, neighborID, "0.005")
+	before := invoiceSourceState(t, f.pool)
+	checks, err := f.store.YearClosingChecks(ctx, f.yearID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	residual := closingCheckByKey(t, checks, "account_unpaid")
+	if residual.Count != 2 || !residual.Amount.Equal(dec("0.02")) || len(residual.Neighbors) != 2 {
+		t.Fatalf("per-account rounding=%+v, want two accounts and 0.02, not aggregate 0.01", residual)
+	}
+	for _, id := range []int64{f.neighborID, neighborID} {
+		remaining, err := f.store.AccountRemaining(ctx, f.yearID, id)
+		if err != nil || !remaining.Equal(dec("0.01")) {
+			t.Fatalf("account %d remaining=%s/%v, want 0.01", id, remaining, err)
+		}
+	}
+	if after := invoiceSourceState(t, f.pool); !reflect.DeepEqual(before, after) {
+		t.Fatal("rounding for display changed stored financial rows")
 	}
 }
 

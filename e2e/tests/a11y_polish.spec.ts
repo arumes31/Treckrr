@@ -86,23 +86,26 @@ test("Undo remains available and field errors preserve useful instructions", asy
   await expect(page.locator(".toast")).toHaveCount(0);
 
   const number = page.locator("#polish-number");
+  // Trigger inline invalid-event handling without native validation focus stealing
+  // the next field's input while the test clock is controlled.
   for (const [value, message] of [
     ["0", "Bitte einen Wert ab 1 eingeben."],
     ["11", "Bitte höchstens 10 eingeben."],
     ["1.1", "Bitte einen Wert in Schritten von 0,5 eingeben."],
   ]) {
     await number.fill(value);
-    await number.evaluate((node: HTMLInputElement) => node.reportValidity());
+    await number.evaluate((node: HTMLInputElement) => node.checkValidity());
     await expect(page.locator("#polish-number-err")).toHaveText(message);
     await expect(number).toHaveAttribute("aria-describedby", "polish-help polish-number-err");
   }
   await number.fill("2");
   await expect(number).toHaveAttribute("aria-describedby", "polish-help");
-  await number.evaluate((node: HTMLInputElement) => { node.setCustomValidity("Bitte den vereinbarten Satz prüfen."); node.reportValidity(); });
+  await number.evaluate((node: HTMLInputElement) => { node.setCustomValidity("Bitte den vereinbarten Satz prüfen."); node.checkValidity(); });
   await expect(page.locator("#polish-number-err")).toHaveText("Bitte den vereinbarten Satz prüfen.");
 
   const email = page.locator("#polish-email");
   await email.fill("not-an-address");
+  await expect(email).toHaveValue("not-an-address");
   await email.evaluate((node: HTMLInputElement) => {
     if (!node.validity.typeMismatch) throw new Error("email fixture must have a type mismatch");
     node.dispatchEvent(new Event("invalid", { cancelable: true }));

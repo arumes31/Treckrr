@@ -1,0 +1,33 @@
+name: Billing allocation fuzz
+
+on:
+  schedule:
+    - cron: "41 5 * * 2" # weekly, Tuesday 05:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  allocation:
+    name: Explore invoice allocation invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # This pure allocation test needs neither a service nor database credentials.
+      TEST_DATABASE_URL: ""
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - name: Download and verify dependencies
+        run: |
+          go mod download
+          go mod verify
+      - name: Fuzz conservation, FIFO, preferences and account credit
+        run: go test ./internal/store -run '^$' -fuzz '^FuzzPlanInvoiceAllocationConservesMoney$' -fuzztime=45s -parallel=2 -timeout=4m
