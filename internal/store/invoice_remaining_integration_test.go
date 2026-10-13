@@ -13,10 +13,9 @@ import (
 	"github.com/d0linger/treckrr/internal/store"
 )
 
-// TestInvoiceRemainingIntegration proves the scan-to-pay amount: the remaining
-// payable is the frozen gross less active credit notes and payments (not the full
-// gross), so a partly-paid or credited invoice yields the correct QR amount. Runs
-// only when TEST_DATABASE_URL is set.
+// TestInvoiceRemainingIntegration preserves the legacy annual balance API while
+// proving that a document QR excludes positive ledger debt outside its invoice.
+// Runs only when TEST_DATABASE_URL is set.
 func TestInvoiceRemainingIntegration(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -60,11 +59,13 @@ func TestInvoiceRemainingIntegration(t *testing.T) {
 	}
 
 	// Issued invoice (gross 200) + an active credit note (gross -50). Distinct
-	// numbers satisfy the (billing_year_id, number) unique constraint; different
-	// kinds are allowed alongside the partial "one issued invoice" unique index.
-	if _, err := pool.ExecContext(ctx,
+	// numbers satisfy the (billing_year_id, number) unique constraint. No source
+	// entries are inserted, so there is no pending work or source claim to create.
+	var invoiceID int64
+	if err := pool.QueryRowContext(ctx,
 		`INSERT INTO invoices (billing_year_id, neighbor_id, number, gross, kind, status)
-		 VALUES ($1,$2,$3,200,'invoice','issued')`, yearID, nid, fmt.Sprintf("%d-1", yr)); err != nil {
+		 VALUES ($1,$2,$3,200,'invoice','issued') RETURNING id`,
+		yearID, nid, fmt.Sprintf("%d-1", yr)).Scan(&invoiceID); err != nil {
 		t.Fatalf("insert invoice: %v", err)
 	}
 	if _, err := pool.ExecContext(ctx,
@@ -111,5 +112,11 @@ func TestInvoiceRemainingIntegration(t *testing.T) {
 	}
 	if !rest.Equal(decimal.RequireFromString("160")) {
 		t.Errorf("remaining (after +40 non-voided, +1000 voided ledger) = %s, want 160", rest)
+	}
+	// The invoice still has 120 open; the extra 40 belongs to the annual account,
+	// not to a second copy of this invoice's payment request.
+	documentRemaining, err := st.InvoiceDocumentRemaining(ctx, invoiceID)
+	if err != nil || !documentRemaining.Equal(decimal.NewFromInt(120)) {
+		t.Fatalf("document remaining = %s, want 120 (%v)", documentRemaining, err)
 	}
 }

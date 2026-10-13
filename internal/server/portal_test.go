@@ -49,7 +49,7 @@ func (d *portalValidationDB) QueryContext(
 		if len(args) != 1 || args[0].Value != store.HashToken("test-portal-token") {
 			return nil, fmt.Errorf("unexpected share credential")
 		}
-		return &portalValidationRows{values: []driver.Value{int64(1), int64(2), int64(3), true}}, nil
+		return &portalValidationRows{values: []driver.Value{int64(1), int64(2), int64(3), int64(4), true}}, nil
 	case strings.Contains(query, "FROM invoices"):
 		d.invoiceReads++
 		return &portalValidationRows{}, nil

@@ -119,16 +119,22 @@ func (s *Store) Search(ctx context.Context, q string, perKind int) ([]SearchResu
 	// Invoices by number. Same hybrid predicate for consistency (and so $1 is bound
 	// here too); the substring term carries the real number matching.
 	if err := s.searchSub(ctx, &out, `
-		SELECT iv.number, n.name, iv.neighbor_id, iv.billing_year_id
+		SELECT iv.number, n.name, iv.neighbor_id, iv.billing_year_id, iv.id, iv.kind
 		FROM invoices iv JOIN neighbors n ON n.id = iv.neighbor_id
 		WHERE `+ftsWhere("iv.number", fuzzy)+`
 		ORDER BY `+rankOrder("iv.number")+`, iv.issued_on DESC LIMIT $3`, q, pat, perKind, func(rows *sql.Rows) (SearchResult, error) {
-		var number, name string
-		var nid, yid int64
-		if err := rows.Scan(&number, &name, &nid, &yid); err != nil {
+		var number, name, kind string
+		var nid, yid, invoiceID int64
+		if err := rows.Scan(&number, &name, &nid, &yid, &invoiceID, &kind); err != nil {
 			return SearchResult{}, err
 		}
-		return SearchResult{Kind: "invoice", Label: "Rechnung " + number, Sub: name, URL: belegPath(nid, yid)}, nil
+		path := belegPath(nid, yid)
+		if kind == "invoice" {
+			// A numbered invoice, including canceled history, must not resolve
+			// to another active invoice or later pending work on the same account.
+			path += "&invoice_id=" + strconv.FormatInt(invoiceID, 10)
+		}
+		return SearchResult{Kind: "invoice", Label: "Rechnung " + number, Sub: name, URL: path}, nil
 	}); err != nil {
 		return nil, err
 	}

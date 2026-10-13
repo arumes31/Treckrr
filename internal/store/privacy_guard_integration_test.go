@@ -70,6 +70,10 @@ func TestAnonymizedPersonalDataGuardsIntegration(t *testing.T) {
 			_, err := st.CreateBelegShare(ctx, "privacy-test-share", neighborID, yearID, time.Now().Add(time.Hour), "test")
 			return err
 		}},
+		{name: "selected share", write: func() error {
+			_, err := st.CreateInvoiceBelegShare(ctx, "privacy-test-selected-share", neighborID, yearID, 1, time.Now().Add(time.Hour), "test")
+			return err
+		}},
 		{name: "recurring", write: func() error {
 			return st.CreateRecurring(ctx, entryID, neighborID,
 				models.RecurTemplate{Note: "personal recurring"}, "weekly", day(2026, 1, 2))
@@ -81,6 +85,10 @@ func TestAnonymizedPersonalDataGuardsIntegration(t *testing.T) {
 				t.Fatalf("write after anonymization = %v, want ErrNeighborAnonymized", err)
 			}
 		})
+	}
+	var shares int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM beleg_shares WHERE neighbor_id=$1`, neighborID).Scan(&shares); err != nil || shares != 0 {
+		t.Fatalf("anonymized subject acquired share capabilities: count=%d, err=%v", shares, err)
 	}
 	// Repair data repopulated by a legacy version rather than silently treating
 	// every repeated erasure request as a no-op.

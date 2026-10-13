@@ -1675,6 +1675,13 @@ a.paychip--credit:hover { background: color-mix(in srgb, var(--owe) 22%, transpa
 	   so it fills the page like every other view instead of looking like a thin
 	   strip on wide screens. The @media print rule below overrides to full A4. */
 	max-width: var(--maxw); margin-inline: auto; }
+/* Frozen documents contain a wide table; constrain its sheet so only the
+   table's own scroll region expands, not the mobile page. */
+.beleg--document { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.beleg--document .beleg__inv-top { flex-wrap: wrap; }
+.beleg--document .beleg__inv-pp { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.beleg--document .beleg__payinfo { flex-wrap: wrap; }
+.beleg--document .beleg__payinfo-txt { flex-basis: 14rem; }
 
 .beleg__hero { padding: .85rem .9rem; color: var(--on-primary);
 	background: linear-gradient(135deg, var(--primary), var(--primary-strong)); }

@@ -126,24 +126,20 @@ func scanInvoice(sc scanner) (models.Invoice, error) {
 	return iv, nil
 }
 
-// GetInvoice returns the active issued invoice for a (year, neighbor) — the one
-// current, non-canceled Rechnung — or ErrNotFound.
+// GetInvoice preserves unselected links only when exactly one active invoice exists.
 func (s *Store) GetInvoice(ctx context.Context, yearID, neighborID int64) (models.Invoice, error) {
-	iv, err := scanInvoice(s.db.QueryRowContext(ctx,
-		`SELECT `+invoiceCols+` FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'`,
-		yearID, neighborID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return iv, ErrNotFound
+	invoices, err := s.ListActiveInvoices(ctx, yearID, neighborID)
+	if err != nil {
+		return models.Invoice{}, err
 	}
-	return iv, err
+	return uniqueInvoice(invoices)
 }
 
-// InvoiceRemaining returns the amount still payable on a neighbor's issued invoice
-// in a billing year: frozen invoice gross, less active credit notes (their gross
-// is stored negative), plus mutual ledger postings, less payments received. This
-// mirrors the Beleg page's InvRest exactly so the scan-to-pay QR encodes what is
-// actually outstanding, not the full gross. Zero when no invoice is issued.
+// InvoiceRemaining preserves the legacy signed annual account balance when at
+// least one active invoice exists; otherwise it returns zero. The balance includes
+// all active invoice gross amounts, pending net entries, credits, ledger postings,
+// and payments. Use InvoiceDocumentRemaining for a selected invoice or its QR code,
+// and AccountRemaining for an annual balance independent of invoice presence.
 func (s *Store) InvoiceRemaining(ctx context.Context, yearID, neighborID int64) (decimal.Decimal, error) {
 	var remaining decimal.Decimal
 	err := s.db.QueryRowContext(ctx, `
@@ -158,7 +154,8 @@ func (s *Store) InvoiceRemaining(ctx context.Context, yearID, neighborID int64) 
 // BuildInvoiceContent computes the invoice substance from the current live data,
 // reproducing exactly what the Beleg shows: USt is charged on the Leistungsentgelt
 // (non-voided bookings), shown only for pauschal/regel with a positive rate. This
-// is the content IssueInvoice freezes (and the backfill re-freezes).
+// all-source projection supports legacy reads. New invoice previews and issuance
+// use only pending sources through BuildPendingInvoiceContent instead.
 func (s *Store) BuildInvoiceContent(ctx context.Context, yearID, neighborID int64) (models.InvoiceContent, error) {
 	company, err := s.GetCompany(ctx)
 	if err != nil {
@@ -185,17 +182,18 @@ func (s *Store) buildInvoiceContentWith(ctx context.Context, company models.Comp
 	neighbor.EInvoiceStreet, neighbor.EInvoiceZIP = structured.Street, structured.ZIP
 	neighbor.EInvoiceTown, neighbor.EInvoiceCountryCode = structured.Town, structured.CountryCode
 	neighbor.EInvoiceOrderID = structured.OrderID
-	entries, err := s.ListEntries(ctx, neighborID, yearID)
+	entries, err := s.listInvoiceSourcesWithoutClaims(ctx, neighborID, yearID)
 	if err != nil {
 		return models.InvoiceContent{}, err
 	}
 	return invoiceContentFromEntries(company, *neighbor, entries), nil
 }
 
-func (s *Store) buildInvoiceContentTx(
+func (s *Store) buildInvoiceContentForSourcesTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	yearID, neighborID int64,
+	pending bool,
 ) (models.InvoiceContent, error) {
 	var company models.Company
 	if err := tx.QueryRowContext(ctx, `
@@ -258,11 +256,12 @@ func (s *Store) buildInvoiceContentTx(
 	); err != nil {
 		return models.InvoiceContent{}, err
 	}
-	rows, err := tx.QueryContext(ctx,
-		entrySelect+` WHERE neighbor_id=$1 AND billing_year_id=$2 ORDER BY entry_date, id`,
-		neighborID,
-		yearID,
-	)
+	query := entrySelect + ` WHERE neighbor_id=$1 AND billing_year_id=$2`
+	if pending {
+		query += ` AND NOT voided AND NOT EXISTS (
+			SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=entries.id AND ie.active)`
+	}
+	rows, err := tx.QueryContext(ctx, query+` ORDER BY entry_date, id`, neighborID, yearID)
 	if err != nil {
 		return models.InvoiceContent{}, err
 	}
@@ -274,7 +273,14 @@ func (s *Store) buildInvoiceContentTx(
 	if closeErr != nil {
 		return models.InvoiceContent{}, closeErr
 	}
-	return invoiceContentFromEntries(company, neighbor, entries), nil
+	content := invoiceContentFromEntries(company, neighbor, entries)
+	if pending {
+		if len(entries) == 0 {
+			return models.InvoiceContent{}, ErrNoPendingEntries
+		}
+		content.Hash = invoiceSourceHash(content.Hash, entries)
+	}
+	return content, nil
 }
 
 func invoiceContentFromEntries(
@@ -400,6 +406,25 @@ func (s *Store) InvoicedNeighborIDs(ctx context.Context, yearID int64) (map[int6
 // displayed value (the live computation is what the Beleg showed until now).
 // Idempotent: rows that already carry a snapshot are skipped. Runs once on boot.
 func (s *Store) BackfillInvoiceSnapshots(ctx context.Context) (int, error) {
+	assigned, err := invoiceSourcesAvailable(ctx, s.db)
+	if err != nil {
+		return 0, err
+	}
+	if assigned {
+		// A historical document cannot be reconstructed from a year that may
+		// now contain several independently frozen invoices and pending work.
+		var incomplete bool
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM invoices
+			WHERE kind='invoice' AND status='issued'
+			  AND (net IS NULL OR gross IS NULL OR lines IS NULL OR content_hash=''))`).Scan(&incomplete); err != nil {
+			return 0, err
+		}
+		if incomplete {
+			return 0, ErrInvoiceIncomplete
+		}
+		// Canceled legacy rows without snapshots remain untouched.
+		return 0, nil
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, billing_year_id, neighbor_id FROM invoices
 		  WHERE net IS NULL AND kind='invoice' ORDER BY id`)
@@ -449,10 +474,9 @@ func (s *Store) BackfillInvoiceSnapshots(ctx context.Context) (int, error) {
 // account lock no longer matches the preview the operator confirmed.
 var ErrInvoiceContentChanged = errors.New("invoice content changed since preview")
 
-// IssueInvoice freezes the current invoice content (Festschreibung) under a
-// sequential per-year number and stores it, or returns the existing active
-// invoice if one is already issued (idempotent). Content and number are fixed
-// once, so the document stays stable regardless of later booking/price changes.
+// IssueInvoice freezes pending, unassigned work under a sequential per-year
+// number. Existing documents and their source assignments are not rebuilt.
+// With no pending work, an unconfirmed retry returns a sole active invoice.
 //
 // It freezes whatever the content is at commit time. The operator-facing paths
 // use IssueInvoiceConfirmed, which binds the number to the previewed content.
@@ -461,7 +485,7 @@ func (s *Store) IssueInvoice(ctx context.Context, yearID, neighborID int64, year
 }
 
 // IssueInvoiceConfirmed is IssueInvoice bound to the content the operator saw:
-// confirmedHash is the preview's InvoiceContent.Hash (from BuildInvoiceContent).
+// confirmedHash is the source-bound hash from BuildPendingInvoiceContent.
 // The content is rebuilt under the account lock that serializes every booking
 // write, and if it differs — a booking added, edited or voided, a price basis
 // or master data changed since the preview — nothing is issued and
@@ -478,37 +502,56 @@ func (s *Store) IssueInvoiceConfirmed(ctx context.Context, yearID, neighborID in
 // issueInvoice implements IssueInvoice; a non-empty confirmedHash must match
 // the content rebuilt under the lock.
 func (s *Store) issueInvoice(ctx context.Context, yearID, neighborID int64, year int, issuedOn time.Time, confirmedHash string) (models.Invoice, error) {
-	if iv, err := s.GetInvoice(ctx, yearID, neighborID); err == nil {
-		return iv, nil
-	} else if !errors.Is(err, ErrNotFound) {
-		return models.Invoice{}, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.Invoice{}, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	if ok, err := lockAccountBoundary(ctx, tx, yearID, neighborID, true, false); err != nil {
+	if ok, err := lockAccountBoundary(ctx, tx, yearID, neighborID, false, false); err != nil {
 		return models.Invoice{}, err
 	} else if !ok {
 		return models.Invoice{}, ErrNotFound
 	}
-	// Re-check under the lock: a concurrent request may have just issued it.
-	if iv, err := scanInvoice(tx.QueryRowContext(ctx,
-		`SELECT `+invoiceCols+` FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'`,
-		yearID, neighborID)); err == nil {
-		return iv, tx.Commit()
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return models.Invoice{}, err
+	// Replay the exact confirmed source set before inspecting later work.
+	// Identical subsequent work has different source IDs and therefore a new hash.
+	if confirmedHash != "" {
+		iv, err := scanInvoice(tx.QueryRowContext(ctx,
+			`SELECT `+invoiceCols+` FROM invoices
+			 WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice'
+			   AND status='issued' AND issue_request_hash=$3`,
+			yearID, neighborID, confirmedHash))
+		if err == nil {
+			return iv, tx.Commit()
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return models.Invoice{}, err
+		}
 	}
-	content, err := s.buildInvoiceContentTx(ctx, tx, yearID, neighborID)
+	content, err := s.buildInvoiceContentForSourcesTx(ctx, tx, yearID, neighborID, true)
+	if errors.Is(err, ErrNoPendingEntries) && confirmedHash == "" {
+		// Preserve the legacy unconfirmed retry only for a sole existing invoice.
+		iv, lookupErr := activeInvoiceTx(ctx, tx, yearID, neighborID, 0)
+		if lookupErr == nil {
+			return iv, tx.Commit()
+		}
+		if !errors.Is(lookupErr, ErrNotFound) {
+			return models.Invoice{}, lookupErr
+		}
+	}
 	if err != nil {
 		return models.Invoice{}, err
 	}
-	// Compared before the Skonto terms are folded in below: the preview's
-	// BuildInvoiceContent hash is computed without them (they anchor on the
-	// issue date, which only exists from here on).
+	// A completed year still permits exact no-op replays, never new documents.
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM billing_years WHERE id=$1`, yearID).Scan(&status); err != nil {
+		return models.Invoice{}, err
+	}
+	if status == "completed" {
+		return models.Invoice{}, ErrYearCompleted
+	}
+	requestHash := content.Hash
+	// The pending preview binds both frozen substance and ordered source IDs.
+	// Skonto terms are added only after this confirmation check.
 	if confirmedHash != "" && content.Hash != confirmedHash {
 		return models.Invoice{}, ErrInvoiceContentChanged
 	}
@@ -545,6 +588,8 @@ func (s *Store) issueInvoice(ctx context.Context, yearID, neighborID int64, year
 		Scan(&prefix, &start, &skontoPct, &skontoDays); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return models.Invoice{}, err
 	}
+	// The persisted content hash remains the historical substance-only digest.
+	content.Hash = invoiceContentHash(content)
 	// Skonto terms freeze WITH the invoice (see InvoiceContent.SkontoPct): the
 	// deadline anchors on the issue date, which only exists from here on.
 	if skontoPct.IsPositive() && skontoDays > 0 {
@@ -569,19 +614,23 @@ func (s *Store) issueInvoice(ctx context.Context, yearID, neighborID int64, year
 	// what was already credited would be born with a negative balance, i.e. a
 	// payout-able Guthaben no money ever backed. Refuse; the operator stornos the
 	// Gutschrift first (see ErrGutschriftTooLarge).
-	var credited decimal.Decimal
+	var credited, existingGross decimal.Decimal
 	if err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(-SUM(gross), 0) FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='gutschrift' AND status='issued'`,
-		yearID, neighborID).Scan(&credited); err != nil {
+		`SELECT COALESCE(-SUM(gross) FILTER (WHERE kind='gutschrift'),0),
+		        COALESCE(SUM(gross) FILTER (WHERE kind='invoice'),0)
+		   FROM invoices WHERE billing_year_id=$1 AND neighbor_id=$2 AND status='issued'`,
+		yearID, neighborID).Scan(&credited, &existingGross); err != nil {
 		return models.Invoice{}, err
 	}
-	if credited.GreaterThan(content.Gross) {
+	if credited.GreaterThan(existingGross.Add(content.Gross)) {
 		return models.Invoice{}, ErrGutschriftTooLarge
 	}
 	number := fmt.Sprintf("%s%d-%03d", prefix, year, seq)
 	iv, err := insertInvoiceDoc(ctx, tx, yearID, neighborID, number, "invoice", nil, issuedOn, content)
 	if err != nil {
+		return models.Invoice{}, err
+	}
+	if err := claimInvoiceSources(ctx, tx, iv, requestHash); err != nil {
 		return models.Invoice{}, err
 	}
 	if err := addInvoiceAudit(ctx, tx, "invoice_issue", iv); err != nil {

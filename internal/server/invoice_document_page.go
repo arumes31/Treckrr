@@ -1,0 +1,133 @@
+package server
+
+import (
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/calc"
+	"github.com/d0linger/treckrr/internal/einvoice"
+	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/store"
+)
+
+// renderInvoiceDocument is the only HTML adapter for frozen invoices. It must
+// not load live entries, annual ledger rows or other invoices for a public link.
+func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
+	neighbor *models.Neighbor, year *models.BillingYear, invoice models.Invoice, token string, shareID int64,
+) {
+	remaining := decimal.Zero
+	var err error
+	if invoice.Status == "issued" {
+		remaining, err = s.store.InvoiceDocumentRemaining(r.Context(), invoice.ID)
+		if err != nil {
+			s.invoiceRequestError(w, r, err)
+			return
+		}
+	}
+	view, err := newInvoiceDocumentView(invoice, remaining)
+	if err != nil {
+		s.serverError(w, "invoice document", err)
+		return
+	}
+	data := s.newPage(w, r, "Rechnung "+invoice.Number, "dashboard")
+	data["Doc"], data["Invoice"], data["Neighbor"], data["Year"] = view, invoice, neighbor, year
+	data["Shared"], data["Completed"] = token != "", year.Completed()
+	if view.Active && remaining.IsPositive() {
+		company, err := s.store.GetCompany(r.Context())
+		if err != nil {
+			s.serverError(w, "invoice payment term", err)
+			return
+		}
+		term := company.EffectiveTermDays()
+		termNeighbor := neighbor
+		if token != "" {
+			// Public document parties stay frozen; use only the current payment
+			// term, matching the existing reminder policy for historical invoices.
+			liveNeighbor, err := s.store.GetNeighbor(r.Context(), neighbor.ID)
+			if err != nil {
+				s.serverError(w, "invoice payment term", err)
+				return
+			}
+			termNeighbor = liveNeighbor
+		}
+		if termNeighbor.PaymentTermDays != nil {
+			term = *termNeighbor.PaymentTermDays
+		}
+		due := invoice.IssuedOn.AddDate(0, 0, term)
+		data["DueOn"], data["DueDays"] = due, calc.DaysBetween(time.Now(), due)
+	}
+	data["EInvoiceMissing"] = einvoice.MissingFields(invoice)
+	data["PortalToken"], data["PortalFeedbackEnabled"] = token, shareID != 0
+	data["PortalFeedbackResult"] = r.URL.Query().Get("feedback")
+	feedback, err := s.store.ListBelegFeedback(r.Context(), neighbor.ID, year.ID)
+	if err != nil {
+		s.serverError(w, "invoice feedback", err)
+		return
+	}
+	selectedFeedback := make([]models.BelegFeedback, 0)
+	for _, item := range feedback {
+		if item.InvoiceID == invoice.ID {
+			selectedFeedback = append(selectedFeedback, item)
+		}
+	}
+	data["Feedback"] = selectedFeedback
+	if token == "" {
+		documents, err := s.store.ListInvoiceDocuments(r.Context(), year.ID, neighbor.ID)
+		if err != nil {
+			s.serverError(w, "invoice credit history", err)
+			return
+		}
+		data["AttachedCredits"] = attachedInvoiceCredits(invoice, documents)
+		if err := s.withYearSelector(r, data, year); err != nil {
+			s.serverError(w, "invoice year selector", err)
+			return
+		}
+		data["LastSend"], err = s.store.LastInvoiceBelegSend(r.Context(), year.ID, neighbor.ID, invoice.ID)
+		if err != nil {
+			s.serverError(w, "invoice send history", err)
+			return
+		}
+		data["MailEnabled"], data["NeighborEmail"] = s.cfg.MailEnabled(), neighbor.Email
+		shares, err := s.store.ListBelegShares(r.Context(), neighbor.ID, year.ID)
+		if err != nil {
+			s.serverError(w, "invoice shares", err)
+			return
+		}
+		selectedShares := make([]models.BelegShare, 0)
+		for _, share := range shares {
+			if share.InvoiceID != nil && *share.InvoiceID == invoice.ID {
+				selectedShares = append(selectedShares, share)
+			}
+		}
+		data["Shares"] = selectedShares
+		data["ShareDayOptions"], data["ShareDefaultDays"] = belegShareDayOptions, belegShareDefaultDays
+		if c, err := s.cookie(r, shareOnceCookie); err == nil && c.Value != "" && len(c.Value) <= maxBelegShareTokenLen {
+			s.setCookie(w, r, &http.Cookie{Name: shareOnceCookie, Value: "", MaxAge: -1})
+			_, nID, yID, iID, ok, err := s.store.ResolveInvoiceBelegShareAccess(r.Context(), store.HashToken(c.Value))
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				s.serverError(w, "invoice new share", err)
+				return
+			}
+			if ok && nID == neighbor.ID && yID == year.ID && iID == invoice.ID {
+				data["ShareToken"], data["ShareURL"] = c.Value, s.absoluteURL(r, "/s/portal/"+c.Value)
+			}
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, r, "invoice_document", data)
+}
+
+func attachedInvoiceCredits(invoice models.Invoice, documents []models.Invoice) []models.Invoice {
+	var credits []models.Invoice
+	for _, document := range documents {
+		if document.Kind == "gutschrift" && document.Status == "issued" &&
+			document.BillingYearID == invoice.BillingYearID && document.NeighborID == invoice.NeighborID &&
+			document.ReferencesInvoiceID != nil && *document.ReferencesInvoiceID == invoice.ID {
+			credits = append(credits, document)
+		}
+	}
+	return credits
+}

@@ -135,21 +135,20 @@ func TestInvoiceSnapshotIntegration(t *testing.T) {
 			t.Fatalf("snapshot gross = %s", iv.Content.Gross.StringFixed(2))
 		}
 
-		// The issued document freezes the account's booking basis. A late booking
-		// must be rejected rather than letting live data diverge from the snapshot.
+		// The document freezes only its sources; later work remains bookable.
 		if _, err := st.CreateEntry(ctx, &models.Entry{
 			NeighborID: nid, BillingYearID: yearID, Date: day(2091, 10, 1), TaskLabel: "Nachtrag",
 			Unit: "h", Hours: dec("2.5"), HourlyRate: dec("40"), Cost: dec("100.00"),
-		}, nil); !errors.Is(err, store.ErrInvoiceLocked) {
-			t.Fatalf("late entry = %v, want ErrInvoiceLocked", err)
+		}, nil); err != nil {
+			t.Fatalf("late entry = %v", err)
 		}
-		// The live computation therefore remains equal to the frozen snapshot.
+		// The historical annual preview includes the later work.
 		c2, err := st.BuildInvoiceContent(ctx, yearID, nid)
 		if err != nil {
 			t.Fatalf("build after change: %v", err)
 		}
-		if c2.Net.StringFixed(2) != "218.00" {
-			t.Fatalf("live after rejected change should be 218.00, got %s", c2.Net.StringFixed(2))
+		if c2.Net.StringFixed(2) != "318.00" {
+			t.Fatalf("live after later work should be 318.00, got %s", c2.Net.StringFixed(2))
 		}
 		// The frozen snapshot is unchanged as well.
 		frozen, err := st.GetInvoice(ctx, yearID, nid)
@@ -162,13 +161,13 @@ func TestInvoiceSnapshotIntegration(t *testing.T) {
 		if frozen.Content.Net.StringFixed(2) != "218.00" || frozen.Content.Gross.StringFixed(2) != "246.34" {
 			t.Fatalf("snapshot changed! net=%s gross=%s", frozen.Content.Net.StringFixed(2), frozen.Content.Gross.StringFixed(2))
 		}
-		// Idempotent re-issue returns the same frozen document.
+		// A second issue includes only the later work, never the old sources.
 		again, err := st.IssueInvoice(ctx, yearID, nid, 2091, time.Time{})
 		if err != nil {
 			t.Fatalf("re-issue: %v", err)
 		}
-		if again.Content == nil || again.Number != "2091-001" || again.Content.Net.StringFixed(2) != "218.00" {
-			t.Fatalf("re-issue changed the document: %s / %+v", again.Number, again.Content)
+		if again.Content == nil || again.Number != "2091-002" || again.Content.Net.StringFixed(2) != "100.00" {
+			t.Fatalf("second issue duplicated sources: %s / %+v", again.Number, again.Content)
 		}
 	})
 
@@ -194,13 +193,13 @@ func TestInvoiceSnapshotIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("backfill re-freezes a legacy invoice at its current live values", func(t *testing.T) {
-		yearID, nid, _ := setup(t, 2094, "regel", "13")
+	t.Run("backfill refuses incomplete active snapshots after source assignment", func(t *testing.T) {
+		st, pool, yearID, nid, _ := invoiceFixtureYear(t, true, 2094)
 		iv, err := st.IssueInvoice(ctx, yearID, nid, 2094, time.Time{})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
-		want := iv.Content.Gross.StringFixed(2) // 246.34, what the invoice showed
+		// Simulate a pre-Festschreibung row: strip the snapshot (net IS NULL is the
 
 		// Simulate a pre-Festschreibung row: strip the snapshot (net IS NULL is the
 		// backfill sentinel). This is exactly the state of invoices issued before
@@ -219,30 +218,23 @@ func TestInvoiceSnapshotIntegration(t *testing.T) {
 		}
 
 		n, err := st.BackfillInvoiceSnapshots(ctx)
-		if err != nil {
-			t.Fatalf("backfill: %v", err)
-		}
-		if n < 1 {
-			t.Fatalf("expected at least one invoice backfilled, got %d", n)
+		if n != 0 || !errors.Is(err, store.ErrInvoiceIncomplete) {
+			t.Fatalf("backfill = %d, %v, want 0/ErrInvoiceIncomplete", n, err)
 		}
 
-		// The re-frozen snapshot equals what the invoice displayed before → no
-		// displayed value changes when the Beleg switches to reading the snapshot.
+		// No live data is used to fabricate a replacement historical document.
 		filled, err := st.GetInvoice(ctx, yearID, nid)
 		if err != nil {
 			t.Fatalf("get filled: %v", err)
 		}
-		if filled.Content == nil || filled.Content.Gross.StringFixed(2) != want {
-			t.Fatalf("backfill wrong: want gross %s, got %+v", want, filled.Content)
+		if filled.Content != nil {
+			t.Fatalf("incomplete snapshot was reconstructed: %+v", filled.Content)
 		}
 
-		// Idempotent: with every invoice now snapshotted, a second pass is a no-op.
+		// Retrying does not silently weaken the preservation requirement.
 		n2, err := st.BackfillInvoiceSnapshots(ctx)
-		if err != nil {
-			t.Fatalf("backfill2: %v", err)
-		}
-		if n2 != 0 {
-			t.Fatalf("second backfill should be a no-op, got %d", n2)
+		if n2 != 0 || !errors.Is(err, store.ErrInvoiceIncomplete) {
+			t.Fatalf("second backfill = %d, %v", n2, err)
 		}
 	})
 

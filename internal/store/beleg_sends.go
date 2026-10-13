@@ -21,33 +21,54 @@ func (s *Store) RecordBelegSend(ctx context.Context, yearID, neighborID int64, c
 	return err
 }
 
-// DeleteLatestManualBelegSend removes the most recent MANUAL "als versendet"
-// mark for a neighbor+year — the Undo of handleBelegMarkSent. It never touches an
-// e-mail/mahnung send record (those reflect a real delivery). Returns true when a
-// row was deleted, false when there was no manual mark to undo.
-func (s *Store) DeleteLatestManualBelegSend(ctx context.Context, yearID, neighborID int64) (bool, error) {
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM beleg_sends
-		  WHERE id = (SELECT id FROM beleg_sends
-		               WHERE billing_year_id=$1 AND neighbor_id=$2 AND channel='manuell'
-		               ORDER BY sent_at DESC, id DESC LIMIT 1)`,
-		yearID, neighborID)
+// ListBelegSends returns the full send history for a neighbor's year, oldest
+// first — part of the DSGVO Art. 15 export (Ausbaukarte 86), where "when was
+// this person's document handed over, and how" is exactly the kind of
+// processing record a data subject may ask about.
+func (s *Store) ListBelegSends(ctx context.Context, yearID, neighborID int64) ([]models.BelegSend, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, billing_year_id, neighbor_id, sent_at, channel, invoice_id FROM beleg_sends
+		  WHERE billing_year_id=$1 AND neighbor_id=$2 ORDER BY sent_at`, yearID, neighborID)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	defer rows.Close()
+	var out []models.BelegSend
+	for rows.Next() {
+		var b models.BelegSend
+		if err := rows.Scan(&b.ID, &b.BillingYearID, &b.NeighborID, &b.SentAt, &b.Channel, &b.InvoiceID); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }
 
-// LastBelegSend returns the most recent send for a neighbor+year, or (nil, nil)
-// if the Beleg was never marked sent.
-func (s *Store) LastBelegSend(ctx context.Context, yearID, neighborID int64) (*models.BelegSend, error) {
+func (s *Store) RecordInvoiceBelegSend(ctx context.Context, yearID, neighborID, invoiceID int64, channel string) error {
+	if channel == "" {
+		channel = "manuell"
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO beleg_sends
+		(billing_year_id,neighbor_id,invoice_id,channel)
+		SELECT $1,$2,id,$4 FROM invoices WHERE id=$3 AND billing_year_id=$1
+		  AND neighbor_id=$2 AND kind='invoice' AND status='issued'`,
+		yearID, neighborID, invoiceID, channel)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) LastInvoiceBelegSend(ctx context.Context, yearID, neighborID, invoiceID int64) (*models.BelegSend, error) {
 	var b models.BelegSend
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, billing_year_id, neighbor_id, sent_at, channel
-		   FROM beleg_sends WHERE billing_year_id=$1 AND neighbor_id=$2
-		  ORDER BY sent_at DESC LIMIT 1`, yearID, neighborID).
-		Scan(&b.ID, &b.BillingYearID, &b.NeighborID, &b.SentAt, &b.Channel)
+	err := s.db.QueryRowContext(ctx, `SELECT id,billing_year_id,neighbor_id,sent_at,channel,invoice_id
+		FROM beleg_sends WHERE billing_year_id=$1 AND neighbor_id=$2 AND invoice_id=$3
+		ORDER BY sent_at DESC,id DESC LIMIT 1`, yearID, neighborID, invoiceID).
+		Scan(&b.ID, &b.BillingYearID, &b.NeighborID, &b.SentAt, &b.Channel, &b.InvoiceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -57,25 +78,14 @@ func (s *Store) LastBelegSend(ctx context.Context, yearID, neighborID int64) (*m
 	return &b, nil
 }
 
-// ListBelegSends returns the full send history for a neighbor's year, oldest
-// first — part of the DSGVO Art. 15 export (Ausbaukarte 86), where "when was
-// this person's document handed over, and how" is exactly the kind of
-// processing record a data subject may ask about.
-func (s *Store) ListBelegSends(ctx context.Context, yearID, neighborID int64) ([]models.BelegSend, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, billing_year_id, neighbor_id, sent_at, channel FROM beleg_sends
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 ORDER BY sent_at`, yearID, neighborID)
+func (s *Store) DeleteLatestManualInvoiceBelegSend(ctx context.Context, yearID, neighborID, invoiceID int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM beleg_sends WHERE id=(
+		SELECT id FROM beleg_sends WHERE billing_year_id=$1 AND neighbor_id=$2
+		  AND invoice_id=$3 AND channel='manuell' ORDER BY sent_at DESC,id DESC LIMIT 1)`,
+		yearID, neighborID, invoiceID)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	defer rows.Close()
-	var out []models.BelegSend
-	for rows.Next() {
-		var b models.BelegSend
-		if err := rows.Scan(&b.ID, &b.BillingYearID, &b.NeighborID, &b.SentAt, &b.Channel); err != nil {
-			return nil, err
-		}
-		out = append(out, b)
-	}
-	return out, rows.Err()
+	n, err := res.RowsAffected()
+	return n > 0, err
 }

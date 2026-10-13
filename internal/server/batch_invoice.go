@@ -31,8 +31,8 @@ type batchIssueRow struct {
 func batchHashField(neighborID int64) string { return "hash_" + itoa64(neighborID) }
 
 // batchIssueRows builds the per-neighbor preview for a year: who would get an
-// invoice, who is blocked (missing §11 data) and who already has one. Neighbors
-// with no bookings are excluded entirely.
+// invoice for pending work, who lacks mandatory data and who has no new work.
+// Neighbors with no bookings are excluded entirely.
 func (s *Server) batchIssueRows(r *http.Request, yearID int64) ([]batchIssueRow, int, error) {
 	neighbors, err := s.store.ListYearNeighbors(r.Context(), yearID)
 	if err != nil {
@@ -49,17 +49,16 @@ func (s *Server) batchIssueRows(r *http.Request, yearID int64) ([]batchIssueRow,
 			continue // nothing to bill
 		}
 		row := batchIssueRow{Neighbor: n, Bookings: cnt}
-		if _, err := s.store.GetInvoice(r.Context(), yearID, n.ID); err == nil {
+		content, err := s.store.BuildPendingInvoiceContent(r.Context(), yearID, n.ID)
+		if errors.Is(err, store.ErrNoPendingEntries) {
 			row.AlreadyInvoiced = true
 			rows = append(rows, row)
 			continue
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return nil, 0, err
 		}
-		content, err := s.store.BuildInvoiceContent(r.Context(), yearID, n.ID)
 		if err != nil {
 			return nil, 0, err
 		}
+		row.Bookings = len(content.Lines)
 		row.Gross = content.Gross
 		row.ContentHash = content.Hash
 		row.Missing = content.MissingMandatory()
@@ -179,7 +178,7 @@ func (s *Server) handleBatchIssueCommit(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		_, err := s.store.IssueInvoiceConfirmed(r.Context(), yearID, row.Neighbor.ID, year.Year, time.Time{}, confirmed)
-		if errors.Is(err, store.ErrInvoiceContentChanged) {
+		if errors.Is(err, store.ErrInvoiceContentChanged) || errors.Is(err, store.ErrNoPendingEntries) {
 			changed = append(changed, row.Neighbor.Name)
 			continue
 		}

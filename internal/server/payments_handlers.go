@@ -37,8 +37,9 @@ func (s *Server) handlePaymentAdd(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
+	invoiceID, err := optionalPaymentInvoiceID(r)
+	if err != nil {
+		s.badRequest(w, "Bitte eine gültige Rechnung auswählen oder die automatische Zuordnung verwenden.")
 		return
 	}
 	yearID := s.yearIDFromForm(r)
@@ -109,11 +110,15 @@ func (s *Server) handlePaymentAdd(w http.ResponseWriter, r *http.Request) {
 	res, err := s.store.RecordPayment(r.Context(), store.PaymentInput{
 		YearID: yearID, NeighborID: neighborID, Amount: amount,
 		PaidOn: parsePaidOn(r.FormValue("paid_on")), Note: note, Method: paymentMethod(r),
-		SkontoPct: skonto, IdempotencyKey: key,
+		SkontoPct: skonto, IdempotencyKey: key, InvoiceID: invoiceID,
 	})
 	switch {
 	case errors.Is(err, store.ErrIdempotencyConflict):
 		s.setFlash(w, r, "error", msgFormKeyConflict)
+	case errors.Is(err, store.ErrInvoiceAmbiguous):
+		s.setFlash(w, r, "error", "Für Skonto bitte eine Rechnung auswählen. Nichts gespeichert.")
+	case errors.Is(err, store.ErrNotFound):
+		s.setFlash(w, r, "error", "Die ausgewählte Rechnung gehört nicht zu diesem Nachbarkonto. Nichts gespeichert.")
 	case errors.Is(err, store.ErrSkontoYearCompleted):
 		s.setFlash(w, r, "error", "Das Abrechnungsjahr ist abgeschlossen — eine Skonto-Gutschrift ist nicht mehr möglich. Nichts gespeichert: Zahlung ohne Skonto erfassen oder das Jahr wieder öffnen.")
 	case errors.Is(err, store.ErrGutschriftTooLarge):

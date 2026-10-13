@@ -19,6 +19,17 @@ import (
 // resistant even when multiple containers reuse the same process ID.
 func scratchStore(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
+	st, pool := scratchUnmigratedStore(t)
+	if err := db.Migrate(t.Context(), pool); err != nil {
+		t.Fatalf("migrate scratch database: %v", err)
+	}
+	return st, pool
+}
+
+// scratchUnmigratedStore creates only an owned disposable database. Restore tests
+// can build a real historical schema without leaving newer migration artifacts.
+func scratchUnmigratedStore(t *testing.T) (*store.Store, *sql.DB) {
+	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set; skipping DB integration test")
@@ -62,9 +73,6 @@ func scratchStore(t *testing.T) (*store.Store, *sql.DB) {
 		t.Fatalf("connect scratch database: %v", err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate scratch database: %v", err)
-	}
 	return store.New(pool, "test-encryption-secret"), pool
 }
 
@@ -156,9 +164,11 @@ func purgeFixtures(t *testing.T, ctx context.Context, pool *sql.DB, f fixtures) 
 	// subquery on the parent so only this test's rows are touched.
 	purgeChildren := func(fkColumn, parentSelect string, args ...any) {
 		t.Helper()
+		exec(`DELETE FROM invoice_entries WHERE invoice_id IN (
+			SELECT id FROM invoices WHERE `+fkColumn+` IN (`+parentSelect+`))`, args...)
 		for _, child := range []string{
-			"beleg_sends", "invoices", "payments", "neighbor_ledger", "entries",
-			"beleg_shares", "billing_year_neighbors",
+			"mail_outbox", "beleg_shares", "beleg_sends", "payments", "invoices",
+			"neighbor_ledger", "entries", "billing_year_neighbors",
 		} {
 			// Every table listed carries BOTH billing_year_id and neighbor_id, so the
 			// same loop serves either parent.
@@ -226,15 +236,19 @@ func purgeRootsByID(t *testing.T, ctx context.Context, pool *sql.DB, yearIDs, ne
 		}
 	}
 	children := []string{
-		"beleg_sends", "invoices", "payments", "neighbor_ledger", "entries",
-		"beleg_shares", "billing_year_neighbors",
+		"mail_outbox", "beleg_shares", "beleg_sends", "payments", "invoices",
+		"neighbor_ledger", "entries", "billing_year_neighbors",
 	}
 	if len(yearIDs) > 0 {
+		exec(`DELETE FROM invoice_entries WHERE invoice_id IN
+			(SELECT id FROM invoices WHERE billing_year_id=ANY($1))`, yearIDs)
 		for _, c := range children {
 			exec(`DELETE FROM `+c+` WHERE billing_year_id = ANY($1)`, yearIDs)
 		}
 	}
 	if len(neighborIDs) > 0 {
+		exec(`DELETE FROM invoice_entries WHERE invoice_id IN
+			(SELECT id FROM invoices WHERE neighbor_id=ANY($1))`, neighborIDs)
 		for _, c := range children {
 			exec(`DELETE FROM `+c+` WHERE neighbor_id = ANY($1)`, neighborIDs)
 		}

@@ -139,20 +139,8 @@ func (s *Store) recurringPeople(ctx context.Context, t models.RecurTemplate, rul
 	if t.PersonID != nil {
 		ids = append(ids, *t.PersonID)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM persons WHERE id=ANY($1)`, ids)
+	live, err := s.existingPersonIDs(ctx, ids)
 	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	live := map[int64]bool{}
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, nil, err
-		}
-		live[id] = true
-	}
-	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 	for i := range companions {
@@ -165,6 +153,28 @@ func (s *Store) recurringPeople(ctx context.Context, t models.RecurTemplate, rul
 		personID = nil
 	}
 	return companions, personID, nil
+}
+
+// existingPersonIDs shares the lookup while each persisted recurring format
+// keeps its own policy for missing people and frozen helper snapshots.
+func (s *Store) existingPersonIDs(ctx context.Context, ids []int64) (map[int64]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM persons WHERE id=ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	live := make(map[int64]bool, len(ids))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		live[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return live, nil
 }
 
 // recurringOccurrence supplies resolved references without mutating the template.

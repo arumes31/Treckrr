@@ -42,9 +42,10 @@ type dsgvoSubject struct {
 }
 
 type dsgvoYear struct {
-	Year     int            `json:"year"`
-	Entries  []dsgvoEntry   `json:"entries"`
-	Invoices []dsgvoInvoice `json:"invoices"`
+	Year           int                                 `json:"year"`
+	Entries        []dsgvoEntry                        `json:"entries"`
+	Invoices       []dsgvoInvoice                      `json:"invoices"`
+	InvoiceSources []store.NeighborInvoiceSourceExport `json:"invoice_sources,omitempty"`
 	// Ausbaukarte 86: an Auskunft listing only bookings and invoices is
 	// incomplete. Money received, mutual settlements, the receipt photos held
 	// about this person, when their document was handed over and through which
@@ -72,14 +73,16 @@ type dsgvoDunning struct {
 }
 
 type dsgvoPayment struct {
-	ID        int64           `json:"id"`
-	PaidOn    time.Time       `json:"paid_on"`
-	Amount    decimal.Decimal `json:"amount"`
-	Method    string          `json:"method,omitempty"`
-	Invoice   string          `json:"invoice,omitempty"`
-	Note      string          `json:"note,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	DeletedAt *time.Time      `json:"deleted_at,omitempty"`
+	InvoiceID          *int64          `json:"invoice_id,omitempty"`
+	PreferredInvoiceID *int64          `json:"preferred_invoice_id,omitempty"`
+	ID                 int64           `json:"id"`
+	PaidOn             time.Time       `json:"paid_on"`
+	Amount             decimal.Decimal `json:"amount"`
+	Method             string          `json:"method,omitempty"`
+	Invoice            string          `json:"invoice,omitempty"`
+	Note               string          `json:"note,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	DeletedAt          *time.Time      `json:"deleted_at,omitempty"`
 }
 
 type dsgvoLedger struct {
@@ -99,11 +102,13 @@ type dsgvoPhoto struct {
 }
 
 type dsgvoSend struct {
-	SentAt  time.Time `json:"sent_at"`
-	Channel string    `json:"channel"`
+	InvoiceID *int64    `json:"invoice_id,omitempty"`
+	SentAt    time.Time `json:"sent_at"`
+	Channel   string    `json:"channel"`
 }
 
 type dsgvoShare struct {
+	InvoiceID  *int64     `json:"invoice_id,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  time.Time  `json:"expires_at"`
 	CreatedBy  string     `json:"created_by,omitempty"`
@@ -117,6 +122,7 @@ type dsgvoInstallment struct {
 }
 
 type dsgvoEntry struct {
+	ID         int64           `json:"id"`
 	Date       time.Time       `json:"date"`
 	Task       string          `json:"task"`
 	Tractor    string          `json:"tractor,omitempty"`
@@ -132,6 +138,7 @@ type dsgvoEntry struct {
 }
 
 type dsgvoInvoice struct {
+	ID       int64                  `json:"id"`
 	Number   string                 `json:"number"`
 	Kind     string                 `json:"kind"`
 	Status   string                 `json:"status"`
@@ -150,7 +157,7 @@ func dsgvoSubjectFromNeighbor(n *models.Neighbor) dsgvoSubject {
 
 func dsgvoEntryFrom(e models.Entry) dsgvoEntry {
 	return dsgvoEntry{
-		Date: e.Date, Task: e.TaskLabel, Tractor: e.TractorLabel, Load: e.LoadLabel,
+		ID: e.ID, Date: e.Date, Task: e.TaskLabel, Tractor: e.TractorLabel, Load: e.LoadLabel,
 		Machines: e.MachineLabels, Unit: e.Unit, Quantity: e.Quantity,
 		UnitPrice: e.UnitPrice, Cost: e.Cost, Note: e.Note,
 		Voided: e.Voided, VoidReason: e.VoidReason,
@@ -159,7 +166,7 @@ func dsgvoEntryFrom(e models.Entry) dsgvoEntry {
 
 func dsgvoInvoiceFrom(iv models.Invoice) dsgvoInvoice {
 	return dsgvoInvoice{
-		Number: iv.Number, Kind: iv.Kind, Status: iv.Status,
+		ID: iv.ID, Number: iv.Number, Kind: iv.Kind, Status: iv.Status,
 		IssuedOn: iv.IssuedOn, Content: iv.Content,
 	}
 }
@@ -221,6 +228,11 @@ func (s *Server) handleNeighborDataExport(w http.ResponseWriter, r *http.Request
 			s.serverError(w, r.URL.Path, err)
 			return
 		}
+		sources, err := s.store.ListNeighborInvoiceSourceExport(r.Context(), y.ID, n.ID)
+		if err != nil {
+			s.serverError(w, r.URL.Path, err)
+			return
+		}
 		payments, err := s.store.ListRetainedPayments(r.Context(), y.ID, n.ID)
 		if err != nil {
 			s.serverError(w, r.URL.Path, err)
@@ -265,7 +277,7 @@ func (s *Server) handleNeighborDataExport(w http.ResponseWriter, r *http.Request
 			len(photos) == 0 && len(sends) == 0 && len(shares) == 0 && len(plans) == 0 && len(dunning) == 0 {
 			continue // a year with no data for this person adds nothing.
 		}
-		dy := dsgvoYear{Year: y.Year, PaymentImports: paymentImports}
+		dy := dsgvoYear{Year: y.Year, PaymentImports: paymentImports, InvoiceSources: sources}
 		for _, e := range entries {
 			dy.Entries = append(dy.Entries, dsgvoEntryFrom(e))
 		}
@@ -276,7 +288,7 @@ func (s *Server) handleNeighborDataExport(w http.ResponseWriter, r *http.Request
 			dy.Payments = append(dy.Payments, dsgvoPayment{
 				ID: p.ID, CreatedAt: p.Created, DeletedAt: p.DeletedAt,
 				PaidOn: p.PaidOn, Amount: p.Amount, Method: p.Method,
-				Invoice: p.InvoiceNumber, Note: p.Note,
+				Invoice: p.InvoiceNumber, InvoiceID: p.InvoiceID, PreferredInvoiceID: p.PreferredInvoiceID, Note: p.Note,
 			})
 		}
 		for _, l := range ledger {
@@ -296,12 +308,12 @@ func (s *Server) handleNeighborDataExport(w http.ResponseWriter, r *http.Request
 			})
 		}
 		for _, snd := range sends {
-			dy.Sends = append(dy.Sends, dsgvoSend{SentAt: snd.SentAt, Channel: snd.Channel})
+			dy.Sends = append(dy.Sends, dsgvoSend{SentAt: snd.SentAt, Channel: snd.Channel, InvoiceID: snd.InvoiceID})
 		}
 		for _, sh := range shares {
 			dy.ShareLinks = append(dy.ShareLinks, dsgvoShare{
 				CreatedAt: sh.CreatedAt, ExpiresAt: sh.ExpiresAt,
-				CreatedBy: sh.CreatedBy, LastUsedAt: sh.LastUsedAt,
+				CreatedBy: sh.CreatedBy, LastUsedAt: sh.LastUsedAt, InvoiceID: sh.InvoiceID,
 			})
 		}
 		for _, pl := range plans {

@@ -59,20 +59,31 @@ func TestDunningRowsIntegration(t *testing.T) {
 	if err := st.AddNeighborToYear(ctx, yearID, nid); err != nil {
 		t.Fatalf("add neighbor: %v", err)
 	}
-	if _, err := st.CreateEntry(ctx, &models.Entry{
+	entryID, err := st.CreateEntry(ctx, &models.Entry{
 		NeighborID: nid, BillingYearID: yearID, Date: time.Now(), TaskLabel: "Arbeit",
 		Unit: "h", Hours: decimal.RequireFromString("1"), HourlyRate: decimal.RequireFromString("100"),
 		Cost: decimal.RequireFromString("100.00"),
-	}, nil); err != nil {
+	}, nil)
+	if err != nil {
 		t.Fatalf("entry: %v", err)
 	}
 	// Issue an invoice dated 30 days ago with a frozen GROSS of 113 (net 100 + 13%
 	// VAT), while the booking net is 100. DunningRows must dun the gross (113), not
 	// the net (100) — the net/gross bug this test guards against.
-	if _, err := pool.ExecContext(ctx,
+	var invoiceID int64
+	if err := pool.QueryRowContext(ctx,
 		`INSERT INTO invoices (billing_year_id, neighbor_id, number, issued_on, gross)
-		 VALUES ($1,$2,$3, CURRENT_DATE - 30, 113)`, yearID, nid, fmt.Sprintf("%d-999", yr)); err != nil {
+		 VALUES ($1,$2,$3, CURRENT_DATE - 30, 113) RETURNING id`,
+		yearID, nid, fmt.Sprintf("%d-999", yr)).Scan(&invoiceID); err != nil {
 		t.Fatalf("insert invoice: %v", err)
+	}
+	// This synthetic frozen document owns the booking; it is not new pending work.
+	if _, err := pool.ExecContext(ctx, `INSERT INTO invoice_entries
+		(invoice_id,entry_id,source_entry_id,ordinal) VALUES($1,$2,$2,1)`, invoiceID, entryID); err != nil {
+		t.Fatalf("claim invoice source: %v", err)
+	}
+	if remaining, err := st.AccountRemaining(ctx, yearID, nid); err != nil || !remaining.Equal(decimal.NewFromInt(113)) {
+		t.Fatalf("annual gross must count the source once: %s, %v", remaining, err)
 	}
 
 	now := time.Now()
@@ -86,6 +97,9 @@ func TestDunningRowsIntegration(t *testing.T) {
 	for _, r := range rows {
 		if r.NeighborID == nid {
 			found = true
+			if r.InvoiceID != invoiceID {
+				t.Errorf("dunning invoice = %d, want %d", r.InvoiceID, invoiceID)
+			}
 			if !r.Open.Equal(decimal.RequireFromString("113.00")) {
 				t.Errorf("open = %s, want 113.00 (invoice gross, not net 100)", r.Open)
 			}
@@ -112,6 +126,9 @@ func TestDunningRowsIntegration(t *testing.T) {
 	// Record a payment covering the full gross (113) → no longer open → not listed.
 	if err := st.AddPayment(ctx, yearID, nid, decimal.RequireFromString("113.00"), time.Now(), "", ""); err != nil {
 		t.Fatalf("add payment: %v", err)
+	}
+	if remaining, err := st.AccountRemaining(ctx, yearID, nid); err != nil || !remaining.IsZero() {
+		t.Fatalf("paid annual account = %s, %v", remaining, err)
 	}
 	rows, err = st.DunningRows(ctx, yearID, 14, now)
 	if err != nil {

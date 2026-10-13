@@ -334,7 +334,7 @@ func (s *Server) unifiedBookingError(w http.ResponseWriter, r *http.Request, err
 	case errors.Is(err, store.ErrIdempotencyConflict):
 		s.rejectUnifiedBooking(w, r, "Diese Buchungskennung wurde bereits für eine andere Buchung verwendet. Bitte als neue Buchung erfassen.")
 	case errors.Is(err, store.ErrInvoiceLocked):
-		s.rejectUnifiedBooking(w, r, "Die Rechnung ist festgeschrieben. Buchungen und Verrechnungen sind gesperrt.")
+		s.rejectUnifiedBooking(w, r, "Diese Position gehört zu einer festgeschriebenen Rechnung und kann nicht geändert werden. Neue Leistungen bleiben im offenen Jahr möglich.")
 	case errors.Is(err, store.ErrYearCompleted):
 		s.rejectUnifiedBooking(w, r, "Das Abrechnungsjahr ist abgeschlossen.")
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrNeighborAnonymized):

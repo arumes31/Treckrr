@@ -29,9 +29,12 @@ func (s *Store) AddPayment(ctx context.Context, yearID, neighborID int64, amount
 // percentage that becomes a § 16 credit note on the active invoice.
 type PaymentInput struct {
 	YearID, NeighborID int64
-	Amount             decimal.Decimal
-	PaidOn             time.Time
-	Note, Method       string
+	// InvoiceID explicitly prioritizes one active invoice in this account.
+	// Zero allocates oldest-open first; excess remains available to the account.
+	InvoiceID    int64
+	Amount       decimal.Decimal
+	PaidOn       time.Time
+	Note, Method string
 	// SkontoPct is a percentage of the active invoice's frozen gross; zero means
 	// no Skonto. Ignored when no invoice (or no invoice snapshot) exists.
 	SkontoPct decimal.Decimal
@@ -74,6 +77,9 @@ func formKeyLock(kind, key string) string {
 // year, cap exceeded) left a recorded payment without its credit. Every Skonto
 // precondition is now checked before anything is written.
 func (s *Store) RecordPayment(ctx context.Context, in PaymentInput) (PaymentResult, error) {
+	if in.InvoiceID < 0 {
+		return PaymentResult{}, ErrNotFound
+	}
 	amount := models.RoundMoney(in.Amount)
 	if !amount.IsPositive() {
 		return PaymentResult{}, ErrPaymentAmount
@@ -91,9 +97,9 @@ func (s *Store) RecordPayment(ctx context.Context, in PaymentInput) (PaymentResu
 		var same bool
 		err := tx.QueryRowContext(ctx, `
 			SELECT id, billing_year_id=$2 AND neighbor_id=$3 AND amount=$4 AND paid_on=$5::date
-			       AND note=$6 AND method=$7
+			       AND note=$6 AND method=$7 AND COALESCE(preferred_invoice_id,0)=$8
 			  FROM payments WHERE idempotency_key=$1`,
-			in.IdempotencyKey, in.YearID, in.NeighborID, amount, in.PaidOn, in.Note, in.Method).Scan(&id, &same)
+			in.IdempotencyKey, in.YearID, in.NeighborID, amount, in.PaidOn, in.Note, in.Method, in.InvoiceID).Scan(&id, &same)
 		switch {
 		case err == nil && same:
 			return PaymentResult{PaymentID: id, Duplicate: true}, tx.Commit()
@@ -110,23 +116,28 @@ func (s *Store) RecordPayment(ctx context.Context, in PaymentInput) (PaymentResu
 	if !ok {
 		return PaymentResult{}, ErrNotFound
 	}
-	credit, err := prepareSkonto(ctx, tx, in.YearID, in.NeighborID, in.SkontoPct)
+	if in.InvoiceID != 0 {
+		if _, err := activeInvoiceTx(ctx, tx, in.YearID, in.NeighborID, in.InvoiceID); err != nil {
+			return PaymentResult{}, err
+		}
+	}
+	credit, err := prepareSkonto(ctx, tx, in.YearID, in.NeighborID, in.InvoiceID, in.SkontoPct)
 	if err != nil {
 		return PaymentResult{}, err
 	}
-	// Linked to the ACTIVE invoice at recording time, forward-only: after a
-	// storno + re-issue the attribution used to be guesswork. A scalar subquery
-	// keeps this a single statement — no invoice means NULL, exactly as before.
+	// Keep historical attribution separate from the explicit allocation choice.
+	// A FIFO payment has an attribution only when exactly one invoice exists;
+	// it must never silently prefer the latest invoice.
 	var id int64
 	err = tx.QueryRowContext(ctx,
-		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method, invoice_id, idempotency_key)
+		`INSERT INTO payments (billing_year_id, neighbor_id, amount, paid_on, note, method,
+		                       invoice_id, idempotency_key, preferred_invoice_id)
 		 VALUES ($1,$2,$3,$4,$5,$6,
-		         (SELECT id FROM invoices
-		           WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued'
-		           ORDER BY id DESC LIMIT 1),
-		         $7)
+		         COALESCE(NULLIF($8::bigint,0),(SELECT CASE WHEN COUNT(*)=1 THEN MIN(id) END FROM invoices
+		           WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued')),
+		         $7,NULLIF($8::bigint,0))
 		 RETURNING id`,
-		in.YearID, in.NeighborID, amount, in.PaidOn, in.Note, in.Method, nullStr(in.IdempotencyKey)).Scan(&id)
+		in.YearID, in.NeighborID, amount, in.PaidOn, in.Note, in.Method, nullStr(in.IdempotencyKey), in.InvoiceID).Scan(&id)
 	if err != nil {
 		return PaymentResult{}, err
 	}
@@ -162,15 +173,12 @@ type skontoCredit struct {
 // returns what to issue, or nil when there is nothing to credit (no Skonto, no
 // active invoice, a legacy invoice without snapshot, or a zero amount). The
 // caller holds the account lock.
-func prepareSkonto(ctx context.Context, tx *sql.Tx, yearID, neighborID int64, pct decimal.Decimal) (*skontoCredit, error) {
+func prepareSkonto(ctx context.Context, tx *sql.Tx, yearID, neighborID, invoiceID int64, pct decimal.Decimal) (*skontoCredit, error) {
 	if !pct.IsPositive() {
 		return nil, nil
 	}
-	orig, err := scanInvoice(tx.QueryRowContext(ctx,
-		`SELECT `+invoiceCols+` FROM invoices
-		  WHERE billing_year_id=$1 AND neighbor_id=$2 AND kind='invoice' AND status='issued' FOR UPDATE`,
-		yearID, neighborID))
-	if errors.Is(err, sql.ErrNoRows) {
+	orig, err := activeInvoiceTx(ctx, tx, yearID, neighborID, invoiceID)
+	if errors.Is(err, ErrNotFound) && invoiceID == 0 {
 		return nil, nil // no active invoice: a Skonto has nothing to reduce
 	}
 	if err != nil {
@@ -191,7 +199,7 @@ func prepareSkonto(ctx context.Context, tx *sql.Tx, yearID, neighborID int64, pc
 	if status == "completed" {
 		return nil, ErrSkontoYearCompleted
 	}
-	if err := checkCreditCap(ctx, tx, yearID, neighborID, orig.Content.Gross, gross); err != nil {
+	if err := checkInvoiceCreditCap(ctx, tx, orig, gross); err != nil {
 		return nil, err
 	}
 	return &skontoCredit{orig: orig, base: *orig.Content, gross: gross}, nil

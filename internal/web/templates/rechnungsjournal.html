@@ -29,7 +29,7 @@
 						{{if eq .Status "canceled"}}<span class="tag">storniert</span>{{end}}
 						{{if not .CountsForRevenue}}<span class="tag">nicht im Umsatz</span>{{end}}
 					</td>
-					<td><a href="/neighbors/{{.NeighborID}}/beleg?year={{$.Year.ID}}&rechnung=1">{{.NeighborName}}</a></td>
+					<td><a href="/neighbors/{{.NeighborID}}/beleg?year={{$.Year.ID}}{{if eq .Kind "invoice"}}&amp;invoice_id={{.ID}}{{end}}">{{.NeighborName}}</a></td>
 					<td class="num">{{money .Net}}</td>
 					<td class="num">{{money .VATAmount}}</td>
 					<td class="num">{{money .Gross}}</td>

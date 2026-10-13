@@ -42,8 +42,8 @@ func TestDSGVOExportAndAnonymizeIntegration(t *testing.T) {
 	e.post(fmt.Sprintf("/neighbors/%d/installments", nid), url.Values{
 		"year_id": {itoa64(yid)}, "due_on": {"2026-06-01"}, "amount": {"25"}, "note": {"1. Rate"},
 	})
-	e.post(fmt.Sprintf("/neighbors/%d/beleg/mark-sent?year=%d", nid, yid), url.Values{})
 	e.postIssue(nid, url.Values{"year_id": {itoa64(yid)}})
+	e.post(fmt.Sprintf("/neighbors/%d/beleg/mark-sent?year=%d", nid, yid), url.Values{})
 	e.post(fmt.Sprintf("/neighbors/%d/beleg/share?year=%d", nid, yid), url.Values{"days": {"14"}})
 
 	// The export must carry all of it.

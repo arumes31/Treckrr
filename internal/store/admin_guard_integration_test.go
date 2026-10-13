@@ -1,14 +1,9 @@
 package store_test
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/d0linger/treckrr/internal/db"
 	"github.com/d0linger/treckrr/internal/models"
 	"github.com/d0linger/treckrr/internal/store"
 )
@@ -17,48 +12,11 @@ import (
 // deleted, the invariant is enforced atomically, and non-last admins/editors are
 // unaffected.
 func TestLastAdminGuardIntegration(t *testing.T) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping DB integration test")
-	}
-	ctx := context.Background()
-	pool, err := db.Connect(ctx, url)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer pool.Close()
-	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	st := store.New(pool, "test-encryption-secret")
-
-	// Unique usernames so the suite can share a database. The PID is stable enough
-	// to collide across runs (a fresh container often reuses low PIDs), and the
-	// admin-count invariant under test is global — one leftover admin makes
-	// "cannot demote the ONLY admin" silently untrue — so purge first.
-	// The invariant below is global, so this test must not run while another
-	// package's test holds an admin user open. Same advisory lock as the server
-	// package's handler env.
-	// A pinned connection: pg_advisory_lock is session-scoped, so releasing it
-	// through the pool could hit a different connection and leave it held.
-	lockConn, err := pool.Conn(ctx)
-	if err != nil {
-		t.Fatalf("admin-count lock conn: %v", err)
-	}
-	defer lockConn.Close()
-	lockCtx, lockCancel := context.WithTimeout(ctx, 30*time.Second)
-	defer lockCancel()
-	if _, err := lockConn.ExecContext(lockCtx, `SELECT pg_advisory_lock(918273645)`); err != nil {
-		t.Fatalf("admin-count advisory lock: %v", err)
-	}
-	defer func() {
-		_, _ = lockConn.ExecContext(ctx, `SELECT pg_advisory_unlock(918273645)`)
-	}()
-
-	u := func(s string) string { return fmt.Sprintf("sh04_%s_%d", s, os.Getpid()) }
-	f := fixtures{UsernameLike: `sh04\_%`}
-	purgeFixtures(t, ctx, pool, f)
-	defer purgeFixtures(t, ctx, pool, f)
+	ctx := t.Context()
+	// This invariant counts every active admin. A private database keeps unrelated
+	// test actors from silently invalidating the "only admin" precondition.
+	st, _ := scratchStore(t)
+	u := func(s string) string { return "sh04_" + s }
 
 	adminID, err := st.CreateUser(ctx, u("admin1"), "pw-admin-1-xxxxx", models.RoleAdmin)
 	if err != nil {

@@ -162,7 +162,7 @@ func TestNeighborPhotoURLsBySource(t *testing.T) {
 func TestIssueInvoiceConfirmedBindsContent(t *testing.T) {
 	st, _, yearID, neighborID, _ := invoiceFixture(t, false)
 	ctx := context.Background()
-	preview, err := st.BuildInvoiceContent(ctx, yearID, neighborID)
+	preview, err := st.BuildPendingInvoiceContent(ctx, yearID, neighborID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestIssueInvoiceConfirmedBindsContent(t *testing.T) {
 	if _, err := st.GetInvoice(ctx, yearID, neighborID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("an invoice was issued for unconfirmed content: %v", err)
 	}
-	fresh, err := st.BuildInvoiceContent(ctx, yearID, neighborID)
+	fresh, err := st.BuildPendingInvoiceContent(ctx, yearID, neighborID)
 	if err != nil {
 		t.Fatal(err)
 	}

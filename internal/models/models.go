@@ -149,6 +149,7 @@ type RecurringEntry struct {
 
 // BelegSend records that a neighbor's Beleg was sent/handed over in a year.
 type BelegSend struct {
+	InvoiceID     *int64 // nil denotes legacy annual delivery history
 	ID            int64
 	BillingYearID int64
 	NeighborID    int64
@@ -160,6 +161,7 @@ type BelegSend struct {
 // token's hash lives in the DB; the raw token is shown once at creation. The
 // stored row enables self-service: chosen validity and revocation at any time.
 type BelegShare struct {
+	InvoiceID     *int64 // immutable document bound to this capability
 	ID            int64
 	NeighborID    int64
 	BillingYearID int64
@@ -331,6 +333,7 @@ type Neighbor struct {
 
 // Entry is a booked unit of work with snapshotted pricing for stable exports.
 type Entry struct {
+	InvoiceLocked bool `json:"-"` // derived from an active immutable source assignment
 	ID            int64
 	NeighborID    int64
 	BillingYearID int64

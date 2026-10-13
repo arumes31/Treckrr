@@ -14,7 +14,8 @@ import (
 // It is for subject access, not balances or ordinary payment lists.
 type RetainedPayment struct {
 	models.Payment
-	DeletedAt *time.Time
+	DeletedAt          *time.Time
+	PreferredInvoiceID *int64
 }
 
 // ListRetainedPayments includes deleted_at so an access export cannot silently
@@ -25,7 +26,7 @@ func (s *Store) ListRetainedPayments(ctx context.Context, yearID, neighborID int
 		        p.method, p.invoice_id, COALESCE(iv.number,''),
 		        (SELECT r.batch_id FROM payment_import_rows r
 		          WHERE r.payment_id=p.id OR r.reversal_payment_id=p.id LIMIT 1),
-		        p.reversal_of_payment_id IS NOT NULL, p.created_at, p.deleted_at
+		        p.reversal_of_payment_id IS NOT NULL, p.created_at, p.deleted_at, p.preferred_invoice_id
 		   FROM payments p LEFT JOIN invoices iv ON iv.id=p.invoice_id
 		  WHERE p.billing_year_id=$1 AND p.neighbor_id=$2 ORDER BY p.paid_on, p.id`, yearID, neighborID)
 	if err != nil {
@@ -36,10 +37,43 @@ func (s *Store) ListRetainedPayments(ctx context.Context, yearID, neighborID int
 	for rows.Next() {
 		var p RetainedPayment
 		if err := rows.Scan(&p.ID, &p.BillingYearID, &p.NeighborID, &p.Amount, &p.PaidOn, &p.Note,
-			&p.Method, &p.InvoiceID, &p.InvoiceNumber, &p.ImportBatchID, &p.Reversal, &p.Created, &p.DeletedAt); err != nil {
+			&p.Method, &p.InvoiceID, &p.InvoiceNumber, &p.ImportBatchID, &p.Reversal, &p.Created,
+			&p.DeletedAt, &p.PreferredInvoiceID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// NeighborInvoiceSourceExport retains both active claims and released historical
+// provenance. EntryID is nil if an unbilled source was deleted after cancellation.
+type NeighborInvoiceSourceExport struct {
+	InvoiceID     int64  `json:"invoice_id"`
+	EntryID       *int64 `json:"entry_id,omitempty"`
+	SourceEntryID int64  `json:"source_entry_id"`
+	Ordinal       int    `json:"ordinal"`
+	Active        bool   `json:"active"`
+}
+
+// ListNeighborInvoiceSourceExport scopes provenance through its retained invoice,
+// including inactive claims whose original entry is no longer present.
+func (s *Store) ListNeighborInvoiceSourceExport(ctx context.Context, yearID, neighborID int64) ([]NeighborInvoiceSourceExport, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT ie.invoice_id,ie.entry_id,ie.source_entry_id,ie.ordinal,ie.active
+		FROM invoice_entries ie JOIN invoices iv ON iv.id=ie.invoice_id
+		WHERE iv.billing_year_id=$1 AND iv.neighbor_id=$2
+		ORDER BY ie.invoice_id,ie.ordinal`, yearID, neighborID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NeighborInvoiceSourceExport
+	for rows.Next() {
+		var source NeighborInvoiceSourceExport
+		if err := rows.Scan(&source.InvoiceID, &source.EntryID, &source.SourceEntryID, &source.Ordinal, &source.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, source)
 	}
 	return out, rows.Err()
 }
@@ -126,6 +160,7 @@ func (s *Store) ListNeighborRecurringExport(ctx context.Context, neighborID int6
 type NeighborMailExport struct {
 	ID              int64      `json:"id"`
 	BillingYearID   *int64     `json:"billing_year_id,omitempty"`
+	InvoiceID       *int64     `json:"invoice_id,omitempty"`
 	Kind            string     `json:"kind"`
 	Recipient       string     `json:"recipient"`
 	Subject         string     `json:"subject"`
@@ -143,7 +178,7 @@ type NeighborMailExport struct {
 // subject. Attachments are described without loading their binary contents.
 func (s *Store) ListNeighborMailExport(ctx context.Context, neighborID int64) ([]NeighborMailExport, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, billing_year_id, kind, recipient, subject, body, att_name, att_type,
+		`SELECT id, billing_year_id, invoice_id, kind, recipient, subject, body, att_name, att_type,
 		        COALESCE(octet_length(att_data),0), status, attempts, created_at, sent_at
 		   FROM mail_outbox WHERE neighbor_id=$1 ORDER BY id`, neighborID)
 	if err != nil {
@@ -153,7 +188,7 @@ func (s *Store) ListNeighborMailExport(ctx context.Context, neighborID int64) ([
 	out := []NeighborMailExport{}
 	for rows.Next() {
 		var mail NeighborMailExport
-		if err := rows.Scan(&mail.ID, &mail.BillingYearID, &mail.Kind, &mail.Recipient, &mail.Subject,
+		if err := rows.Scan(&mail.ID, &mail.BillingYearID, &mail.InvoiceID, &mail.Kind, &mail.Recipient, &mail.Subject,
 			&mail.Body, &mail.AttachmentName, &mail.AttachmentType, &mail.AttachmentBytes,
 			&mail.Status, &mail.Attempts, &mail.CreatedAt, &mail.SentAt); err != nil {
 			return nil, err

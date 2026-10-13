@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +41,9 @@ func (c *mockEmailConn) Prepare(query string) (driver.Stmt, error) {
 }
 func (c *mockEmailConn) Close() error              { return nil }
 func (c *mockEmailConn) Begin() (driver.Tx, error) { return &mockEmailTx{}, nil }
+func (c *mockEmailConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return &mockEmailTx{}, nil
+}
 
 type mockEmailTx struct{}
 
@@ -55,6 +60,9 @@ func (s *mockEmailStmt) Exec(args []driver.Value) (driver.Result, error) {
 	return &mockEmailResult{}, nil
 }
 func (s *mockEmailStmt) Query(args []driver.Value) (driver.Rows, error) {
+	if strings.Contains(strings.ToLower(s.query), "from mail_outbox") {
+		return nil, errors.New("dial synthetic outbox host: connection refused")
+	}
 	return &mockEmailRows{query: s.query}, nil
 }
 
@@ -71,6 +79,16 @@ type mockEmailRows struct {
 func (r *mockEmailRows) Columns() []string {
 	q := strings.ToLower(r.query)
 	switch {
+	case strings.Contains(q, "select exists("):
+		return []string{"exists"}
+	case strings.Contains(q, "select anonymized"):
+		return []string{"anonymized"}
+	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
+		return []string{"id", "billing_year_id", "neighbor_id", "kind", "issued_on", "gross", "references_invoice_id"}
+	case strings.Contains(q, "select p.id,p.billing_year_id"):
+		return []string{"id", "billing_year_id", "neighbor_id", "amount", "paid_on", "reversal", "preferred", "target_year", "target_neighbor", "kind", "status"}
+	case strings.Contains(q, "sum(amount) from neighbor_ledger"):
+		return []string{"billing_year_id", "neighbor_id", "amount"}
 	case strings.Contains(q, "content_hash"):
 		return []string{
 			"id", "billing_year_id", "neighbor_id", "number", "issued_on", "created_at",
@@ -102,6 +120,14 @@ func (r *mockEmailRows) Next(dest []driver.Value) error {
 	q := strings.ToLower(r.query)
 
 	switch {
+	case strings.Contains(q, "select exists("):
+		dest[0] = true
+	case strings.Contains(q, "select anonymized"):
+		dest[0] = false
+	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
+		copy(dest, []driver.Value{int64(1), int64(1), int64(1), "invoice", time.Now(), "120.00", int64(0)})
+	case strings.Contains(q, "select p.id,p.billing_year_id"), strings.Contains(q, "sum(amount) from neighbor_ledger"):
+		return io.EOF
 	case strings.Contains(q, "content_hash"):
 		dest[0] = int64(1)
 		dest[1] = int64(1)

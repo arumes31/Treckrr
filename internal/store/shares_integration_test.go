@@ -46,6 +46,17 @@ func TestBelegShareIntegration(t *testing.T) {
 		t.Fatalf("neighbor: %v", err)
 	}
 
+	// Portal events and responses are tied to the revocable share and the exact
+	// immutable invoice content hash. They are communication records only.
+	const contentHash = "portal-content-hash"
+	var invoiceID int64
+	if err := pool.QueryRowContext(ctx, `INSERT INTO invoices
+		(billing_year_id,neighbor_id,number,net,vat_rate,vat_amount,gross,issuer,recipient,lines,content_hash)
+		VALUES ($1,$2,$3,10,0,0,10,'{}','{}','[]',$4) RETURNING id`,
+		yearID, nid, fmt.Sprintf("%d-901", yr), contentHash).Scan(&invoiceID); err != nil {
+		t.Fatalf("invoice fixture: %v", err)
+	}
+
 	// create + resolve
 	hash := fmt.Sprintf("hash-%d", nano)
 	id, err := st.CreateBelegShare(ctx, hash, nid, yearID, time.Now().Add(24*time.Hour), "admin")
@@ -64,16 +75,6 @@ func TestBelegShareIntegration(t *testing.T) {
 		t.Errorf("resolve should have stamped last_used_at")
 	}
 
-	// Portal events and responses are tied to the revocable share and the exact
-	// immutable invoice content hash. They are communication records only.
-	const contentHash = "portal-content-hash"
-	var invoiceID int64
-	if err := pool.QueryRowContext(ctx, `INSERT INTO invoices
-		(billing_year_id,neighbor_id,number,net,vat_rate,vat_amount,gross,issuer,recipient,lines,content_hash)
-		VALUES ($1,$2,$3,10,0,0,10,'{}','{}','[]',$4) RETURNING id`,
-		yearID, nid, fmt.Sprintf("%d-901", yr), contentHash).Scan(&invoiceID); err != nil {
-		t.Fatalf("invoice fixture: %v", err)
-	}
 	resolvedID, _, _, ok, err := st.ResolveBelegShareAccess(ctx, hash)
 	if err != nil || !ok || resolvedID != id {
 		t.Fatalf("resolve with id: got (%d,%v,%v), want (%d,true,nil)", resolvedID, ok, err, id)

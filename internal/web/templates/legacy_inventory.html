@@ -18,5 +18,32 @@
 	<p class="muted">Diese Formen sind nicht automatisch Fehler. Auch manuelle Verrechnungen und reine Maschinenbezeichnungen sind weiterhin zulässig. Eine Anzahl von 0 in dieser Datenbank beweist nicht, dass ein Lesepfad in historischen Backups unbenutzt ist.</p>
 	<a class="btn btn--ghost" href="/admin/legacy-inventory?format=json" download="treckrr-bestandsbericht.json">Bericht als JSON</a>
 	</div>
+	<section class="card stack" aria-labelledby="invoice-source-title">
+		<h2 id="invoice-source-title">Rechnungszuordnung vorbereiten</h2>
+		<p>Vergleiche festgeschriebene Rechnungen mit den zugehörigen Leistungsbuchungen. Die Prüfung liest Daten und meldet Abweichungen. Sie ordnet keine Buchungen zu, ändert keine Rechnungen und schaltet mehrere Rechnungen pro Jahr nicht frei. Nach Änderungen muss die Prüfung erneut ausgeführt werden.</p>
+		<a class="btn btn--ghost" href="/admin/legacy-inventory?invoice_sources=1">Rechnungszuordnung prüfen</a>
+		{{with .InvoiceSourceCheck}}
+		<dl class="bkp__meta">
+			<div><dt>Geprüfte Rechnungen</dt><dd>{{.Checked}}</dd></div>
+			<div><dt>Mit Buchungen übereinstimmend</dt><dd>{{.Matched}}</dd></div>
+			<div><dt>Übereinstimmende Buchungen</dt><dd>{{.MatchedEntries}}</dd></div>
+			<div><dt>Offene Prüffälle</dt><dd>{{len .Issues}}</dd></div>
+		</dl>
+		{{if .Issues}}
+		<p>Diese Fälle müssen vor einer Zuordnung geklärt werden. Die IDs bezeichnen gespeicherte Datensätze; Jahres-ID und Rechnungs-ID sind keine Jahres- oder Rechnungsnummern.</p>
+		<div class="tablewrap" role="region" aria-label="Abweichungen bei der Rechnungszuordnung" tabindex="0">
+			<table><thead><tr><th scope="col">Rechnungs-ID</th><th scope="col">Jahres-ID</th><th scope="col">Nachbar-ID</th><th scope="col">Prüfhinweis</th></tr></thead>
+			<tbody>{{range $.InvoiceSourceIssues}}<tr><td>{{.InvoiceID}}</td><td>{{.YearID}}</td><td>{{.NeighborID}}</td><td>{{.Description}}</td></tr>{{end}}</tbody></table>
+		</div>
+		{{else if .Checked}}
+		<p>Die geprüften Rechnungen stimmen mit ihren Leistungsbuchungen überein. Das Ergebnis ist eine Vorbereitung, keine Freigabe einer Datenmigration.</p>
+		{{else}}
+		<p>Keine aktiven Rechnungen für diese Prüfung vorhanden.</p>
+		{{end}}
+		<a class="btn btn--ghost" href="/admin/legacy-inventory?format=json&amp;invoice_sources=1" download="treckrr-rechnungszuordnung-pruefung.json">Prüfergebnis als JSON</a>
+		{{else}}
+		<p class="muted">Die zusätzliche Prüfung startet erst über „Rechnungszuordnung prüfen“.</p>
+		{{end}}
+	</section>
 </section>
 {{end}}

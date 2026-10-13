@@ -39,7 +39,7 @@ func TestDocumentServiceBuildsInvoiceMailFromFrozenSnapshot(t *testing.T) {
 	if document.Subject != "Rechnung 2026-017" || document.Outbox.Subject != document.Subject {
 		t.Fatalf("subject = %q/%q, want shared invoice subject", document.Subject, document.Outbox.Subject)
 	}
-	if document.Outbox.DeliveryKey != "beleg:17:nachbar@example.at" || document.Outbox.BillingYearID != 42 {
+	if document.Outbox.DeliveryKey != "beleg:17:nachbar@example.at" || document.Outbox.BillingYearID != 42 || document.Outbox.InvoiceID != invoice.ID {
 		t.Fatalf("outbox identity = %+v", document.Outbox)
 	}
 	if document.Attachment.Filename != "Rechnung_2026-017.pdf" ||

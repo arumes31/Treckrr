@@ -31,10 +31,10 @@
 				</span>
 				{{ $key := .Key }}
 				{{if eq (len .Neighbors) 1}}
-				{{range .Neighbors}}<a class="link" href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if eq $key "unpaid"}}&amp;view=payments{{end}}">{{.Name}} prüfen</a>{{end}}
+				{{range .Neighbors}}<a class="link" href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if or (eq $key "unpaid") (eq $key "account_unpaid")}}&amp;view=payments{{end}}">{{.Name}} prüfen</a>{{end}}
 				{{else if .Neighbors}}
 				<details class="disclosure disclosure--plain"><summary>Betroffene Konten prüfen ({{len .Neighbors}})</summary>
-				<div class="action-list">{{range .Neighbors}}<a href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if eq $key "unpaid"}}&amp;view=payments{{end}}"><span>{{.Name}}</span><span>Prüfen ›</span></a>{{end}}</div></details>
+				<div class="action-list">{{range .Neighbors}}<a href="/neighbors/{{.ID}}?year={{$.Year.ID}}{{if or (eq $key "unpaid") (eq $key "account_unpaid")}}&amp;view=payments{{end}}"><span>{{.Name}}</span><span>Prüfen ›</span></a>{{end}}</div></details>
 				{{end}}
 			</div>
 			<span class="status status--neutral">{{.Count}} offen</span>

@@ -705,6 +705,7 @@ func TestMahnungPagePreservesDocumentAndPaymentActions(t *testing.T) {
 				"Neighbor":   models.Neighbor{ID: 12, Name: "Testnachbar", Address: "Feldweg 2"},
 				"Company":    models.Company{Name: "Hof <Bergmann>", Address: "Dorfweg 1", IBAN: "TEST-IBAN"},
 				"InvoiceNo":  "2026-012",
+				"InvoiceID":  int64(19),
 				"Today":      date,
 				"IssuedOn":   time.Time{},
 				"Open":       decimal.NewFromInt(100),
@@ -754,7 +755,7 @@ func TestMahnungPagePreservesDocumentAndPaymentActions(t *testing.T) {
 			}
 			// HTML escaping of query separators must not obscure the actual action URL.
 			decoded := html.UnescapeString(page)
-			query := "?year=7&stufe=" + strconv.Itoa(tc.stage)
+			query := "?year=7&invoice_id=19&stufe=" + strconv.Itoa(tc.stage)
 			if !strings.Contains(decoded, `href="/neighbors/12/mahnung.pdf`+query+`"`) {
 				t.Error("PDF link does not preserve neighbor, year, and reminder stage")
 			}

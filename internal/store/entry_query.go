@@ -148,13 +148,18 @@ func (s *Store) DeleteEntries(ctx context.Context, ids []int64) (int, error) {
 		                WHERE y.id = e.billing_year_id AND y.status <> 'completed')
 		   AND EXISTS (SELECT 1 FROM neighbors n
 		                WHERE n.id = e.neighbor_id AND NOT n.anonymized)
-		   AND NOT EXISTS (SELECT 1 FROM invoices iv
-		                    WHERE iv.billing_year_id = e.billing_year_id
-		                      AND iv.neighbor_id = e.neighbor_id
-		                      AND iv.kind = 'invoice' AND iv.status = 'issued')`, ids)
+		   AND NOT EXISTS (SELECT 1 FROM invoice_entries ie
+		                    WHERE ie.entry_id=e.id AND ie.active)
+		   AND NOT EXISTS (SELECT 1 FROM entries child
+		                    WHERE child.linked_entry_id=e.id
+		                      AND (child.billing_year_id<>e.billing_year_id OR child.neighbor_id<>e.neighbor_id
+		                        OR EXISTS(SELECT 1 FROM invoice_entries ie WHERE ie.entry_id=child.id AND ie.active)))`, ids)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return int(n), tx.Commit()
 }

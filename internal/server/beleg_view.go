@@ -22,6 +22,8 @@ type belegView struct {
 	TotalHours            decimal.Decimal
 	Ledger                []models.LedgerEntry
 	LedgerSum             decimal.Decimal
+	IssuedVAT             decimal.Decimal
+	InvoiceReconciliation decimal.Decimal
 	Saldo                 decimal.Decimal
 	Completed             bool
 	Paid                  bool
@@ -82,6 +84,8 @@ func (v belegView) bind(data pageData) {
 	data["TotalHours"] = v.TotalHours
 	data["Ledger"] = v.Ledger
 	data["LedgerSum"] = v.LedgerSum
+	data["IssuedVAT"] = v.IssuedVAT
+	data["InvoiceReconciliation"] = v.InvoiceReconciliation
 	data["Saldo"] = v.Saldo
 	data["Completed"] = v.Completed
 	data["Paid"] = v.Paid

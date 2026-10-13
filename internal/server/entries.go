@@ -135,8 +135,12 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	// positive for display ("Guthaben (45,00 €)").
 	view.CreditAmount = remaining.Neg()
 	// An issued invoice enables the Skonto (§16) option on the payment form.
-	_, invErr := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	view.HasInvoice = invErr == nil
+	invoices, err := s.store.ListActiveInvoices(r.Context(), year.ID, neighbor.ID)
+	if err != nil {
+		s.serverError(w, "neighbor invoices", err)
+		return
+	}
+	view.Invoices, view.HasInvoice = invoices, len(invoices) > 0
 	// Mannstunden (Nr. 56/57) and Anfahrt (Nr. 58) get their own small forms on
 	// this page rather than extra fields in the main booking form, whose three
 	// stacked submit handlers and pricing fetch are not worth disturbing.
@@ -211,7 +215,7 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	view.BookingValues = bookingValues
-	view.BookingLocked = view.HasInvoice
+	view.BookingLocked = year.Completed()
 	view.BookingAction = "/entries"
 	view.bind(data)
 	if len(ledger) > 0 {
@@ -502,28 +506,6 @@ func (s *Server) handlePricingAPI(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
-// invoiceLocked reports whether a festgeschriebene (issued) Rechnung exists for
-// this neighbor+year. While one does, the neighbor's bookings and ledger for that
-// year are locked (BAO §131 Unveränderbarkeit): corrections go through a
-// Storno/Gutschrift, not by editing the frozen basis. Payments and year-close are
-// deliberately NOT gated by this — they stay decoupled from invoicing. On a true
-// lock (or a lookup error, failing closed) it writes the flash + redirect and
-// returns true so the caller just returns.
-func (s *Server) invoiceLocked(w http.ResponseWriter, r *http.Request, yearID, neighborID int64) bool {
-	iv, err := s.store.GetInvoice(r.Context(), yearID, neighborID)
-	if errors.Is(err, store.ErrNotFound) {
-		return false
-	}
-	if err != nil {
-		s.setFlash(w, r, "error", "Rechnungsstatus konnte nicht geprüft werden.")
-		redirect(w, r, neighborURL(neighborID, yearID))
-		return true
-	}
-	s.setFlash(w, r, "error", "Rechnung "+iv.Number+" ist festgeschrieben – Buchungen und Verrechnungen für diesen Nachbarn sind gesperrt. Für Korrekturen bitte die Rechnung stornieren.")
-	redirect(w, r, neighborURL(neighborID, yearID))
-	return true
-}
-
 func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
@@ -589,7 +571,7 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 		reject(http.StatusUnprocessableEntity, "Das Abrechnungsjahr ist abgeschlossen – es können keine Buchungen mehr erfasst werden.", neighborURL(neighborID, yearID))
 		return
 	}
-	// Inline the neighbor-in-year and invoice-lock checks (rather than the
+	// Inline the neighbor-in-year checks (rather than the
 	// w,r-writing helpers) so the same gates can answer a replay with a status
 	// code; the interactive messages/redirect targets are unchanged.
 	if in, err := s.store.NeighborInYear(r.Context(), year.ID, neighborID); err != nil {
@@ -597,15 +579,6 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if !in {
 		reject(http.StatusUnprocessableEntity, "Nachbar ist diesem Abrechnungsjahr nicht zugeordnet.", dashboardURL(yearID))
-		return
-	}
-	if iv, err := s.store.GetInvoice(r.Context(), year.ID, neighborID); err == nil {
-		reject(http.StatusUnprocessableEntity, "Rechnung "+iv.Number+" ist festgeschrieben – Buchungen und Verrechnungen für diesen Nachbarn sind gesperrt. Für Korrekturen bitte die Rechnung stornieren.", neighborURL(neighborID, yearID))
-		return
-	} else if !errors.Is(err, store.ErrNotFound) {
-		// A real store failure (not "no invoice") is transient — return 500 so an
-		// offline replay retries automatically instead of marking it for review.
-		s.serverError(w, r.URL.Path, err)
 		return
 	}
 
@@ -1122,9 +1095,6 @@ func (s *Server) ledgerYearOpen(w http.ResponseWriter, r *http.Request, yearID, 
 		redirect(w, r, neighborURL(neighborID, yearID))
 		return false
 	}
-	if s.invoiceLocked(w, r, yearID, neighborID) {
-		return false
-	}
 	return true
 }
 
@@ -1170,7 +1140,9 @@ func (s *Server) entryYearOpen(w http.ResponseWriter, r *http.Request, e *models
 		redirect(w, r, neighborURL(e.NeighborID, e.BillingYearID))
 		return false
 	}
-	if s.invoiceLocked(w, r, e.BillingYearID, e.NeighborID) {
+	if e.InvoiceLocked {
+		s.setFlash(w, r, "error", "Diese Position ist festgeschrieben. Für Korrekturen bitte die zugehörige Rechnung stornieren.")
+		redirect(w, r, neighborURL(e.NeighborID, e.BillingYearID))
 		return false
 	}
 	return true
@@ -1518,8 +1490,7 @@ func (s *Server) handleEntryEditForm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	_, invErr := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	data["BookingLocked"] = year.Completed() || !errors.Is(invErr, store.ErrNotFound)
+	data["BookingLocked"] = year.Completed() || entry.InvoiceLocked
 	s.render(w, r, "entry_edit", data)
 }
 
@@ -1584,8 +1555,7 @@ func (s *Server) handleEntryCopy(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, r.URL.Path, err)
 		return
 	}
-	_, invErr := s.store.GetInvoice(r.Context(), year.ID, neighbor.ID)
-	data["BookingLocked"] = year.Completed() || !errors.Is(invErr, store.ErrNotFound)
+	data["BookingLocked"] = year.Completed()
 	s.render(w, r, "entry_edit", data)
 }
 
@@ -1809,8 +1779,7 @@ func (s *Server) handleQuickEntries(w http.ResponseWriter, r *http.Request) {
 			reject(http.StatusUnprocessableEntity, "Das Abrechnungsjahr ist abgeschlossen.", neighborBookingURL(neighborID, yearID))
 			return
 		}
-		// Inlined rather than routed through a w,r-writing helper (as invoiceLocked
-		// still is elsewhere) so these gates can answer a replay with a status code —
+		// Inlined rather than routed through a w,r-writing helper so these gates can answer a replay with a status code —
 		// the same reason handleEntryCreate inlines them. The interactive messages and
 		// redirect targets are unchanged.
 		//
@@ -1825,17 +1794,7 @@ func (s *Server) handleQuickEntries(w http.ResponseWriter, r *http.Request) {
 			reject(http.StatusUnprocessableEntity, "Nachbar ist diesem Abrechnungsjahr nicht zugeordnet.", dashboardURL(yearID))
 			return
 		}
-		if iv, err := s.store.GetInvoice(r.Context(), year.ID, neighborID); err == nil {
-			msg := "Rechnung " + iv.Number + " ist festgeschrieben – Buchungen und Verrechnungen für diesen Nachbarn sind gesperrt. Für Korrekturen bitte die Rechnung stornieren."
-			markPending(msg)
-			reject(http.StatusUnprocessableEntity, msg, neighborBookingURL(neighborID, yearID))
-			return
-		} else if !errors.Is(err, store.ErrNotFound) {
-			// A real store failure is transient — 500 so a replay retries instead of
-			// dropping the rows as a permanent 422.
-			s.serverError(w, r.URL.Path, err)
-			return
-		}
+
 		created, paired, createErr = s.createQuickRows(r, year, neighborID, rows)
 	}
 
