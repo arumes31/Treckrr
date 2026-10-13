@@ -27,13 +27,22 @@ func insertInvoiceDoc(ctx context.Context, tx *sql.Tx, yearID, neighborID int64,
 		  (billing_year_id, neighbor_id, number, kind, status, references_invoice_id, payment_reference,
 		   net, vat_rate, vat_amount, gross, show_vat, tax_mode, tax_note,
 		   service_from, service_to, issuer, recipient, lines, content_hash, issued_on,
-		   skonto_pct, skonto_until)
-		VALUES ($1,$2,$3,$4,'issued',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		   skonto_pct, skonto_until, payment_term_days)
+		VALUES ($1,$2,$3,$4,'issued',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		RETURNING `+invoiceCols,
 		yearID, neighborID, number, kind, refID, number,
 		c.Net, c.VATRate, c.VATAmount, c.Gross, c.ShowVAT, c.TaxMode, c.TaxNote,
 		nullDate(c.ServiceFrom), nullDate(c.ServiceTo), issuerJSON, recipientJSON, linesJSON, c.Hash, issuedOn,
-		nullSkonto(c.SkontoPct), nullDate(c.SkontoUntil)))
+		nullSkonto(c.SkontoPct), nullDate(c.SkontoUntil), frozenPaymentTerm(c)))
+}
+
+// Copies of historical documents retain an unknown term rather than acquiring
+// a new, falsely frozen due date when reversed or credited.
+func frozenPaymentTerm(c models.InvoiceContent) any {
+	if c.PaymentTermFrozen || c.PaymentTermDays > 0 {
+		return c.PaymentTermDays
+	}
+	return nil
 }
 
 func addInvoiceAudit(ctx context.Context, tx *sql.Tx, action string, iv models.Invoice) error {

@@ -168,7 +168,7 @@ try {
   if (report.unexpectedDifferences.matrix.length || report.unexpectedDifferences.upgrade.length) {
     throw new Error('Billing parity failed; inspect comparison.json for unexpected financial or display changes');
   }
-  await test(images[1], 'migration-regressions', ['-run', '^TestInvoiceSourceMigration', './internal/db']);
+  await test(images[1], 'migration-regressions', ['-run', '^TestInvoice(Source|PaymentTerm)Migration', './internal/db']);
   report.regressionRuns.migration = true;
   saveReport();
   if (runtimeRegressions === '1') {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/signintech/gopdf"
@@ -18,6 +19,14 @@ const (
 	marginR  = 42.0
 	contentW = pageW - marginL - marginR
 )
+
+// InvoicePaymentStatus is a dated settlement supplement, not part of the frozen
+// invoice. Remaining is the invoice-specific outstanding amount after payments,
+// credits and offsets, and must be between zero and the positive invoice gross.
+type InvoicePaymentStatus struct {
+	AsOf      time.Time
+	Remaining decimal.Decimal
+}
 
 // money formats a decimal in German notation with a trailing € (e.g. 1.234,56 €).
 func money(d decimal.Decimal) string {
@@ -66,6 +75,46 @@ func RenderInvoice(iv *models.Invoice) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// RenderInvoiceWithPaymentStatus adds a current settlement supplement to a
+// customer copy without changing the snapshot or the archival RenderInvoice PDF.
+func RenderInvoiceWithPaymentStatus(iv *models.Invoice, status InvoicePaymentStatus) ([]byte, error) {
+	if iv == nil || iv.Content == nil {
+		return nil, fmt.Errorf("invoice payment status requires a frozen snapshot")
+	}
+	if iv.Kind != "invoice" {
+		return nil, fmt.Errorf("invoice payment status does not support document kind %q", iv.Kind)
+	}
+	if iv.Status != "issued" && iv.Status != "canceled" {
+		return nil, fmt.Errorf("invoice payment status does not support status %q", iv.Status)
+	}
+	if status.AsOf.IsZero() {
+		return nil, fmt.Errorf("invoice payment status requires an observation date")
+	}
+	positiveGross := decimal.Max(iv.Content.Gross, decimal.Zero)
+	if status.Remaining.IsNegative() || status.Remaining.GreaterThan(positiveGross) {
+		return nil, fmt.Errorf("invoice remaining amount is outside the invoice gross")
+	}
+	if !status.Remaining.Equal(status.Remaining.Round(2)) {
+		return nil, fmt.Errorf("invoice remaining amount must use whole cents")
+	}
+	if iv.Status == "canceled" && !status.Remaining.IsZero() {
+		return nil, fmt.Errorf("canceled invoice must not request a payment")
+	}
+
+	doc, err := newDoc()
+	if err != nil {
+		return nil, err
+	}
+	if err := invoicePageWithPaymentStatus(doc, iv, &status); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // RenderInvoices paints SEVERAL invoices into one document, a page each
 // (Ausbaukarte 98). A Sammel-PDF is what an operator hands to the tax adviser
 // or prints in one go; the ZIP of separate files (Nr. 50) is the archive.
@@ -103,6 +152,11 @@ func RenderInvoices(invoices []*models.Invoice) ([]byte, []string, error) {
 
 // invoicePage paints one invoice onto a fresh page of an existing document.
 func invoicePage(pdf *gopdf.GoPdf, iv *models.Invoice) error {
+	return invoicePageWithPaymentStatus(pdf, iv, nil)
+}
+
+// invoicePageWithPaymentStatus keeps archival output on the unchanged nil path.
+func invoicePageWithPaymentStatus(pdf *gopdf.GoPdf, iv *models.Invoice, status *InvoicePaymentStatus) error {
 	c := iv.Content
 	pdf.AddPage()
 	y := 48.0
@@ -231,7 +285,25 @@ func invoicePage(pdf *gopdf.GoPdf, iv *models.Invoice) error {
 	y += 22
 
 	if strings.TrimSpace(c.TaxNote) != "" {
-		y = block(marginL, y, 9, c.TaxNote) + 6
+		if status == nil {
+			y = block(marginL, y, 9, c.TaxNote) + 6
+		} else {
+			// Customer supplements need room even after unusually long tax notes.
+			for _, line := range wrap(c.TaxNote, 100) {
+				if y > 770 {
+					pdf.AddPage()
+					y = 56
+				}
+				text(marginL, y, 9, false, line)
+				y += 12
+			}
+			y += 6
+		}
+	}
+	if status != nil {
+		invoicePaymentBlock(pdf, iv, *status, y)
+		gfooter(pdf, c.Issuer.Name, c.Issuer.Address, c.Issuer.TaxID, c.Issuer.IBAN)
+		return nil
 	}
 	// Payment info.
 	if strings.TrimSpace(c.Issuer.IBAN) != "" {
@@ -254,6 +326,71 @@ func invoicePage(pdf *gopdf.GoPdf, iv *models.Invoice) error {
 
 	gfooter(pdf, c.Issuer.Name, c.Issuer.Address, c.Issuer.TaxID, c.Issuer.IBAN)
 	return nil
+}
+
+// invoicePaymentBlock keeps the dated live settlement visibly separate from
+// immutable invoice totals and keeps the entire supplement clear of the footer.
+func invoicePaymentBlock(pdf *gopdf.GoPdf, iv *models.Invoice, status InvoicePaymentStatus, y float64) {
+	c := iv.Content
+	hasPayment := status.Remaining.IsPositive()
+	hasIBAN := strings.TrimSpace(c.Issuer.IBAN) != ""
+	hasSkonto := c.SkontoPct.IsPositive() && !c.SkontoUntil.IsZero()
+	// Heading, settled/open rows, explanation, and optional bank/terms lines.
+	height := 132.0
+	if hasPayment && hasIBAN {
+		height += 32
+		if strings.TrimSpace(iv.PaymentReference) != "" {
+			height += 16
+		}
+	}
+	if hasSkonto {
+		height += 16
+	}
+	if y+height > 790 {
+		pdf.AddPage()
+		y = 56
+		gtext(pdf, marginL, y, 10, true, "Rechnung "+iv.Number)
+		y += 22
+	}
+	y += 10
+	pdf.SetStrokeColor(17, 86, 56)
+	pdf.SetLineWidth(1)
+	pdf.Line(marginL, y, pageW-marginR, y)
+	y += 12
+	gtext(pdf, marginL, y, 11, true, "Zahlungsstand vom "+status.AsOf.Format("02.01.2006 15:04 MST"))
+	y += 23
+	if iv.Status == "canceled" {
+		gtext(pdf, marginL, y, 11, true, "Storniert - keine Zahlung erforderlich.")
+		y += 20
+	} else {
+		settled := decimal.Max(c.Gross, decimal.Zero).Sub(status.Remaining)
+		gtext(pdf, marginL, y, 9.5, false, "Bereits bezahlt / verrechnet")
+		gtextR(pdf, pageW-marginR, y, 9.5, false, money(settled))
+		y += 20
+		gtext(pdf, marginL, y, 11, true, "Noch zu überweisen")
+		gtextR(pdf, pageW-marginR, y, 13, true, money(status.Remaining))
+		y += 22
+		if !hasPayment {
+			gtext(pdf, marginL, y, 9.5, false, "Keine Zahlung erforderlich.")
+			y += 16
+		}
+	}
+	gtext(pdf, marginL, y, 8.5, false, "Ergänzung zum unveränderten Rechnungsinhalt; Stand zum angegebenen Datum.")
+	y += 18
+	if hasPayment && hasIBAN {
+		gtext(pdf, marginL, y, 9.5, false, "IBAN "+c.Issuer.IBAN)
+		y += 16
+		if strings.TrimSpace(iv.PaymentReference) != "" {
+			gtext(pdf, marginL, y, 9.5, false, "Verwendungszweck: "+iv.PaymentReference)
+			y += 16
+		}
+	}
+	if hasSkonto {
+		// Terms stay visible as frozen, including after settlement or cancellation.
+		line := "Festgeschriebene Kondition: " + trimZeros(c.SkontoPct) + " % Skonto bis " +
+			c.SkontoUntil.Format("02.01.2006")
+		gtext(pdf, marginL, y, 9, false, line)
+	}
 }
 
 func firstNonEmpty(vals ...string) string {

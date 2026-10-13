@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/d0linger/treckrr/internal/pdf"
 	"github.com/d0linger/treckrr/internal/store"
 )
 
@@ -57,7 +56,12 @@ func (s *Server) handleSharedInvoicePDF(w http.ResponseWriter, r *http.Request) 
 		s.notFound(w, r)
 		return
 	}
-	blob, err := pdf.RenderInvoice(&iv)
+	view, err := s.loadInvoiceDocumentView(r.Context(), iv)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	blob, err := s.documents().invoicePDF(view)
 	if err != nil {
 		s.serverError(w, "portal pdf", err)
 		return

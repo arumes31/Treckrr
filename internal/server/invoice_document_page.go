@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/d0linger/treckrr/internal/calc"
 	"github.com/d0linger/treckrr/internal/einvoice"
 	"github.com/d0linger/treckrr/internal/models"
@@ -18,30 +16,20 @@ import (
 func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 	neighbor *models.Neighbor, year *models.BillingYear, invoice models.Invoice, token string, shareID int64,
 ) {
-	remaining := decimal.Zero
-	var err error
-	if invoice.Status == "issued" {
-		remaining, err = s.store.InvoiceDocumentRemaining(r.Context(), invoice.ID)
-		if err != nil {
-			s.invoiceRequestError(w, r, err)
-			return
-		}
-	}
-	view, err := newInvoiceDocumentView(invoice, remaining)
+	view, err := s.loadInvoiceDocumentView(r.Context(), invoice)
 	if err != nil {
-		s.serverError(w, "invoice document", err)
+		s.invoiceRequestError(w, r, err)
 		return
 	}
 	data := s.newPage(w, r, "Rechnung "+invoice.Number, "dashboard")
 	data["Doc"], data["Invoice"], data["Neighbor"], data["Year"] = view, invoice, neighbor, year
 	data["Shared"], data["Completed"] = token != "", year.Completed()
-	if view.Active && remaining.IsPositive() {
+	if view.Active && view.Remaining.IsPositive() {
 		company, err := s.store.GetCompany(r.Context())
 		if err != nil {
 			s.serverError(w, "invoice payment term", err)
 			return
 		}
-		term := company.EffectiveTermDays()
 		termNeighbor := neighbor
 		if token != "" {
 			// Public document parties stay frozen; use only the current payment
@@ -53,9 +41,7 @@ func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 			}
 			termNeighbor = liveNeighbor
 		}
-		if termNeighbor.PaymentTermDays != nil {
-			term = *termNeighbor.PaymentTermDays
-		}
+		term := invoicePaymentTerm(invoice, company, *termNeighbor)
 		due := invoice.IssuedOn.AddDate(0, 0, term)
 		data["DueOn"], data["DueDays"] = due, calc.DaysBetween(time.Now(), due)
 	}

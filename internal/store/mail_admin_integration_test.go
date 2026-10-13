@@ -54,7 +54,7 @@ func TestMailAdminLifecycleIntegration(t *testing.T) {
 	}
 
 	ambiguous, _, err := st.CreateMailIntent(ctx, store.OutboxMail{
-		Kind: "mahnung", Recipient: "mail-admin-ambiguous@example.invalid",
+		Kind: "beleg", Recipient: "mail-admin-ambiguous@example.invalid",
 		Subject: "Maybe sent", Body: "retained body", DeliveryKey: "it:mail-admin:ambiguous",
 	})
 	if err != nil {

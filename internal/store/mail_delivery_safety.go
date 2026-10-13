@@ -235,6 +235,14 @@ func (s *Store) ProcessMailOutbox(ctx context.Context,
 func (s *Store) processOneOutboxMail(ctx context.Context, m OutboxMail, dueOnly bool,
 	send MailSender,
 ) (status string, attempted bool, err error) {
+	current, err := s.dunningMailCurrent(ctx, m)
+	if err != nil {
+		return "", false, err
+	}
+	if !current {
+		status, err := s.holdStaleDunningMail(ctx, m, MailStatusPending, 0)
+		return status, false, err
+	}
 	var attempts, attemptSeq int
 	// The backoff is added to the database clock, the same clock the due query
 	// compares against, so app/DB skew cannot shorten or stretch it.
@@ -251,6 +259,7 @@ func (s *Store) processOneOutboxMail(ctx context.Context, m OutboxMail, dueOnly 
 		       delivery_phase='claimed',
 		       message_id=COALESCE(NULLIF(message_id,''),$4)
 		 WHERE id=$1 AND status='pending' AND ($3 = false OR next_attempt_at <= now())
+		   AND (message_id IS NULL OR message_id='' OR message_id=$4)
 		 RETURNING attempts, attempt_seq`, m.ID, outboxBackoff(m.Attempts+1).Seconds(), dueOnly, m.MessageID).
 		Scan(&attempts, &attemptSeq)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -272,6 +281,13 @@ func (s *Store) processOneOutboxMail(ctx context.Context, m OutboxMail, dueOnly 
 	// that write fails the transport aborts before DATA, so the mail is
 	// definitely not delivered and the ordinary retry path applies.
 	sendCtx := mail.WithDataStartHook(ctx, func(hookCtx context.Context) error {
+		current, err := s.dunningMailCurrent(hookCtx, m)
+		if err != nil {
+			return err
+		}
+		if !current {
+			return errStaleDunningMail
+		}
 		tx, err := s.db.BeginTx(hookCtx, nil)
 		if err != nil {
 			return err
@@ -279,7 +295,7 @@ func (s *Store) processOneOutboxMail(ctx context.Context, m OutboxMail, dueOnly 
 		defer func() { _ = tx.Rollback() }()
 		res, err := tx.ExecContext(hookCtx, `
 			UPDATE mail_outbox SET delivery_phase='data'
-			 WHERE id=$1 AND status='sending'`, m.ID)
+			 WHERE id=$1 AND status='sending' AND attempt_seq=$2 AND message_id=$3`, m.ID, attemptSeq, m.MessageID)
 		if err != nil {
 			return err
 		}
@@ -297,6 +313,10 @@ func (s *Store) processOneOutboxMail(ctx context.Context, m OutboxMail, dueOnly 
 		return tx.Commit()
 	})
 	sendErr := send(sendCtx, m.MessageID, m.Recipient, m.Subject, m.Body, m.AttName, m.AttType, m.AttData)
+	if errors.Is(sendErr, errStaleDunningMail) {
+		status, err := s.holdStaleDunningMail(ctx, m, MailStatusSending, attemptSeq)
+		return status, true, err
+	}
 	if sendErr == nil {
 		if err := s.settleDelivered(ctx, m, attempts, attemptSeq); err != nil {
 			detail := "delivery confirmed but bookkeeping failed: " + safeMailError(err)

@@ -264,7 +264,11 @@ func billingParitySnapshot(t *testing.T, st *store.Store, scenario, checkpoint s
 			"gross": row.Gross.String(), "counts_for_revenue": row.CountsForRevenue()})
 	}
 	out["journal"] = journalRows
-	dunning, err := st.DunningRows(ctx, yearID, 14, time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	company, err := st.GetCompany(ctx)
+	billingParityOK(t, err)
+	// Match the real handler: use the configured term, including explicit zero,
+	// rather than passing a synthetic 14-day fallback to a zero-day fixture.
+	dunning, err := st.DunningRows(ctx, yearID, company.EffectiveTermDays(), time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
 	billingParityOK(t, err)
 	dunningRows := make([]map[string]any, 0, len(dunning))
 	for _, row := range dunning {

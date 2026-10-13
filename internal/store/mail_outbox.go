@@ -68,10 +68,11 @@ type OutboxMail struct {
 
 // OutboxMeta is the per-kind bookkeeping payload (see OutboxMail.Meta).
 type OutboxMeta struct {
-	Stage         int             `json:"stage,omitempty"`
-	Fee           decimal.Decimal `json:"fee,omitempty"`
-	GraceUntil    time.Time       `json:"grace_until,omitempty"`
-	InvoiceNumber string          `json:"invoice_number,omitempty"`
+	Stage         int              `json:"stage,omitempty"`
+	Fee           decimal.Decimal  `json:"fee,omitempty"`
+	GraceUntil    time.Time        `json:"grace_until,omitempty"`
+	InvoiceNumber string           `json:"invoice_number,omitempty"`
+	OpenAmount    *decimal.Decimal `json:"open_amount,omitempty"`
 }
 
 // outboxMaxAttempts is how often a parked mail is retried before it is marked
@@ -139,6 +140,7 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 	}
 	requestedMessageID := m.MessageID
 	var storedInvoiceID int64
+	var previousError string
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return OutboxMail{}, false, err
@@ -168,12 +170,23 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 		return OutboxMail{}, false, err
 	}
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, status, attempts, message_id, COALESCE(invoice_id,0)
+		SELECT id, status, attempts, message_id, COALESCE(invoice_id,0), last_error
 		  FROM mail_outbox WHERE delivery_key=$1`, m.DeliveryKey).
-		Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID, &storedInvoiceID)
+		Scan(&m.ID, &m.Status, &m.Attempts, &m.MessageID, &storedInvoiceID, &previousError)
 	if err == nil {
 		if storedInvoiceID != 0 && storedInvoiceID != m.InvoiceID {
 			return OutboxMail{}, false, ErrIdempotencyConflict
+		}
+		if storedInvoiceID == 0 && m.InvoiceID > 0 && m.Kind == "mahnung" &&
+			m.RetryFailed && m.Status == MailStatusHeld && previousError == staleDunningMailReason && m.Meta.OpenAmount != nil {
+			// Keep unbound historical bytes/history untouched. A verified new
+			// demand has a stable generation key, so repeated requests coalesce.
+			m.DeliveryKey += fmt.Sprintf(":verified:%d:%s", m.ID, m.Meta.OpenAmount.StringFixed(2))
+			m.ID, m.Status, m.Attempts, m.MessageID = 0, "", 0, requestedMessageID
+			if err := tx.Commit(); err != nil {
+				return OutboxMail{}, false, err
+			}
+			return s.CreateMailIntent(ctx, m)
 		}
 		// Never retroactively attribute an unbound historical delivery.
 		m.InvoiceID = storedInvoiceID
@@ -183,6 +196,11 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 			reopenStatus = MailStatusFailed
 		case m.ForceResend && m.Status == MailStatusAmbiguous:
 			reopenStatus = MailStatusAmbiguous
+		case m.RetryFailed && m.Status == MailStatusHeld && m.Kind == "mahnung" &&
+			previousError == staleDunningMailReason && m.Meta.OpenAmount != nil:
+			// An explicit new reminder replaces a stale unsent demand. Restore
+			// quarantine and ambiguous deliveries keep their separate controls.
+			reopenStatus = MailStatusHeld
 		}
 		if reopenStatus != "" {
 			var queueRows, payloadBytes int64
@@ -204,7 +222,7 @@ func (s *Store) CreateMailIntent(ctx context.Context, m OutboxMail) (OutboxMail,
 				   SET recipient=$2, subject=$3, body=$4, att_name=$5, att_type=$6,
 				       att_data=$7, meta=$8, message_id=$9, status='pending', attempts=0,
 				       next_attempt_at=now(), claimed_at=NULL, terminal_at=NULL,
-				       sent_at=NULL, redacted_at=NULL, last_error='', invoice_id=$11
+				       sent_at=NULL, redacted_at=NULL, held_at=NULL, last_error='', invoice_id=$11
 				 WHERE id=$1 AND status=$10
 				 RETURNING status, attempts`, m.ID, m.Recipient, m.Subject, m.Body,
 				m.AttName, m.AttType, m.AttData, meta, m.MessageID, reopenStatus, nullable(m.InvoiceID)).

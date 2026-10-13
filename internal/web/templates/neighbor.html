@@ -365,7 +365,7 @@
 			<input type="hidden" name="idempotency_key" value="{{formKey}}">
 			<div class="form__grid">
 				<label class="field"><span>Betrag (€)</span>
-					<input class="input" type="number" step="0.01" min="0.01" name="amount"{{if .Remaining.IsPositive}} value="{{.Remaining.StringFixed 2}}"{{end}} required></label>
+					<input class="input" type="number" step="0.01" min="0.01" name="amount" data-payment-amount{{if .PaymentAmount.IsPositive}} value="{{.PaymentAmount.StringFixed 2}}"{{end}} required></label>
 				<label class="field"><span>Datum</span>
 					<input class="input" type="date" name="paid_on" value="{{.Today}}"></label>
 				<label class="field"><span>Zahlungsart</span>
@@ -379,7 +379,7 @@
 					<input class="input" name="note" placeholder="optional"></label>
 				{{if .HasInvoice}}
 				<label class="field"><span>Rechnung zuordnen (optional)</span>
-					<select class="select" name="invoice_id"><option value="">Automatisch: älteste offene Rechnung zuerst</option>{{range .Invoices}}<option value="{{.ID}}">{{.Number}} · {{money .Content.Gross}}</option>{{end}}</select></label>
+					<select class="select" name="invoice_id" data-payment-invoice><option value="" data-remaining="{{.Remaining.StringFixed 2}}">Automatisch: älteste offene Rechnung zuerst</option>{{range .PaymentInvoices}}<option value="{{.Invoice.ID}}" data-remaining="{{.Remaining.StringFixed 2}}"{{if eq .Invoice.ID $.SelectedInvoiceID}} selected{{end}}>{{.Invoice.Number}} · offen {{money .Remaining}} von {{money .Invoice.Content.Gross}}</option>{{end}}</select></label>
 				<label class="field"><span>Skonto % (§ 16, optional)</span>
 					<input class="input" type="number" step="0.1" min="0" max="10" name="skonto" placeholder="z. B. 2"></label>
 				{{end}}

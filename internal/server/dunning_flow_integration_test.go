@@ -14,6 +14,9 @@ import (
 func TestDunningFlowIntegration(t *testing.T) {
 	e := newItEnv(t)
 	nid, yid := e.neighborID, e.yearID64
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE company SET payment_term_days=14`); err != nil {
+		t.Fatal(err)
+	}
 
 	// A frozen invoice to dun: booking + issue (same path the lifecycle test uses).
 	e.post("/entries", url.Values{
@@ -37,13 +40,21 @@ func TestDunningFlowIntegration(t *testing.T) {
 		t.Fatalf("neighbor already dunned at a 14-day term on an invoice issued today")
 	}
 
-	// Per-neighbor override to 0 days: due immediately -> the list must show it.
+	// A later neighbor override must not rewrite newly frozen invoice terms.
 	e.post(fmt.Sprintf("/neighbors/%d/update", nid), url.Values{
 		"name": {"IT-Nachbar " + e.uname}, "note": {""},
 		"address": {"Feldweg 1, 4710 Testdorf"}, "tax_id": {""}, "email": {""},
 		"payment_term_days": {"0"},
 	})
 	page := e.get(fmt.Sprintf("/mahnwesen?year=%d", yid))
+	if strings.Contains(page, "IT-Nachbar") {
+		t.Fatal("later neighbor term rewrote frozen invoice terms")
+	}
+	// Historical NULL terms retain the established neighbor/company fallback.
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE invoices SET payment_term_days=NULL WHERE billing_year_id=$1`, yid); err != nil {
+		t.Fatal(err)
+	}
+	page = e.get(fmt.Sprintf("/mahnwesen?year=%d", yid))
 	if !strings.Contains(page, "IT-Nachbar") {
 		t.Fatalf("neighbor with a 0-day override is missing from the dunning list")
 	}
@@ -62,8 +73,8 @@ func TestDunningFlowIntegration(t *testing.T) {
 		yid, nid).Scan(&stage, &channel, &fee, &grace); err != nil {
 		t.Fatalf("no dunning notice recorded: %v", err)
 	}
-	if stage != 1 || channel != "manuell" || fee != "5.00" {
-		t.Errorf("notice = stage %d / %s / fee %s, want 1 / manuell / 5.00", stage, channel, fee)
+	if stage != 1 || channel != "manuell" || fee != "0.00" {
+		t.Errorf("notice = stage %d / %s / fee %s, want 1 / manuell / 0.00", stage, channel, fee)
 	}
 	wantGrace := time.Now().AddDate(0, 0, 10)
 	if grace.Format("2006-01-02") != wantGrace.Format("2006-01-02") {
@@ -73,10 +84,10 @@ func TestDunningFlowIntegration(t *testing.T) {
 		t.Errorf("list does not show the recorded notice")
 	}
 
-	// The letter page carries the money the PDF will print: total incl. fee.
+	// Unbooked fee settings are retained and explained, never demanded.
 	letter := e.get(fmt.Sprintf("/neighbors/%d/mahnung?year=%d&stufe=1", nid, yid))
-	if !strings.Contains(letter, "Mahnspesen") {
-		t.Errorf("letter page shows no fee although stage 1 charges 5 €")
+	if !strings.Contains(letter, "nicht automatisch gebucht") || strings.Contains(letter, "inkl. 5,00") {
+		t.Errorf("letter must explain why unbooked fees are not requested")
 	}
 
 	// Cross-year open items include the row and its year.
@@ -97,13 +108,13 @@ func TestDunningBatchEmailFallsBackToOutboxIntegration(t *testing.T) {
 		"gespann_id": {itoa64(e.gespannID)}, "entry_date": {"2026-04-06"},
 		"hours": {"1"}, "unit": {"h"},
 	})
-	e.postIssue(nid, url.Values{"year_id": {itoa64(yid)}})
 	// Overdue immediately, and give the neighbor an address so the batch tries.
 	e.post(fmt.Sprintf("/neighbors/%d/update", nid), url.Values{
 		"name": {"IT-Nachbar " + e.uname}, "note": {""},
 		"address": {"Feldweg 1, 4710 Testdorf"}, "tax_id": {""},
 		"email": {"batch-" + e.uname + "@example.invalid"}, "payment_term_days": {"0"},
 	})
+	e.postIssue(nid, url.Values{"year_id": {itoa64(yid)}})
 
 	e.post("/mahnwesen/batch-email", url.Values{"year": {itoa64(yid)}, "stufe": {"1"}})
 

@@ -254,9 +254,15 @@ test("new work creates a separate invoice; selected and FIFO payments preserve b
   }
 
   const pay = async (invoiceID: string, amount: string) => {
-    await page.goto("/neighbors/1?year=1&view=payments");
+    if (invoiceID) {
+      await page.goto(invoiceID === secondID ? secondURL : firstURL);
+      await page.getByRole("link", { name: "Zahlung verbuchen", exact: true }).click();
+    } else {
+      await page.goto("/neighbors/1?year=1&view=payments");
+    }
     const form = page.locator('form[action="/neighbors/1/payments"]');
-    await form.locator('select[name="invoice_id"]').selectOption(invoiceID);
+    await expect(form.locator('select[name="invoice_id"]')).toHaveValue(invoiceID);
+    if (invoiceID === secondID) await expect(form.locator('input[name="amount"]')).toHaveValue("40.00");
     await form.locator('input[name="amount"]').fill(amount);
     await form.getByRole("button", { name: "Zahlung erfassen", exact: true }).click();
     await page.waitForLoadState("load");

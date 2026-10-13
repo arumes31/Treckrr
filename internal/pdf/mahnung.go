@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"time"
 
@@ -31,6 +32,9 @@ type MahnungData struct {
 
 // RenderMahnung builds an A4 reminder PDF.
 func RenderMahnung(m MahnungData) ([]byte, error) {
+	if !m.Open.IsPositive() || !m.Fee.IsZero() {
+		return nil, errors.New("reminder requires an open invoice and no unbooked fee")
+	}
 	pdf, err := newDoc()
 	if err != nil {
 		return nil, err

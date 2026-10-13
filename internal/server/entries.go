@@ -141,6 +141,43 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view.Invoices, view.HasInvoice = invoices, len(invoices) > 0
+	view.PaymentAmount = remaining
+	if view.Section == "payments" {
+		selectedID, selected, err := requestedInvoiceID(r)
+		if err != nil {
+			s.invoiceRequestError(w, r, err)
+			return
+		}
+		allocations, err := s.store.AccountInvoiceAllocations(r.Context(), year.ID, neighbor.ID)
+		if err != nil {
+			s.serverError(w, "payment invoice balances", err)
+			return
+		}
+		balances := make(map[int64]decimal.Decimal, len(allocations.Invoices))
+		for _, allocation := range allocations.Invoices {
+			balances[allocation.InvoiceID] = allocation.Remaining
+		}
+		for _, invoice := range invoices {
+			balance, exists := balances[invoice.ID]
+			if !exists {
+				s.invoiceRequestError(w, r, store.ErrNotFound)
+				return
+			}
+			paymentView, err := newInvoiceDocumentView(invoice, balance)
+			if err != nil {
+				s.invoiceRequestError(w, r, err)
+				return
+			}
+			view.PaymentInvoices = append(view.PaymentInvoices, paymentView)
+			if selected && invoice.ID == selectedID {
+				view.SelectedInvoiceID, view.PaymentAmount = selectedID, balance
+			}
+		}
+		if selected && view.SelectedInvoiceID == 0 {
+			s.invoiceRequestError(w, r, store.ErrNotFound)
+			return
+		}
+	}
 	// Mannstunden (Nr. 56/57) and Anfahrt (Nr. 58) get their own small forms on
 	// this page rather than extra fields in the main booking form, whose three
 	// stacked submit handlers and pricing fetch are not worth disturbing.

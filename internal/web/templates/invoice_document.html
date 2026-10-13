@@ -35,7 +35,7 @@
 				<span class="beleg__payinfo-k">Zahlungsstand dieser Rechnung</span>
 				<span>Bereits verrechnet / bezahlt: {{money .Doc.AppliedSettlement}}</span>
 				<strong>Offen: {{money .Doc.Remaining}}</strong>
-				{{with .DueOn}}<span class="beleg__inv-due">Fällig am {{date .}} · aktuelles Zahlungsziel{{if gt $.DueDays 0}} (in {{$.DueDays}} Tagen){{else if eq $.DueDays 0}} (heute){{end}}</span>{{end}}
+				{{with .DueOn}}<span class="beleg__inv-due">Fällig am {{date .}} · {{if $.Invoice.Content.PaymentTermFrozen}}vereinbartes{{else}}aktuelles{{end}} Zahlungsziel{{if gt $.DueDays 0}} (in {{$.DueDays}} Tagen){{else if eq $.DueDays 0}} (heute){{end}}</span>{{end}}
 				{{if .Doc.Remaining.IsPositive}}<span>Referenz: {{.Doc.PaymentReference}}</span>{{with .Invoice.Content.Issuer.IBAN}}<span>IBAN: {{.}}</span>{{end}}{{else}}<span>Diese Rechnung ist ausgeglichen.</span>{{end}}
 			</div>
 			{{if .Doc.HasEpcQR}}<img class="beleg__epcqr" src="{{if .Shared}}/s/portal/{{.PortalToken}}/epc-qr.png{{else}}/neighbors/{{.Neighbor.ID}}/invoice/epc-qr.png?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}" width="118" height="118" alt="QR-Code zum Bezahlen des offenen Rechnungsbetrags">{{end}}
@@ -49,7 +49,7 @@
 		<a class="btn btn--primary" href="{{if .Shared}}/s/portal/{{.PortalToken}}/invoice.pdf{{else}}/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}">Rechnung als PDF</a>
 		{{if not .Shared}}
 		{{if not .EInvoiceMissing}}<a class="btn btn--ghost" href="/documents/{{.Invoice.ID}}/ebinterface.xml">e-Rechnung XML</a>{{end}}
-		<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a>
+		{{if and .Doc.Active .Doc.Remaining.IsPositive}}<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments&amp;invoice_id={{.Invoice.ID}}#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
 		{{if .Doc.Active}}
 		{{if and .MailEnabled .NeighborEmail}}<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/email?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} an {{.NeighborEmail}} senden?"><button class="btn btn--ghost" type="submit">Per E-Mail senden</button></form>{{end}}
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} als versendet markieren? Dies ist nur ein interner Vermerk; es wird nichts verschickt."><button class="btn btn--ghost{{if .LastSend}} is-sent{{end}}" type="submit">{{if .LastSend}}Versendet am {{date .LastSend.SentAt}}{{else}}Als versendet markieren{{end}}</button></form>

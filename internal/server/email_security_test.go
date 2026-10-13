@@ -83,6 +83,8 @@ func (r *mockEmailRows) Columns() []string {
 		return []string{"exists"}
 	case strings.Contains(q, "select anonymized"):
 		return []string{"anonymized"}
+	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):
+		return []string{"billing_year_id", "neighbor_id"}
 	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
 		return []string{"id", "billing_year_id", "neighbor_id", "kind", "issued_on", "gross", "references_invoice_id"}
 	case strings.Contains(q, "select p.id,p.billing_year_id"):
@@ -96,6 +98,7 @@ func (r *mockEmailRows) Columns() []string {
 			"net", "vat_rate", "vat_amount", "gross", "show_vat", "tax_mode", "tax_note",
 			"service_period_from", "service_period_to", "issuer_json", "recipient_json", "lines_json", "content_hash",
 			"skonto_pct", "skonto_until", // 0051
+			"payment_term_days", // 0082
 		}
 	case strings.Contains(q, "payments p"):
 		return []string{"net", "paid"}
@@ -124,6 +127,8 @@ func (r *mockEmailRows) Next(dest []driver.Value) error {
 		dest[0] = true
 	case strings.Contains(q, "select anonymized"):
 		dest[0] = false
+	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):
+		copy(dest, []driver.Value{int64(1), int64(1)})
 	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
 		copy(dest, []driver.Value{int64(1), int64(1), int64(1), "invoice", time.Now(), "120.00", int64(0)})
 	case strings.Contains(q, "select p.id,p.billing_year_id"), strings.Contains(q, "sum(amount) from neighbor_ledger"):
@@ -154,6 +159,7 @@ func (r *mockEmailRows) Next(dest []driver.Value) error {
 		dest[22] = "hash"
 		dest[23] = nil // skonto_pct (0051)
 		dest[24] = nil // skonto_until
+		dest[25] = nil // historical payment term
 	case strings.Contains(q, "payments p"):
 		dest[0] = "100.00"
 		dest[1] = "0.00"
