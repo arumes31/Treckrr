@@ -83,6 +83,8 @@ func (r *mockEmailRows) Columns() []string {
 		return []string{"exists"}
 	case strings.Contains(q, "select anonymized"):
 		return []string{"anonymized"}
+	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):
+		return []string{"billing_year_id", "neighbor_id"}
 	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
 		return []string{"id", "billing_year_id", "neighbor_id", "kind", "issued_on", "gross", "references_invoice_id"}
 	case strings.Contains(q, "select p.id,p.billing_year_id"):
@@ -124,6 +126,8 @@ func (r *mockEmailRows) Next(dest []driver.Value) error {
 		dest[0] = true
 	case strings.Contains(q, "select anonymized"):
 		dest[0] = false
+	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):
+		copy(dest, []driver.Value{int64(1), int64(1)})
 	case strings.Contains(q, "select id,billing_year_id,neighbor_id,kind,issued_on,gross"):
 		copy(dest, []driver.Value{int64(1), int64(1), int64(1), "invoice", time.Now(), "120.00", int64(0)})
 	case strings.Contains(q, "select p.id,p.billing_year_id"), strings.Contains(q, "sum(amount) from neighbor_ledger"):

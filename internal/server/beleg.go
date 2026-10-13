@@ -795,7 +795,12 @@ func (s *Server) handleBelegPDF(w http.ResponseWriter, r *http.Request) {
 		s.invoiceRequestError(w, r, err)
 		return
 	}
-	blob, err := s.documents().invoicePDF(iv)
+	view, err := s.loadInvoiceDocumentView(r.Context(), iv)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	blob, err := s.documents().invoicePDF(view)
 	if err != nil {
 		s.serverError(w, "beleg pdf", err)
 		return
@@ -857,7 +862,12 @@ func (s *Server) handleBelegEmail(w http.ResponseWriter, r *http.Request) {
 	// before the redirect; the global 30s WriteTimeout is shorter than that.
 	extendWriteDeadline(w, 2*store.MailDeliveryBudget)
 	company, _ := s.store.GetCompany(r.Context())
-	document, err := s.documents().invoiceMail(company, *neighbor, year.ID, iv)
+	view, err := s.loadInvoiceDocumentView(r.Context(), iv)
+	if err != nil {
+		s.invoiceRequestError(w, r, err)
+		return
+	}
+	document, err := s.documents().invoiceMail(company, *neighbor, year.ID, view)
 	if err != nil {
 		s.serverError(w, "beleg email: document", err)
 		return

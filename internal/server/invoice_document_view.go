@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -20,9 +22,30 @@ type invoiceDocumentView struct {
 	Invoice           models.Invoice
 	Remaining         decimal.Decimal
 	AppliedSettlement decimal.Decimal
+	SettlementAsOf    time.Time
 	PaymentReference  string
 	Active            bool
 	HasEpcQR          bool
+}
+
+// loadInvoiceDocumentView adds a dated, read-only settlement projection after
+// the caller has authorized access to this invoice. It never changes its snapshot.
+func (s *Server) loadInvoiceDocumentView(ctx context.Context, invoice models.Invoice) (invoiceDocumentView, error) {
+	asOf := time.Now()
+	remaining := decimal.Zero
+	if invoice.Status == "issued" {
+		var err error
+		remaining, err = s.store.InvoiceDocumentRemaining(ctx, invoice.ID)
+		if err != nil {
+			return invoiceDocumentView{}, fmt.Errorf("invoice settlement: %w", err)
+		}
+	}
+	view, err := newInvoiceDocumentView(invoice, remaining)
+	if err != nil {
+		return invoiceDocumentView{}, err
+	}
+	view.SettlementAsOf = asOf
+	return view, nil
 }
 
 // newInvoiceDocumentView copies frozen substance without recalculating prices,

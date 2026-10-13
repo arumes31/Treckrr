@@ -19,7 +19,9 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/pdf"
 	"github.com/d0linger/treckrr/internal/store"
+	"github.com/d0linger/treckrr/internal/testutil/pdftext"
 	"github.com/d0linger/treckrr/internal/web"
 )
 
@@ -34,7 +36,9 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 	if err := e.st.UpdateCompany(e.ctx, company); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.st.UpdateNeighbor(e.ctx, nid, "Frozen recipient A", "", "Frozen address A", "", "synthetic@example.invalid", "", nil); err != nil {
+	// Both names keep the fixture suffix, including when the test fails before
+	// the second rename, so repeated runs cannot leave an unowned neighbor.
+	if err := e.st.UpdateNeighbor(e.ctx, nid, "Frozen recipient A "+e.uname, "", "Frozen address A", "", "synthetic@example.invalid", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	book := func(label, hours string) {
@@ -53,10 +57,30 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pdfA, err := (documentService{}).invoicePDF(first)
+	archiveA, err := pdf.RenderInvoice(&first)
 	if err != nil {
 		t.Fatal(err)
 	}
+	documentServer := &Server{store: e.st}
+	firstView, err := documentServer.loadInvoiceDocumentView(e.ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdfA, err := (documentService{}).invoicePDF(firstView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentText := func(blob []byte) string {
+		t.Helper()
+		text, err := pdftext.Text(blob)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Independent downloads have their own as-of timestamp. All other
+		// rendered content, including settlement, must match the selected view.
+		return regexp.MustCompile(`(?m)^Zahlungsstand vom[^\r\n]*`).ReplaceAllString(text, "")
+	}
+	pdfAText := documentText(pdfA)
 	sharePage := e.post(fmt.Sprintf("/neighbors/%d/beleg/share?year=%d&invoice_id=%d", nid, yid, first.ID), url.Values{"days": {"30"}})
 	match := regexp.MustCompile(`/s/portal/([a-f0-9]+)`).FindStringSubmatch(sharePage)
 	if len(match) != 2 {
@@ -81,7 +105,8 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 	if err := e.st.UpdateCompany(e.ctx, company); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.st.UpdateNeighbor(e.ctx, nid, "LIVE RECIPIENT MUST NOT LEAK", "", "LIVE RECIPIENT ADDRESS", "", "synthetic@example.invalid", "", nil); err != nil {
+	// Retain the fixture suffix so cleanup also finds the renamed neighbor.
+	if err := e.st.UpdateNeighbor(e.ctx, nid, "LIVE RECIPIENT MUST NOT LEAK "+e.uname, "", "LIVE RECIPIENT ADDRESS", "", "synthetic@example.invalid", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -135,8 +160,8 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 		return body
 	}
 	selectedQuery := fmt.Sprintf("?year=%d&invoice_id=%d", yid, first.ID)
-	if got := get(e.client, fmt.Sprintf("/neighbors/%d/beleg.pdf", nid)+selectedQuery, 200); !bytes.Equal(got, pdfA) {
-		t.Fatal("selected PDF no longer equals the first frozen document")
+	if got := get(e.client, fmt.Sprintf("/neighbors/%d/beleg.pdf", nid)+selectedQuery, 200); documentText(got) != pdfAText {
+		t.Fatal("selected PDF changed without any settlement change")
 	}
 	for _, path := range []string{fmt.Sprintf("/neighbors/%d/beleg?year=%d&rechnung=1", nid, yid),
 		fmt.Sprintf("/neighbors/%d/beleg.pdf?year=%d", nid, yid),
@@ -153,7 +178,7 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 		fmt.Sprintf("beleg:%d:synthetic@example.invalid", first.ID)).Scan(&outboxInvoiceID, &attachment); err != nil {
 		t.Fatal(err)
 	}
-	if outboxInvoiceID != first.ID || !bytes.Equal(attachment, pdfA) {
+	if outboxInvoiceID != first.ID || documentText(attachment) != pdfAText {
 		t.Fatal("mail intent references a different invoice or PDF")
 	}
 	e.post(fmt.Sprintf("/neighbors/%d/beleg/mark-sent", nid)+selectedQuery, url.Values{})
@@ -229,8 +254,33 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 		strings.Contains(publicHTML, "PENDING WORK C") || strings.Contains(publicHTML, "LIVE RECIPIENT") {
 		t.Fatal("bound share exposed other/new/live content")
 	}
-	if !bytes.Equal(get(public, portalPath+"/invoice.pdf?invoice_id="+itoa64(second.ID), 200), pdfA) {
-		t.Fatal("public PDF was retargeted by request input")
+	updatedView, err := documentServer.loadInvoiceDocumentView(e.ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedPDF, err := (documentService{}).invoicePDF(updatedView)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if documentText(updatedPDF) == pdfAText {
+		t.Fatal("customer PDF omitted updated payment and credit settlement")
+	}
+	if documentText(get(public, portalPath+"/invoice.pdf?invoice_id="+itoa64(second.ID), 200)) != documentText(updatedPDF) {
+		t.Fatal("public PDF was retargeted or omitted the selected invoice settlement")
+	}
+	text, err := pdftext.Text(updatedPDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ONLY DOCUMENT A", "Bereits bezahlt / verrechnet", "15,00 €", web.Money(remaining)} {
+		if !strings.Contains(text, want) {
+			t.Errorf("settled customer PDF missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"ONLY DOCUMENT B", "PENDING WORK C", "LIVE RECIPIENT", "LIVE ISSUER"} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("settled customer PDF leaked %q", forbidden)
+		}
 	}
 	if !bytes.Equal(get(public, portalPath+"/epc-qr.png", 200), expectedQR) {
 		t.Fatal("public QR differs from selected document QR")
@@ -248,11 +298,15 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 	if err != nil || !bytes.Equal(now, frozen) {
 		t.Fatal("existing invoice values changed after new work, delivery or payments")
 	}
+	archiveAfter, err := pdf.RenderInvoice(&unchanged)
+	if err != nil || !bytes.Equal(archiveAfter, archiveA) {
+		t.Fatal("archive PDF changed after new work, delivery or payments")
+	}
 
 	// Delivery completion retains the exact invoice identity loaded from the
 	// queue. The fake sender touches no SMTP service.
 	delivery, err := (documentService{smtpFrom: "synthetic@example.invalid"}).invoiceMail(
-		company, models.Neighbor{ID: nid, Email: "synthetic@example.invalid"}, yid, first)
+		company, models.Neighbor{ID: nid, Email: "synthetic@example.invalid"}, yid, updatedView)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +335,25 @@ func TestMultipleInvoiceDocumentIsolationIntegration(t *testing.T) {
 	get(public, portalPath+"/invoice.pdf", http.StatusNotFound)
 	get(public, portalPath+"/epc-qr.png", http.StatusNotFound)
 	get(e.client, fmt.Sprintf("/neighbors/%d/invoice/epc-qr.png", nid)+selectedQuery, http.StatusNotFound)
+	canceledPDF := get(e.client, fmt.Sprintf("/neighbors/%d/beleg.pdf", nid)+selectedQuery, http.StatusOK)
+	canceledText, err := pdftext.Text(canceledPDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(canceledText, "Storniert - keine Zahlung erforderlich.") ||
+		!strings.Contains(canceledText, "ONLY DOCUMENT A") {
+		t.Fatal("authenticated canceled invoice lost its content or cancellation notice")
+	}
+	for _, forbidden := range []string{"Noch zu überweisen", "Bereits bezahlt / verrechnet", "ONLY DOCUMENT B"} {
+		if strings.Contains(canceledText, forbidden) {
+			t.Errorf("canceled invoice PDF contains an inappropriate payment demand or other document: %q", forbidden)
+		}
+	}
+	// An already-loaded issued snapshot may race with cancellation. Settlement
+	// loading must fail closed instead of issuing a stale payment demand.
+	if _, err := documentServer.loadInvoiceDocumentView(e.ctx, first); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("settlement load for stale issued snapshot: got %v, want not found", err)
+	}
 	stillSecond, err := e.st.GetInvoiceDocument(e.ctx, second.ID)
 	if err != nil || stillSecond.Content.Hash != second.Content.Hash || stillSecond.Status != "issued" {
 		t.Fatal("canceling the first invoice changed the second")

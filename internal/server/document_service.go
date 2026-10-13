@@ -8,11 +8,12 @@ import (
 	"github.com/d0linger/treckrr/internal/models"
 	"github.com/d0linger/treckrr/internal/pdf"
 	"github.com/d0linger/treckrr/internal/store"
+	"github.com/d0linger/treckrr/internal/web"
 )
 
-// documentService assembles delivery artifacts exclusively from immutable
-// invoice snapshots. HTML, PDF, and mail therefore share models.Invoice as the
-// document source while live settlement remains outside the frozen content.
+// documentService combines frozen invoice content with a separate, dated
+// settlement projection for customer delivery. Archive exports bypass this
+// service so their original invoice bytes remain unchanged.
 type documentService struct {
 	smtpFrom string
 }
@@ -28,8 +29,10 @@ func (s *Server) documents() documentService {
 	return documentService{smtpFrom: s.cfg.SMTPFrom}
 }
 
-func (documentService) invoicePDF(invoice models.Invoice) ([]byte, error) {
-	blob, err := pdf.RenderInvoice(&invoice)
+func (documentService) invoicePDF(view invoiceDocumentView) ([]byte, error) {
+	blob, err := pdf.RenderInvoiceWithPaymentStatus(&view.Invoice, pdf.InvoicePaymentStatus{
+		AsOf: view.SettlementAsOf, Remaining: view.Remaining,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("render invoice pdf: %w", err)
 	}
@@ -40,9 +43,13 @@ func (s documentService) invoiceMail(
 	company models.Company,
 	neighbor models.Neighbor,
 	yearID int64,
-	invoice models.Invoice,
+	view invoiceDocumentView,
 ) (invoiceMailDocument, error) {
-	blob, err := s.invoicePDF(invoice)
+	invoice := view.Invoice
+	if invoice.NeighborID != neighbor.ID || invoice.BillingYearID != yearID || !view.Active {
+		return invoiceMailDocument{}, fmt.Errorf("%w: invalid delivery account or inactive invoice", errInvalidInvoiceDocument)
+	}
+	blob, err := s.invoicePDF(view)
 	if err != nil {
 		return invoiceMailDocument{}, err
 	}
@@ -50,7 +57,16 @@ func (s documentService) invoiceMail(
 	// Delivery address/settings remain current; document parties remain frozen.
 	company.Name, company.Address, company.TaxID, company.IBAN = invoice.Content.Issuer.Name,
 		invoice.Content.Issuer.Address, invoice.Content.Issuer.TaxID, invoice.Content.Issuer.IBAN
-	body := mailBody(company, invoice.Content.Recipient.Name, "anbei die Rechnung "+invoice.Number+" als PDF.")
+	intro := fmt.Sprintf("anbei die Rechnung %s als PDF.\n\nZahlungsstand dieser Rechnung (Stand %s):\n"+
+		"Rechnungsbetrag: %s\nBereits bezahlt / verrechnet: %s\nNoch offen: %s",
+		invoice.Number, view.SettlementAsOf.Format("02.01.2006 15:04 MST"),
+		web.Money(invoice.Content.Gross), web.Money(view.AppliedSettlement), web.Money(view.Remaining))
+	if view.Remaining.IsZero() {
+		intro += "\nKeine weitere Zahlung für diese Rechnung erforderlich."
+	} else {
+		intro += "\nBitte nur den noch offenen Betrag dieser Rechnung überweisen."
+	}
+	body := mailBody(company, invoice.Content.Recipient.Name, intro)
 	attachment := mail.Attachment{
 		Filename:    "Rechnung_" + sanitizeFilename(invoice.Number) + ".pdf",
 		ContentType: "application/pdf",
