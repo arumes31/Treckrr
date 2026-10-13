@@ -95,18 +95,3 @@ func invoiceOpenRows(ctx context.Context, tx *sql.Tx, yearID int64, termDays int
 	}
 	return out, nil
 }
-
-// NeighborNetPaid returns the net owed and the paid total for one neighbor in a
-// billing year, using the same definition as the dashboard/dunning list.
-func (s *Store) NeighborNetPaid(ctx context.Context, yearID, neighborID int64) (net, paid decimal.Decimal, err error) {
-	err = s.db.QueryRowContext(ctx, `
-		SELECT
-		  COALESCE((SELECT SUM(e.cost) FROM entries e
-		             WHERE e.neighbor_id=$2 AND e.billing_year_id=$1 AND NOT e.voided), 0)
-		  + COALESCE((SELECT SUM(l.amount) FROM neighbor_ledger l
-		               WHERE l.neighbor_id=$2 AND l.billing_year_id=$1 AND NOT l.voided), 0),
-		  COALESCE((SELECT SUM(p.amount) FROM payments p
-		             WHERE p.neighbor_id=$2 AND p.billing_year_id=$1 AND p.deleted_at IS NULL), 0)`,
-		yearID, neighborID).Scan(&net, &paid)
-	return
-}
