@@ -8,6 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/store"
 	"github.com/d0linger/treckrr/internal/web"
 )
 
@@ -27,6 +28,9 @@ func TestInvoiceDocumentTemplateUsesOnlyFrozenValues(t *testing.T) {
 		"Neighbor": &models.Neighbor{ID: 9, Name: "LIVE NEIGHBOR MUST NOT LEAK"},
 		"Shared":   true, "PortalToken": "synthetic-token",
 		"Ledger": []models.LedgerEntry{{Description: "ANNUAL PRIVATE NOTE"}},
+		"AccountReconciliation": store.InvoiceAccountReconciliation{
+			OpenInvoices: decimal.NewFromInt(777), AnnualRemaining: decimal.NewFromInt(888),
+		},
 	}
 	var rendered bytes.Buffer
 	if err := templates["invoice_document"].ExecuteTemplate(&rendered, "content", data); err != nil {
@@ -38,7 +42,7 @@ func TestInvoiceDocumentTemplateUsesOnlyFrozenValues(t *testing.T) {
 			t.Errorf("missing frozen document value %q", want)
 		}
 	}
-	for _, forbidden := range []string{"LIVE NEIGHBOR", "ANNUAL PRIVATE NOTE", "/neighbors/9/", "/invoice/storno", "/beleg/email"} {
+	for _, forbidden := range []string{"LIVE NEIGHBOR", "ANNUAL PRIVATE NOTE", "Rechnung und Jahreskonto", "777,00", "888,00", "/neighbors/9/", "/invoice/storno", "/beleg/email"} {
 		if strings.Contains(html, forbidden) {
 			t.Errorf("shared invoice exposed %q", forbidden)
 		}

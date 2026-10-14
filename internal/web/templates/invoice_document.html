@@ -33,6 +33,7 @@
 		<div class="beleg__payinfo">
 			<div class="beleg__payinfo-txt">
 				<span class="beleg__payinfo-k">Zahlungsstand dieser Rechnung</span>
+				{{if not .Doc.SettlementAsOf.IsZero}}<span class="muted small">Stand {{.Doc.SettlementAsOf.Format "02.01.2006 15:04"}}</span>{{end}}
 				<span>Bereits verrechnet / bezahlt: {{money .Doc.AppliedSettlement}}</span>
 				<strong>Offen: {{money .Doc.Remaining}}</strong>
 				{{with .DueOn}}<span class="beleg__inv-due">Fällig am {{date .}} · {{if $.Invoice.Content.PaymentTermFrozen}}vereinbartes{{else}}aktuelles{{end}} Zahlungsziel{{if gt $.DueDays 0}} (in {{$.DueDays}} Tagen){{else if eq $.DueDays 0}} (heute){{end}}</span>{{end}}
@@ -44,6 +45,18 @@
 		<p class="muted small">Der Rechnungsinhalt ist unveränderlich. Verrechnung und Zahlungen werden gesondert aktualisiert.</p>
 		{{with .Invoice.Content.Hash}}<details class="disclosure no-print"><summary>Prüfsumme</summary><p class="muted small">{{.}}</p></details>{{end}}
 	</article>
+	{{if not .Shared}}{{with .AccountReconciliation}}
+	<section class="card stack no-print" aria-label="Rechnung und Jahreskonto vergleichen">
+		<h2>Rechnung und Jahreskonto</h2>
+		<div class="account-summary">
+			<a href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}"><span>Offen auf allen Rechnungen dieses Jahres</span><b>{{money .OpenInvoices}}</b></a>
+			<a href="/neighbors/{{$.Neighbor.ID}}?year={{$.Year.ID}}&amp;view=bookings"><span>Nicht abgerechnete Leistungen / Kontorest</span><b>{{money .OutsideInvoices}}</b></a>
+			<a href="/neighbors/{{$.Neighbor.ID}}?year={{$.Year.ID}}&amp;view=payments"><span>{{if .AnnualRemaining.IsNegative}}Guthaben im Jahreskonto{{else}}Offener Jahreskontostand{{end}}</span><b>{{if .AnnualRemaining.IsNegative}}{{money .AnnualRemaining.Abs}}{{else}}{{money .AnnualRemaining}}{{end}}</b></a>
+		</div>
+		<p class="muted small">Das Jahreskonto umfasst auch weitere Rechnungen, neue Leistungen und Kontopositionen. Nicht zusätzlich zum offenen Rechnungsbetrag bezahlen. Bestehende Rechnungsinhalte bleiben unverändert.</p>
+		<a class="link" href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}">Vollständige Kontoübersicht ansehen</a>
+	</section>
+	{{end}}{{end}}
 
 	<div class="btnrow no-print">
 		<a class="btn btn--primary" href="{{if .Shared}}/s/portal/{{.PortalToken}}/invoice.pdf{{else}}/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}">Rechnung als PDF</a>

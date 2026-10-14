@@ -3,7 +3,7 @@
 <form method="post" action="{{or .BookingAction "/entries"}}" class="card form" data-entry-form data-unified-booking
 	{{if .BookingEdit}}data-entry-edit{{else}}data-entry-create{{if and (not .BookingCopy) (not .BookingPrefilled)}} data-entry-defaults{{end}}{{end}}
  data-pricing-url="/api/base/{{.Base.ID}}/pricing" data-neighbor-name="{{.Neighbor.Name}}" {{if .BookingLocked}}data-booking-locked{{end}}>
-	<input type="hidden" name="booking_form_version" value="2">
+	<input type="hidden" name="booking_form_version" value="{{or .BookingFormVersion "3"}}">
 	<input type="hidden" name="year_id" value="{{.Year.ID}}">
 	<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
 	{{if and (not .BookingEdit) (not .BookingCopy)}}
@@ -16,7 +16,7 @@
 	{{if .BookingCopy}}<input type="hidden" name="copy_mode" value="1">{{end}}
 	{{if .BookingEdit}}
 	<input type="hidden" name="booking_kind" value="{{$kind}}"><input type="hidden" name="booking_direction" value="{{$direction}}">
-	<p><strong>{{if eq $direction "in"}}Nachbar verrechnet{{else}}Ich verrechne{{end}}</strong> · {{if eq $kind "equipment"}}Traktor / Gespann / Gefährt{{else if eq $kind "labor"}}Arbeitszeit / Mannstunden{{else if eq $kind "quantity"}}Mengenleistung{{else}}Freie Position / Kosten{{end}}</p>
+	<p><strong>{{if eq $direction "in"}}Nachbar verrechnet{{else}}Ich verrechne{{end}}</strong> · {{if eq $kind "equipment"}}Traktor / Gespann / Gefährt{{else if eq $kind "labor"}}Arbeitszeit / Mannstunden{{else if eq $kind "quantity"}}Mengenleistung{{else}}Material / Pauschale{{end}}</p>
 	<p class="muted small">Art und Richtung bleiben beim Bearbeiten erhalten. Über „Kopieren“ lässt sich eine andere Leistung erfassen.</p>
 	{{else}}
 	<fieldset class="booking-direction"><legend>Wer verrechnet wem?</legend><div class="booking-direction__choices">
@@ -29,13 +29,14 @@
 			<option value="equipment" {{if eq $kind "equipment"}}selected{{end}}>Traktor / Gespann / Gefährt</option>
 			<option value="labor" {{if eq $kind "labor"}}selected{{end}}>Arbeitszeit / Mannstunden</option>
 			<option value="quantity" {{if eq $kind "quantity"}}selected{{end}}>Mengenleistung</option>
-			<option value="fixed" {{if eq $kind "fixed"}}selected{{end}}>Freie Position / Kosten</option>
+			<option value="fixed" {{if eq $kind "fixed"}}selected{{end}}>Material / Pauschale</option>
 		</select></label>{{end}}
 		<div><label class="field"><span>Datum</span><input class="input" type="date" name="entry_date" value="{{or (index $v "entry_date") .Today}}" required></label>
 			<span class="date-shortcuts"><button class="btn btn--ghost btn--xs" type="button" data-days="0" data-target="entry_date">Heute</button><button class="btn btn--ghost btn--xs" type="button" data-days="1" data-target="entry_date">Gestern</button></span>
 		</div>
 	</div>
 	<p class="muted small" data-booking-direction-note>Eigene Forderungen und Gegenleistungen bleiben getrennt.</p>
+	{{if and .BookingCopy (eq $kind "fixed") (eq $direction "out")}}<p class="flash flash--info">Die Kopie ist eine neue Rechnungsleistung. Die ursprüngliche Kontoposition bleibt bestehen. Dieselben Kosten nicht doppelt erfassen.</p>{{end}}
 	<noscript><p class="flash flash--info">Bitte nur die Felder der gewählten Leistungsart ausfüllen. Drei zusätzliche Personenzeilen stehen ohne JavaScript bereit. Leere Zeilen werden ignoriert; die Berechnung erfolgt beim Speichern.</p></noscript>
 	<div class="stack stack--tight" data-booking-panel="equipment:out equipment:in">
 		<label class="field"><span>Gespann / Gefährt auswählen</span><select class="select" name="mode" data-mode-select>
@@ -67,7 +68,7 @@
 		<div class="form__grid form__grid--two"><label class="field"><span>Menge</span><input class="input" type="number" name="quantity" min="0.0001" max="999999999" step="0.0001" value="{{index $v "quantity"}}" inputmode="decimal" data-qty data-booking-required></label><label class="field"><span>€ / <span data-unit-label>Einheit</span></span><input class="input" type="number" name="unit_price" min="0.0001" max="999999999" step="0.0001" value="{{index $v "unit_price"}}" inputmode="decimal" data-unit-price data-booking-required></label></div>
 		<strong data-qty-cost hidden>–</strong>
 	</div>
-	<label class="field" data-booking-panel="fixed:out fixed:in"><span>Betrag (€)</span><input class="input" type="number" name="amount" min="0.01" max="999999999" step="0.01" value="{{index $v "amount"}}" inputmode="decimal" data-booking-required></label>
+	<label class="field" data-booking-panel="fixed:out fixed:in"><span data-booking-fixed-label>{{if and (eq $direction "out") (ne .BookingFormVersion "2")}}Leistungsbetrag vor ggf. USt (€){{else}}Kontobetrag (€){{end}}</span><input class="input" type="number" name="amount" min="0.01" max="999999999" step="0.01" value="{{index $v "amount"}}" inputmode="decimal" data-booking-required></label>
 	<details class="disclosure form-details" data-person-details {{if or .BookingPeople (eq $kind "labor")}}open{{end}}>
 		<summary><span data-person-heading>Personen mitbuchen</span> <span class="muted small" data-person-summary>optional</span></summary>
 		{{if .BookingCopy}}<label class="check"><input type="checkbox" name="copy_people" value="1" checked><span>Personen mitkopieren</span></label>{{end}}

@@ -11,6 +11,7 @@ const fixture = `<!doctype html><html lang="de"><head><meta charset="utf-8">
   <meta name="user-id" content="7"><link rel="stylesheet" href="/static/css/app.css"></head><body>
   <button data-offline-badge hidden></button>
   <form method="post" action="/entries" data-entry-form>
+    <input type="hidden" name="booking_form_version" value="3">
     <input type="hidden" name="csrf_token" value="fresh-csrf">
     <input type="hidden" name="neighbor_id" value="11"><input type="hidden" name="year_id" value="22">
     <input name="entry_date" value="2026-09-13"><input name="task_label" value="Mähen">
@@ -87,6 +88,7 @@ for (const kind of ["equipment", "labor", "quantity", "fixed"]) {
       expect(original.get("partner_label")).toBe("Nachbartraktor");
       expect(original.get("booking_kind")).toBe(kind);
       expect(original.get("booking_direction")).toBe(direction);
+      expect(original.get("booking_form_version")).toBe("3");
       await page.locator("[data-offline-badge]").click();
       await expect(page.locator("[data-offline-list]")).not.toContainText("Schnellerfassung");
       await expect(page.locator("[data-offline-list]")).toContainText(direction === "in" ? "Gegenleistung · Ich schulde" : "Eigene Leistung · Nachbar schuldet");

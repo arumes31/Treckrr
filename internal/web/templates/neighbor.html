@@ -40,7 +40,7 @@
 		</div>
 		<div class="account-summary">
 			<a href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings"><span><strong>Meine Leistungen</strong><small>{{.BookingCount}} Positionen</small></span><b>{{money .TotalCost}}</b></a>
-			<a href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings"><span><strong>Verrechnung</strong><small>Gegenleistungen und Konto</small></span><b>{{money .LedgerSum}}</b></a>
+			<a href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings"><span><strong>Verrechnung</strong><small>Nachbarleistungen und ältere Kontopositionen</small></span><b>{{money .LedgerSum}}</b></a>
 			<a href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments"><span><strong>Zahlungen</strong><small>{{if .Remaining.IsNegative}}Guthaben auszuzahlen{{else if .Remaining.IsZero}}Vollständig ausgeglichen{{else}}Noch offen{{end}}</small></span><b>{{if .Remaining.IsNegative}}{{money .CreditAmount}}{{else}}{{money .Remaining}}{{end}}</b></a>
 		</div>
 		<details class="disclosure disclosure--plain page-more">

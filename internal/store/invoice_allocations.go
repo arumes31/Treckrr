@@ -31,6 +31,50 @@ type InvoiceAllocationSummary struct {
 	AccountResidual decimal.Decimal
 }
 
+// InvoiceAccountReconciliation bridges all open documents to the complete
+// signed annual balance. OutsideInvoices includes pending work and account credit.
+type InvoiceAccountReconciliation struct {
+	Allocations     InvoiceAllocationSummary
+	OpenInvoices    decimal.Decimal
+	AnnualRemaining decimal.Decimal
+	OutsideInvoices decimal.Decimal
+}
+
+// ReadInvoiceAccountReconciliation reads display-only account totals together.
+// It never reclassifies bookings or modifies historical invoice/payment rows.
+func (s *Store) ReadInvoiceAccountReconciliation(ctx context.Context, yearID, neighborID int64) (InvoiceAccountReconciliation, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return InvoiceAccountReconciliation{}, fmt.Errorf("account reconciliation: begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // read-only; no-op after Commit
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM billing_year_neighbors
+		WHERE billing_year_id=$1 AND neighbor_id=$2)`, yearID, neighborID).Scan(&exists); err != nil {
+		return InvoiceAccountReconciliation{}, fmt.Errorf("account reconciliation: membership: %w", err)
+	}
+	if !exists {
+		return InvoiceAccountReconciliation{}, ErrNotFound
+	}
+	accounts, err := invoiceAllocationsTx(ctx, tx, yearID, neighborID)
+	if err != nil {
+		return InvoiceAccountReconciliation{}, err
+	}
+	result := InvoiceAccountReconciliation{Allocations: accounts[accountKey{yearID: yearID, neighborID: neighborID}]}
+	for _, invoice := range result.Allocations.Invoices {
+		result.OpenInvoices = result.OpenInvoices.Add(invoice.Remaining)
+	}
+	result.AnnualRemaining, err = remainingLocked(ctx, tx, yearID, neighborID)
+	if err != nil {
+		return InvoiceAccountReconciliation{}, fmt.Errorf("account reconciliation: remaining: %w", err)
+	}
+	result.OutsideInvoices = result.AnnualRemaining.Sub(result.OpenInvoices)
+	if err := tx.Commit(); err != nil {
+		return InvoiceAccountReconciliation{}, fmt.Errorf("account reconciliation: finish: %w", err)
+	}
+	return result, nil
+}
+
 // AccountInvoiceAllocations reads one account in a consistent snapshot without
 // changing any stored payment, invoice or historical allocation choice.
 func (s *Store) AccountInvoiceAllocations(ctx context.Context, yearID, neighborID int64) (InvoiceAllocationSummary, error) {

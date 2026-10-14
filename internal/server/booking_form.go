@@ -278,7 +278,10 @@ func (s *Server) parseBookingV2(r *http.Request, previous []models.BookingPerson
 	if !b.Total().IsPositive() || b.Total().GreaterThanOrEqual(decimal.NewFromInt(10_000_000_000)) {
 		return bookingDraft{}, "Der Gesamtbetrag liegt außerhalb des zulässigen Bereichs.", nil
 	}
-	if direction == "in" || kind == "fixed" {
+	// New own flat rates use the existing quantity-one entry model. Old forms
+	// (including offline retries) retain their original account-posting meaning.
+	legacyFixed := kind == "fixed" && trimmed(r, "booking_form_version") != "3"
+	if direction == "in" || legacyFixed {
 		// Component IDs remain stable across edits; new rows get a monotonic local ID.
 		maxID := int64(0)
 		for _, p := range previous {

@@ -29,7 +29,7 @@
 	try {
 		lastStored = localStorage.getItem(key);
 		var candidate = JSON.parse(lastStored || "null");
-		if (candidate && candidate.version === 1 && Array.isArray(candidate.fields) && candidate.fields.length <= 300 && candidate.fields.every(function (f) { return typeof f.name === "string" && typeof f.value === "string" && f.value.length <= 2000 && excluded.indexOf(f.name) < 0; })) saved = candidate;
+		if (candidate && candidate.version === 1 && (!candidate.formVersion || candidate.formVersion === "2" || candidate.formVersion === "3") && Array.isArray(candidate.fields) && candidate.fields.length <= 300 && candidate.fields.every(function (f) { return typeof f.name === "string" && typeof f.value === "string" && f.value.length <= 2000 && excluded.indexOf(f.name) < 0; })) saved = candidate;
 	} catch (_) { /* Corrupt/private storage must not stop booking. */ }
 	if (saved) {
 		offer.hidden = false;
@@ -42,7 +42,7 @@
 	}
 	function save() {
 		if (!dirty || restoring || saved || queued || form.hasAttribute("data-booking-locked")) return;
-		var snapshot = { version: 1, fields: controls().map(function (el) { return { name: el.name, value: el.value, checked: el.checked === true }; }), people: form.querySelectorAll("[data-person-row]:not([hidden])").length };
+		var snapshot = { version: 1, formVersion: field("booking_form_version").value, fields: controls().map(function (el) { return { name: el.name, value: el.value, checked: el.checked === true }; }), people: form.querySelectorAll("[data-person-row]:not([hidden])").length };
 		try {
 			if (localStorage.getItem(key) !== lastStored) {
 				conflicted = true;
@@ -85,6 +85,9 @@
 		restoring = true;
 		resumeEditing();
 		var snapshot = saved;
+		// Pre-upgrade drafts were V2 account postings. Restoring must not silently
+		// turn an own flat rate into a newly invoice-bearing charge.
+		field("booking_form_version").value = snapshot.formVersion || "2";
 		function setControl(el, item) {
 			if (el.tagName === "SELECT" && !Array.from(el.options).some(function (o) { return o.value === item.value; })) return;
 			if (el.type === "checkbox" || el.type === "radio") el.checked = item.checked === true;

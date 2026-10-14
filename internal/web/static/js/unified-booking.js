@@ -109,7 +109,13 @@
 		form.querySelector("[data-booking-catalog-rate]").hidden = !catalogEquipment();
 		form.querySelector("[data-person-heading]").textContent = kind.value === "labor" ? "Personen und Mannstunden" : "Personen mitbuchen";
 		form.querySelector("[data-person-help]").textContent = (kind.value === "equipment" || kind.value === "labor" ? "Leere Mannstunden übernehmen die Stunden oben. " : "Mannstunden bitte je Person eingeben. ") + "Der Stammsatz wird übernommen und kann je Person geändert werden.";
-		form.querySelector("[data-booking-direction-note]").textContent = direction() === "out" ? "Meine Leistung erhöht die Forderung an den Nachbarn." : "Gegenleistung: Ich schulde dem Nachbarn diesen Betrag. Eigene Leistungen bleiben unverändert.";
+		var own = direction() === "out", legacyFixed = own && kind.value === "fixed" && value("booking_form_version") !== "3";
+		var fixedLabel = form.querySelector("[data-booking-fixed-label]");
+		if (fixedLabel) fixedLabel.textContent = own && !legacyFixed ? "Leistungsbetrag vor ggf. USt (€)" : "Kontobetrag (€)";
+		form.querySelector("[data-booking-direction-note]").textContent = legacyFixed ?
+			"Bestehende Kontoposition oder älterer Entwurf: bleibt außerhalb der Rechnung. Nicht nochmals als Rechnungsleistung erfassen." : own ?
+			"Meine Leistung wird in der nächsten Rechnung berücksichtigt. Bereits festgeschriebene Rechnungen bleiben unverändert." :
+			"Gegenleistung: Ich schulde dem Nachbarn diesen Betrag. Sie wird im Konto verrechnet und ist keine eigene Rechnungsposition.";
 		var copy = field("copy_people"), enabled = !locked && (!copy || copy.checked), visible = activeRows();
 		personRows().forEach(function (row) {
 			var disabled = !enabled || row.hidden, firstLabor = kind.value === "labor" && visible[0] === row;
@@ -135,7 +141,7 @@
 		if (arguments.length) { machineCost = cost; machineRate = rate; machineAdjustment = adjustment || null; }
 		var lines = [], total = 0, valid = true;
 		var add = function (label, qty, price) { if (!positive(qty) || !positive(price)) { valid = false; return; } var amount = round(qty * price); total = round(total + amount); lines.push({ label: label, qty: qty, price: price, amount: amount }); };
-		if (kind.value === "fixed") add("Freie Position", 1, number("amount"));
+		if (kind.value === "fixed") add("Material / Pauschale", 1, number("amount"));
 		else if (kind.value === "quantity") add("Mengenleistung · " + (unit.value === "__custom" ? value("unit_custom") : unit.value), number("quantity"), number("unit_price"));
 		else if (kind.value === "equipment") { if (catalogEquipment()) { if (positive(machineCost) && positive(machineRate)) add("Maschinenleistung" + (machineAdjustment && positive(machineAdjustment.amount) ? " inkl. " + machineAdjustment.label + " (+" + fmt(machineAdjustment.amount) + "/h)" : ""), number("hours"), machineRate); else valid = false; } else add(value("partner_label") || "Maschinenleistung", number("hours"), number("partner_rate")); }
 		var count = 0;

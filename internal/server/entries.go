@@ -548,7 +548,7 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 		s.badRequest(w, "Die Anfrage konnte nicht verarbeitet werden — bitte die Seite neu laden und erneut versuchen.")
 		return
 	}
-	if trimmed(r, "booking_form_version") == "2" {
+	if sharedBookingForm(r) {
 		s.handleBookingCreateV2(w, r)
 		return
 	}
@@ -925,7 +925,7 @@ func (s *Server) handleEntryUpdate(w http.ResponseWriter, r *http.Request) {
 	if !s.entryYearOpen(w, r, existing, "Das Abrechnungsjahr ist abgeschlossen – Buchungen können nicht mehr geändert werden.") {
 		return
 	}
-	if trimmed(r, "booking_form_version") == "2" {
+	if sharedBookingForm(r) {
 		s.updateBookingEntryV2(w, r, existing)
 		return
 	}
@@ -1302,7 +1302,7 @@ func (s *Server) handleLedgerUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing.Booking != nil {
-		if trimmed(r, "booking_form_version") == "2" {
+		if sharedBookingForm(r) {
 			s.updateBookingLedgerV2(w, r, &existing, yearID, neighborID)
 			return
 		}
