@@ -30,6 +30,10 @@ for (const version of [undefined, "2"]) {
     await form.locator('[name="task_label"]').fill(task);
     const user = await page.locator('meta[name="user-id"]').getAttribute("content");
     const key = `treckrr:booking-draft:v1:${user}:1:1`;
+    await expect.poll(() => page.evaluate(key => {
+      const draft = JSON.parse(localStorage.getItem(key) || "null");
+      return draft?.fields?.find(field => field.name === "task_label")?.value;
+    }, key)).toBe(task);
     await page.evaluate(({ key, version }) => {
       const draft = JSON.parse(localStorage.getItem(key)!);
       if (version) draft.formVersion = version;
