@@ -17,7 +17,7 @@ function fixture(): string {
     <button type="button" data-person-remove hidden>Person entfernen</button>
   </fieldset>`;
   const form = `<form method="post" action="/entries" data-entry-form data-entry-create data-entry-defaults data-unified-booking data-balance="72" data-pricing-url="/api/base/1/pricing" data-neighbor-name="E2E Nachbar">
-    <input type="hidden" name="csrf_token" value="fixture-csrf"><input type="hidden" name="booking_form_version" value="2">
+    <input type="hidden" name="csrf_token" value="fixture-csrf"><input type="hidden" name="booking_form_version" value="3">
     <input type="hidden" name="year_id" value="11"><input type="hidden" name="neighbor_id" value="22">
     <fieldset><legend>Wer verrechnet wem?</legend>
       <label><input type="radio" name="booking_direction" value="out" checked>Ich verrechne</label>
@@ -38,7 +38,7 @@ function fixture(): string {
     </div>
     <div data-booking-panel="equipment:out equipment:in labor:out labor:in"><label><span data-booking-hours-label>Stunden</span><input name="hours" type="number" data-hours data-booking-required></label><div data-rate-preview data-booking-catalog-rate><span data-cost>–</span><span data-rate>–</span></div></div>
     <div data-booking-panel="quantity:out quantity:in"><select name="unit" data-unit><option value="h" hidden>Stunden</option><option value="ha">Hektar</option><option value="Ballen">Ballen</option><option value="__custom">Andere Einheit</option></select><label data-unit-custom>Eigene Einheit<input name="unit_custom" data-unit-custom-input></label><input name="quantity" type="number" data-qty data-booking-required><input name="unit_price" type="number" data-unit-price data-booking-required><span data-unit-label></span><strong data-qty-cost></strong></div>
-    <label data-booking-panel="fixed:out fixed:in">Betrag<input name="amount" type="number" data-booking-required></label>
+    <label data-booking-panel="fixed:out fixed:in"><span data-booking-fixed-label>Betrag</span><input name="amount" type="number" data-booking-required></label>
     <details data-person-details><summary><span data-person-heading>Personen mitbuchen</span> <span data-person-summary>optional</span></summary><p data-person-help></p><div data-person-rows>${personRow}${personRow}${personRow}</div><button type="button" data-person-add hidden>Person hinzufügen</button><p data-person-status></p></details>
     <label>Tätigkeit / Beschreibung<input name="task_label" data-booking-task><span data-booking-task-help></span></label><input name="note">
     <div data-booking-preview></div><p data-pricing-status></p>

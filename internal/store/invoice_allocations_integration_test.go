@@ -36,6 +36,46 @@ func newMultiAllocationFixture(t *testing.T) multiAllocationFixture {
 	return multiAllocationFixture{store: st, pool: pool, yearID: yearID, neighborID: neighborID, first: first, second: second}
 }
 
+func TestReadInvoiceAccountReconciliationIntegration(t *testing.T) {
+	f := newMultiAllocationFixture(t)
+	addMultiAllocationWork(t, f.store, f.yearID, f.neighborID, "50")
+	if _, err := f.store.AddNeighborLedger(t.Context(), f.yearID, f.neighborID,
+		dec("10"), "Synthetic separate debit", day(2026, 9, 11)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.AddPayment(t.Context(), f.yearID, f.neighborID,
+		dec("70"), day(2026, 9, 12), "Synthetic payment", "bank"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(open, outside, annual string) {
+		t.Helper()
+		before := invoiceSourceState(t, f.pool)
+		view, err := f.store.ReadInvoiceAccountReconciliation(t.Context(), f.yearID, f.neighborID)
+		if err != nil || len(view.Allocations.Invoices) != 2 ||
+			!view.OpenInvoices.Equal(dec(open)) || !view.OutsideInvoices.Equal(dec(outside)) ||
+			!view.AnnualRemaining.Equal(dec(annual)) {
+			t.Fatalf("account reconciliation = %+v, %v; want %s + %s = %s", view, err, open, outside, annual)
+		}
+		if after := invoiceSourceState(t, f.pool); !reflect.DeepEqual(before, after) {
+			t.Fatal("read-only account reconciliation changed financial rows")
+		}
+	}
+	check("230", "60", "290")
+	if err := f.store.AddPayment(t.Context(), f.yearID, f.neighborID,
+		dec("400"), day(2026, 9, 13), "Synthetic surplus", "bank"); err != nil {
+		t.Fatal(err)
+	}
+	check("0", "-110", "-110")
+	if _, err := f.store.ReadInvoiceAccountReconciliation(t.Context(), -1, f.neighborID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("foreign account error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := f.store.ReadInvoiceAccountReconciliation(ctx, f.yearID, f.neighborID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled account read = %v", err)
+	}
+}
+
 func addMultiAllocationWork(t *testing.T, st *store.Store, yearID, neighborID int64, amount string) int64 {
 	t.Helper()
 	id, err := st.CreateEntry(t.Context(), &models.Entry{

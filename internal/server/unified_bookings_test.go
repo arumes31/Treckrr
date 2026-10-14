@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -207,5 +208,52 @@ func TestUnifiedRequestFingerprint(t *testing.T) {
 	base.Del("booking_kind")
 	if fingerprint(base) != "" {
 		t.Fatal("legacy form semantics changed")
+	}
+}
+
+func TestSharedBookingForm(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, version string
+		want          bool
+	}{
+		{name: "historical", version: "", want: false},
+		{name: "old shared", version: "2", want: true},
+		{name: "invoice flat rate", version: "3", want: true},
+		{name: "unknown", version: "4", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/entries", nil)
+			r.Form = url.Values{"booking_form_version": {tc.version}}
+			if got := sharedBookingForm(r); got != tc.want {
+				t.Fatalf("shared form = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInvoiceFlatRateFingerprintBindsContractAndAmount(t *testing.T) {
+	t.Parallel()
+	values := url.Values{
+		"booking_form_version": {"3"}, "booking_kind": {"fixed"}, "booking_direction": {"out"},
+		"amount": {"45"}, "person_hours": {"1"}, "person_rate": {"20"},
+	}
+	r := httptest.NewRequest(http.MethodPost, "/entries", nil)
+	r.Form = values
+	original := unifiedRequestFingerprint(r)
+	for _, tc := range []struct{ name, field, value string }{
+		{name: "amount", field: "amount", value: "46"},
+		{name: "helper", field: "person_hours", value: "2"},
+		{name: "contract", field: "booking_form_version", value: "2"},
+		{name: "direction", field: "booking_direction", value: "in"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prior := values.Get(tc.field)
+			values.Set(tc.field, tc.value)
+			if unifiedRequestFingerprint(r) == original {
+				t.Fatal("changed flat-rate contract retained retry identity")
+			}
+			values.Set(tc.field, prior)
+		})
 	}
 }

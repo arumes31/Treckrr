@@ -164,6 +164,10 @@ func (s *Server) setLedgerBookingForm(r *http.Request, data pageData, entry *mod
 	data["BookingValues"], data["BookingPeople"], data["SelectedMachineIDs"] = v, people, b.MachineIDs
 	data["BookingHasOptionalPeople"] = optionalBookingPeople(b.Kind, people)
 	data["BookingEdit"], data["BookingCopy"], data["BookingVoided"] = !copyMode, copyMode, entry.Voided
+	if !copyMode {
+		// Editing a historical account posting must never move it to entries.
+		data["BookingFormVersion"] = "2"
+	}
 	data["PhotoAction"], data["RecurringAction"] = "/ledger/"+strconv.FormatInt(entry.ID, 10)+"/photos", "/ledger/"+strconv.FormatInt(entry.ID, 10)+"/recur"
 	data["NextWeek"] = time.Now().AddDate(0, 0, 7).Format("2006-01-02")
 	data["BookingLocked"] = year.Completed()
@@ -240,6 +244,8 @@ func (s *Server) updateBookingLedgerV2(w http.ResponseWriter, r *http.Request, e
 		s.rejectUnifiedBooking(w, r, "Art und Richtung bleiben beim Bearbeiten erhalten.")
 		return
 	}
+	// The persisted source, not the submitted version, owns edit semantics.
+	r.Form.Set("booking_form_version", "2")
 	draft, msg, err := s.parseBookingV2(r, existing.Booking.BookingPeople(), false)
 	if err != nil {
 		s.unifiedBookingError(w, r, err)

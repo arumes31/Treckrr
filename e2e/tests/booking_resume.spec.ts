@@ -20,6 +20,40 @@ async function fillQuantity(page: Page, description: string) {
   return form;
 }
 
+for (const version of [undefined, "2"]) {
+  test(`pre-upgrade flat-rate draft ${version || "without version"} remains a visible account posting`, async ({ page }) => {
+    await login(page);
+    const form = page.locator("[data-unified-booking]");
+    await form.locator('[name="booking_kind"]').selectOption("fixed");
+    await form.locator('[name="amount"]').fill("45");
+    const task = `Synthetic legacy material draft ${version || "missing version"}`;
+    await form.locator('[name="task_label"]').fill(task);
+    const user = await page.locator('meta[name="user-id"]').getAttribute("content");
+    const key = `treckrr:booking-draft:v1:${user}:1:1`;
+    await page.evaluate(({ key, version }) => {
+      const draft = JSON.parse(localStorage.getItem(key)!);
+      if (version) draft.formVersion = version;
+      else delete draft.formVersion;
+      localStorage.setItem(key, JSON.stringify(draft));
+    }, { key, version });
+    await page.reload();
+    await page.locator("[data-booking-draft-restore]").click();
+    await expect(form.locator('[name="booking_form_version"]')).toHaveValue("2");
+    await expect(form.locator('[name="amount"]')).toHaveValue("45");
+    await expect(form.locator("[data-booking-direction-note]")).toContainText("bleibt außerhalb der Rechnung");
+    const restored = await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key);
+    expect(restored.formVersion).toBe("2");
+    await form.getByRole("button", { name: "Buchung speichern", exact: true }).click();
+    const card = page.locator(".bcard").filter({ hasText: task });
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('a[href^="/ledger/"][href$="/edit"]')).toHaveCount(1);
+    await expect(card.locator(".bcard__cost")).toContainText("45,00");
+    expect(await page.evaluate(key => localStorage.getItem(key), key)).toBeNull();
+    await page.goto("/neighbors/1?year=1&view=booking");
+    await expect(form.locator('[name="booking_form_version"]')).toHaveValue("3");
+  });
+}
+
 for (const kind of ["equipment", "quantity"]) {
   test(`legacy unscoped own ${kind} defaults cannot restore or create an initial draft`, async ({ page }) => {
     const legacy = JSON.stringify({ booking_direction: "out", booking_kind: kind, unit: "Ballen", task_label: "Fremder alter Standard", mode: "free" });
@@ -51,6 +85,7 @@ test("unsaved booking draft is offered explicitly, restored and discarded withou
   const key = `treckrr:booking-draft:v1:${user}:1:1`;
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || "null"), key);
   expect(saved.version).toBe(1);
+  expect(saved.formVersion).toBe("3");
   expect(saved.fields.some((field) => field.name === "csrf_token")).toBe(false);
 
   await page.reload();

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/d0linger/treckrr/internal/calc"
 	"github.com/d0linger/treckrr/internal/einvoice"
 	"github.com/d0linger/treckrr/internal/models"
@@ -16,12 +18,42 @@ import (
 func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 	neighbor *models.Neighbor, year *models.BillingYear, invoice models.Invoice, token string, shareID int64,
 ) {
-	view, err := s.loadInvoiceDocumentView(r.Context(), invoice)
+	var view invoiceDocumentView
+	var err error
+	data := s.newPage(w, r, "Rechnung "+invoice.Number, "dashboard")
+	if token == "" {
+		account, accountErr := s.store.ReadInvoiceAccountReconciliation(r.Context(), year.ID, neighbor.ID)
+		if accountErr != nil {
+			s.invoiceRequestError(w, r, accountErr)
+			return
+		}
+		remaining := decimal.Zero
+		if invoice.Status == "issued" {
+			found := false
+			for _, allocation := range account.Allocations.Invoices {
+				if allocation.InvoiceID != invoice.ID {
+					continue
+				}
+				// Use this same snapshot for the selected document and the bridge.
+				remaining = allocation.Remaining
+				found = true
+				break
+			}
+			if !found {
+				s.invoiceRequestError(w, r, store.ErrNotFound)
+				return
+			}
+		}
+		view, err = newInvoiceDocumentView(invoice, remaining)
+		view.SettlementAsOf = time.Now()
+		data["AccountReconciliation"] = account
+	} else {
+		view, err = s.loadInvoiceDocumentView(r.Context(), invoice)
+	}
 	if err != nil {
 		s.invoiceRequestError(w, r, err)
 		return
 	}
-	data := s.newPage(w, r, "Rechnung "+invoice.Number, "dashboard")
 	data["Doc"], data["Invoice"], data["Neighbor"], data["Year"] = view, invoice, neighbor, year
 	data["Shared"], data["Completed"] = token != "", year.Completed()
 	if view.Active && view.Remaining.IsPositive() {

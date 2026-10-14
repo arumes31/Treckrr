@@ -18,6 +18,17 @@ import (
 	"github.com/d0linger/treckrr/internal/store"
 )
 
+// sharedBookingForm recognizes both the old account-posting contract and the
+// current invoice-bearing flat-rate contract. Queued V2 requests stay V2.
+func sharedBookingForm(r *http.Request) bool {
+	switch trimmed(r, "booking_form_version") {
+	case "2", "3":
+		return true
+	default:
+		return false
+	}
+}
+
 // unifiedBookingSelection accepts only declared form variants. Empty fields are
 // the historical equipment/quantity form, so old offline queues remain valid.
 func unifiedBookingSelection(r *http.Request) (kind, direction, msg string) {
@@ -159,7 +170,7 @@ func unifiedRequestFingerprint(r *http.Request) string {
 	}
 	kind, direction, _ := unifiedBookingSelection(r)
 	fields := []string{"booking_kind", "booking_direction", "neighbor_id", "year_id", "entry_date", "task_label", "note"}
-	if trimmed(r, "booking_form_version") == "2" {
+	if sharedBookingForm(r) {
 		fields = append(fields, "booking_form_version", "person_row_id", "person_id", "person_name", "person_hours", "person_rate", "person_state", "copy_mode", "copy_people")
 		if kind == "fixed" {
 			fields = append(fields, "amount")
@@ -269,7 +280,7 @@ func (s *Server) acceptRecordedReplay(w http.ResponseWriter, r *http.Request, re
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if r.Header.Get("X-Booking-Response") == "json" && trimmed(r, "booking_form_version") == "2" {
+	if r.Header.Get("X-Booking-Response") == "json" && sharedBookingForm(r) {
 		s.bookingSuccess(w, r, "Buchung war bereits erfasst.")
 		return
 	}

@@ -98,8 +98,7 @@ async function submitConfirmedBooking(page: Page, form: Locator, button: Locator
 
 /** Saves through all normal submit handlers and waits for the confirmed booking. */
 async function saveBooking(page: Page, form: Locator, task: string) {
-  const ledger = await form.locator('[name="booking_direction"]:checked').inputValue() === "in" ||
-    await form.locator('[name="booking_kind"]').inputValue() === "fixed";
+  const ledger = await form.locator('[name="booking_direction"]:checked').inputValue() === "in";
   const invalid = await form.locator(":invalid").evaluateAll(controls => controls.map(control => ({
     name: (control as HTMLInputElement).name,
     value: (control as HTMLInputElement).value,
@@ -126,7 +125,7 @@ for (const kind of ["equipment", "labor", "quantity", "fixed"] as Kind[]) {
       const card = page.locator(".bcard").filter({ hasText: task });
       const amount = kind === "equipment" ? "92,00" : kind === "labor" ? "36,00" : "37,50";
       await expect(card.locator(".bcard__cost")).toHaveText(new RegExp(`^${direction === "in" ? "[−-]" : ""}${amount}\\s*€$`));
-      const ledger = direction === "in" || kind === "fixed";
+      const ledger = direction === "in";
       await expect(card.locator(`a[href^="/${ledger ? "ledger" : "entries"}/"][href$="/edit"]`)).toHaveCount(1);
       if (direction === "in" && kind === "equipment") {
         await expect(card.locator(".bcard__line")).toContainText("Maschinenleistung");
