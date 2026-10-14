@@ -57,9 +57,27 @@ func (s *Server) handleSettlementCSV(w http.ResponseWriter, r *http.Request) {
 			if !line.Date.IsZero() {
 				date = web.Date(line.Date)
 			}
-			if err := cw.Write([]string{line.Kind, number, date, csvSafe(line.Label), "", deDecimal(line.Amount.Neg()), ""}); err != nil {
+			if err := cw.Write([]string{
+				settlementKindLabel(line.Kind), number, date,
+				csvSafe(line.Label), "", deDecimal(line.Amount.Neg()), "",
+			}); err != nil {
 				return
 			}
 		}
+	}
+}
+
+func settlementKindLabel(kind string) string {
+	switch kind {
+	case "payment":
+		return "Zahlung"
+	case "credit":
+		return "Gutschrift"
+	case "offset":
+		return "Verrechnung"
+	case "summary":
+		return "Zusammengefasster Ausgleich"
+	default:
+		return "Ausgleich"
 	}
 }

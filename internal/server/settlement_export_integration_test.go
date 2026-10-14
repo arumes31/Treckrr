@@ -75,6 +75,11 @@ func TestItemizedSettlementDeliveryIntegration(t *testing.T) {
 	if rows[1][4] != "277,20" || rows[1][6] != "83,20" || rows[4][5] != "-50,00" {
 		t.Fatalf("CSV values=%v", rows)
 	}
+	for i, expected := range []string{"Rechnung", "Verrechnung", "Zahlung", "Zahlung"} {
+		if rows[i+1][0] != expected {
+			t.Fatalf("CSV row %d type=%q, want %q", i+1, rows[i+1][0], expected)
+		}
+	}
 	if strings.Contains(csvBody, second.Number) || strings.Contains(csvBody, "PRIVATE PAYMENT SECRET") {
 		t.Fatal("selected CSV leaked another invoice or note")
 	}
