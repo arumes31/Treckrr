@@ -1682,6 +1682,9 @@ a.paychip--credit:hover { background: color-mix(in srgb, var(--owe) 22%, transpa
 .beleg--document .beleg__inv-pp { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .beleg--document .beleg__payinfo { flex-wrap: wrap; }
 .beleg--document .beleg__payinfo-txt { flex-basis: 14rem; }
+.settlement-lines { width: 100%; min-width: 0; margin-block: .6rem; }
+.settlement-lines table { min-width: 28rem; }
+.settlement-lines td:nth-child(2) { white-space: normal; overflow-wrap: anywhere; }
 
 .beleg__hero { padding: .85rem .9rem; color: var(--on-primary);
 	background: linear-gradient(135deg, var(--primary), var(--primary-strong)); }

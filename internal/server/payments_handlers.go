@@ -370,6 +370,12 @@ func (s *Server) handlePaymentEditForm(w http.ResponseWriter, r *http.Request) {
 	data["Payment"] = p
 	data["NeighborName"] = s.neighborName(r, p.NeighborID)
 	data["Back"] = neighborPaymentsURL(p.NeighborID, p.BillingYearID)
+	settlement, err := s.store.ReadAccountSettlement(r.Context(), p.BillingYearID, p.NeighborID)
+	if err != nil {
+		s.serverError(w, "payment allocation detail", err)
+		return
+	}
+	data["PaymentUsage"] = settlement.Payments[p.ID]
 	s.render(w, r, "payment_edit", data)
 }
 

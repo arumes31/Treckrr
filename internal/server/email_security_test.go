@@ -81,6 +81,12 @@ func (r *mockEmailRows) Columns() []string {
 	switch {
 	case strings.Contains(q, "select exists("):
 		return []string{"exists"}
+	case strings.Contains(q, "select id,coalesce(references_invoice_id,0),kind,number"):
+		return []string{"id", "reference", "kind", "number", "issued_on", "gross"}
+	case strings.Contains(q, "select id,posting_date,amount"):
+		return []string{"id", "posting_date", "amount", "task_label"}
+	case strings.Contains(q, "select id,paid_on,amount,method"):
+		return []string{"id", "paid_on", "amount", "method", "reversal"}
 	case strings.Contains(q, "select anonymized"):
 		return []string{"anonymized"}
 	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):
@@ -125,6 +131,10 @@ func (r *mockEmailRows) Next(dest []driver.Value) error {
 	switch {
 	case strings.Contains(q, "select exists("):
 		dest[0] = true
+	case strings.Contains(q, "select id,coalesce(references_invoice_id,0),kind,number"):
+		copy(dest, []driver.Value{int64(1), int64(0), "invoice", "RE-2026-001", time.Now(), "120.00"})
+	case strings.Contains(q, "select id,posting_date,amount"), strings.Contains(q, "select id,paid_on,amount,method"):
+		return io.EOF
 	case strings.Contains(q, "select anonymized"):
 		dest[0] = false
 	case strings.Contains(q, "select billing_year_id,neighbor_id from invoices"):

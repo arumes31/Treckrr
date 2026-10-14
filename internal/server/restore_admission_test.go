@@ -93,10 +93,12 @@ func TestRestoreWaitsForBackgroundAndCancellationReopensGate(t *testing.T) {
 func TestRestoreCancelsAndDrainsRegisteredBackgroundTask(t *testing.T) {
 	s := &Server{}
 	started := make(chan struct{})
+	exited := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		s.BackgroundTask(t.Context(), func(ctx context.Context) {
+			defer close(exited)
 			close(started)
 			<-ctx.Done()
 		})
@@ -107,9 +109,16 @@ func TestRestoreCancelsAndDrainsRegisteredBackgroundTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-done:
+	case <-exited:
 	default:
 		t.Fatal("restore acquired lease before background task drained")
+	}
+	// The task must have exited, but its caller's deferred cleanup can still
+	// be waiting for a scheduler turn after BackgroundTask releases its lease.
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("background task caller did not finish")
 	}
 	finish(true)
 }

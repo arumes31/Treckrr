@@ -19,6 +19,14 @@ type InvoiceAllocation struct {
 	OffsetApplied  decimal.Decimal
 	Paid           decimal.Decimal
 	Remaining      decimal.Decimal
+	PaymentParts   []InvoicePaymentPart
+}
+
+// InvoicePaymentPart is an exact read-side slice of a payment, not its legacy
+// invoice_id attribution. Amount comes directly from the existing allocator.
+type InvoicePaymentPart struct {
+	PaymentID int64
+	Amount    decimal.Decimal
 }
 
 // InvoiceAllocationSummary excludes uninvoiced booking net. AccountResidual can
@@ -153,8 +161,12 @@ func invoiceAllocationsTx(ctx context.Context, tx *sql.Tx, yearID, neighborID in
 			return nil, fmt.Errorf("invoice allocations: account %d/%d: %w", key.yearID, key.neighborID, err)
 		}
 		paid := make(map[int64]decimal.Decimal)
+		parts := make(map[int64][]InvoicePaymentPart)
 		for _, payment := range plan.Payments {
 			paid[payment.InvoiceID] = paid[payment.InvoiceID].Add(payment.Amount)
+			parts[payment.InvoiceID] = append(parts[payment.InvoiceID], InvoicePaymentPart{
+				PaymentID: payment.PaymentID, Amount: payment.Amount,
+			})
 		}
 		slices.SortFunc(input.Invoices, func(a, b allocationInvoice) int {
 			return compareAllocationOrder(a.IssuedOn, a.ID, b.IssuedOn, b.ID)
@@ -168,6 +180,7 @@ func invoiceAllocationsTx(ctx context.Context, tx *sql.Tx, yearID, neighborID in
 			summary.Invoices = append(summary.Invoices, InvoiceAllocation{
 				InvoiceID: invoice.ID, Gross: invoice.Gross, AttachedCredit: invoice.AttachedCredit,
 				OffsetApplied: plan.OffsetApplied[invoice.ID], Paid: paid[invoice.ID], Remaining: plan.Remaining[invoice.ID],
+				PaymentParts: parts[invoice.ID],
 			})
 		}
 		out[key] = summary

@@ -11,13 +11,13 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/d0linger/treckrr/internal/models"
+	"github.com/d0linger/treckrr/internal/store"
 )
 
 var errInvalidInvoiceDocument = errors.New("invalid invoice document")
 
-// invoiceDocumentView deliberately contains no live annual bookings, catalog
-// data, ledger rows or payment rows. Document consumers use this projection;
-// annual account consumers retain their separate, live settlement view.
+// invoiceDocumentView contains frozen substance and customer-safe applied
+// settlement rows only, never private notes or unrelated annual account rows.
 type invoiceDocumentView struct {
 	Invoice           models.Invoice
 	Remaining         decimal.Decimal
@@ -26,6 +26,7 @@ type invoiceDocumentView struct {
 	PaymentReference  string
 	Active            bool
 	HasEpcQR          bool
+	SettlementLines   []models.SettlementLine
 }
 
 // loadInvoiceDocumentView adds a dated, read-only settlement projection after
@@ -33,11 +34,21 @@ type invoiceDocumentView struct {
 func (s *Server) loadInvoiceDocumentView(ctx context.Context, invoice models.Invoice) (invoiceDocumentView, error) {
 	asOf := time.Now()
 	remaining := decimal.Zero
+	var lines []models.SettlementLine
 	if invoice.Status == "issued" {
-		var err error
-		remaining, err = s.store.InvoiceDocumentRemaining(ctx, invoice.ID)
+		account, err := s.store.ReadAccountSettlement(ctx, invoice.BillingYearID, invoice.NeighborID)
 		if err != nil {
 			return invoiceDocumentView{}, fmt.Errorf("invoice settlement: %w", err)
+		}
+		found := false
+		for _, allocation := range account.Allocations.Invoices {
+			if allocation.InvoiceID == invoice.ID {
+				remaining, lines, found = allocation.Remaining, account.Lines[invoice.ID], true
+				break
+			}
+		}
+		if !found {
+			return invoiceDocumentView{}, store.ErrNotFound
 		}
 	}
 	view, err := newInvoiceDocumentView(invoice, remaining)
@@ -45,7 +56,16 @@ func (s *Server) loadInvoiceDocumentView(ctx context.Context, invoice models.Inv
 		return invoiceDocumentView{}, err
 	}
 	view.SettlementAsOf = asOf
-	return view, nil
+	return view.withSettlementLines(lines)
+}
+
+func (v invoiceDocumentView) withSettlementLines(lines []models.SettlementLine) (invoiceDocumentView, error) {
+	var err error
+	v.SettlementLines, err = models.SettlementLines(lines, v.AppliedSettlement)
+	if err != nil {
+		return invoiceDocumentView{}, fmt.Errorf("%w: %w", errInvalidInvoiceDocument, err)
+	}
+	return v, nil
 }
 
 // newInvoiceDocumentView copies frozen substance without recalculating prices,
@@ -84,5 +104,5 @@ func newInvoiceDocumentView(invoice models.Invoice, remaining decimal.Decimal) (
 	if active {
 		view.AppliedSettlement = claim.Sub(remaining)
 	}
-	return view, nil
+	return view.withSettlementLines(nil)
 }

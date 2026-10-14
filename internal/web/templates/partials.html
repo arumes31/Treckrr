@@ -1,3 +1,22 @@
+{{define "settlement-lines"}}
+{{if .Rows}}
+<div class="tablewrap settlement-lines" role="region" aria-label="Einzelnachweis Zahlung und Verrechnung" tabindex="0">
+	<table class="dtable">
+		<thead><tr><th>Datum</th><th>Zahlung / Verrechnung</th><th class="num">Angerechnet</th></tr></thead>
+		<tbody>{{range .Rows}}<tr><td>{{if .Date.IsZero}}<span class="muted">nicht eindeutig</span>{{else}}{{date .Date}}{{end}}</td><td>{{.Label}}</td><td class="num">−{{money .Amount}}</td></tr>{{end}}</tbody>
+	</table>
+</div>
+{{end}}
+{{end}}
+
+{{define "payment-usage"}}
+{{if .Reversed}}<p class="muted small">Durch Gegenbuchung aufgehoben; keine aktuelle Rechnungszuordnung.</p>
+{{else}}
+	{{range .Parts}}<p class="small"><span>Angerechnet auf Rechnung {{.InvoiceNumber}}:</span> <span>{{money .Amount}}</span></p>{{end}}
+	{{if .Unallocated.IsPositive}}<p class="muted small">Nicht auf Rechnungen angerechnet: {{money .Unallocated}} (Jahreskonto; nicht automatisch Guthaben).</p>{{end}}
+{{end}}
+{{end}}
+
 {{/*
 	Shared template partials parsed into every page set.
 

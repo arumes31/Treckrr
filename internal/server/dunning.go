@@ -176,13 +176,14 @@ func dunningScope(r *http.Request, yearID int64) (int64, bool) {
 // mahnungView is the fully-resolved reminder, shared by the HTML page, the PDF and
 // the e-mail send so all three show the same figures.
 type mahnungView struct {
-	Neighbor     *models.Neighbor
-	Year         *models.BillingYear
-	Company      models.Company
-	Invoice      models.Invoice
-	Title, Intro string
-	Stage        int
-	Open, Paid   decimal.Decimal
+	Neighbor        *models.Neighbor
+	Year            *models.BillingYear
+	Company         models.Company
+	Invoice         models.Invoice
+	Title, Intro    string
+	Stage           int
+	Open, Paid      decimal.Decimal
+	SettlementLines []models.SettlementLine
 	// Unbooked fee settings never become payment demands. Fee remains zero;
 	// TotalDue is the document's open amount. GraceUntil is the new deadline.
 	Fee, TotalDue         decimal.Decimal
@@ -234,13 +235,13 @@ func (s *Server) buildMahnungDataWith(r *http.Request, neighborID int64, stage i
 		return nil, false, err
 	}
 	// Both displayed figures come from one repeatable-read allocation snapshot.
-	allocations, err := s.store.AccountInvoiceAllocations(r.Context(), yearID, neighborID)
+	settlement, err := s.store.ReadAccountSettlement(r.Context(), yearID, neighborID)
 	if err != nil {
 		return nil, false, err
 	}
 	var open, paid decimal.Decimal
 	found := false
-	for _, allocation := range allocations.Invoices {
+	for _, allocation := range settlement.Allocations.Invoices {
 		if allocation.InvoiceID == iv.ID {
 			open, paid, found = allocation.Remaining, allocation.Paid, true
 			break
@@ -265,7 +266,8 @@ func (s *Server) buildMahnungDataWith(r *http.Request, neighborID int64, stage i
 	v := &mahnungView{
 		Neighbor: neighbor, Year: year, Company: company, Invoice: iv,
 		Title: title, Intro: intro, Stage: stage, Open: open, Paid: paid,
-		HasEpcQR: strings.TrimSpace(company.IBAN) != "" && open.IsPositive(),
+		SettlementLines: settlement.Lines[iv.ID],
+		HasEpcQR:        strings.TrimSpace(company.IBAN) != "" && open.IsPositive(),
 	}
 	// Explain retained fee settings without charging an unbooked receivable.
 	switch stage {
@@ -330,6 +332,7 @@ func (s *Server) handleNeighborMahnung(w http.ResponseWriter, r *http.Request) {
 	data["Stage"] = v.Stage
 	data["Open"] = v.Open
 	data["Paid"] = v.Paid
+	data["SettlementLines"] = v.SettlementLines
 	data["Fee"] = v.Fee
 	data["TotalDue"] = v.TotalDue
 	data["GraceUntil"] = v.GraceUntil
@@ -354,6 +357,7 @@ func (v *mahnungView) toPDF() ([]byte, error) {
 		Title: v.Title, Intro: v.Intro, InvoiceNo: v.Invoice.Number,
 		IssuedOn: v.Invoice.IssuedOn, DueOn: v.DueOn, Open: v.Open, Paid: v.Paid,
 		Fee: v.Fee, GraceUntil: v.GraceUntil, Today: time.Now(),
+		SettlementLines: v.SettlementLines,
 	})
 }
 

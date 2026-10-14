@@ -201,6 +201,7 @@ type PaymentStatus struct {
 	Remaining decimal.Decimal
 	DueOn     time.Time
 	AsOf      time.Time
+	Lines     []models.SettlementLine
 }
 
 // RenderWithPaymentStatus requests only the selected invoice's outstanding
@@ -211,6 +212,11 @@ func RenderWithPaymentStatus(iv models.Invoice, status PaymentStatus) ([]byte, e
 		status.AsOf.IsZero() || status.DueOn.IsZero() || status.DueOn.Before(iv.IssuedOn) {
 		return nil, errors.New("invalid e-invoice payment status")
 	}
+	lines, err := models.SettlementLines(status.Lines, iv.Content.Gross.Sub(status.Remaining))
+	if err != nil {
+		return nil, fmt.Errorf("e-invoice payment lines: %w", err)
+	}
+	status.Lines = lines
 	return render(iv, &status)
 }
 
@@ -262,6 +268,13 @@ func render(iv models.Invoice, status *PaymentStatus) ([]byte, error) {
 		doc.PaymentConditions.DueDate = status.DueOn.Format("2006-01-02")
 		doc.Comment = "Zahlungsstand vom " + status.AsOf.Format("02.01.2006 15:04 MST") +
 			"; bereits bezahlt oder verrechnet: " + doc.Prepaid.Value + " EUR."
+		for _, line := range status.Lines {
+			date := "Datum nicht eindeutig"
+			if !line.Date.IsZero() {
+				date = line.Date.Format("02.01.2006")
+			}
+			doc.Comment += "\n" + date + " · " + line.Label + ": -" + line.Amount.StringFixed(2) + " EUR."
+		}
 		if status.Remaining.IsZero() {
 			doc.PaymentMethod = paymentMethod{Comment: "Keine weitere Zahlung erforderlich.", NoPayment: &struct{}{}}
 		}

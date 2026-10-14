@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/models"
 )
 
 // MahnungData is everything the reminder PDF renders (no live recomputation).
@@ -25,9 +27,10 @@ type MahnungData struct {
 	Paid          decimal.Decimal
 	// Fee is the Mahnspesen for this stage (0 = no fee line). GraceUntil is the
 	// Nachfrist ("zahlbar bis"); zero = omit.
-	Fee        decimal.Decimal
-	GraceUntil time.Time
-	Today      time.Time
+	Fee             decimal.Decimal
+	GraceUntil      time.Time
+	Today           time.Time
+	SettlementLines []models.SettlementLine
 }
 
 // RenderMahnung builds an A4 reminder PDF.
@@ -81,6 +84,12 @@ func RenderMahnung(m MahnungData) ([]byte, error) {
 		y += 16
 	}
 	y += 8
+	if len(m.SettlementLines) > 0 {
+		y, err = settlementTable(pdf, "Rechnung "+m.InvoiceNo+" - Einzelnachweis", m.SettlementLines, y)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Reserve every optional line before drawing this indivisible block. The
 	// footer starts at 806; leave a gap and include the last line's text height.

@@ -26,6 +26,7 @@ const (
 type InvoicePaymentStatus struct {
 	AsOf      time.Time
 	Remaining decimal.Decimal
+	Lines     []models.SettlementLine
 }
 
 // money formats a decimal in German notation with a trailing € (e.g. 1.234,56 €).
@@ -100,6 +101,15 @@ func RenderInvoiceWithPaymentStatus(iv *models.Invoice, status InvoicePaymentSta
 	if iv.Status == "canceled" && !status.Remaining.IsZero() {
 		return nil, fmt.Errorf("canceled invoice must not request a payment")
 	}
+	applied := decimal.Zero
+	if iv.Status == "issued" {
+		applied = positiveGross.Sub(status.Remaining)
+	}
+	lines, err := models.SettlementLines(status.Lines, applied)
+	if err != nil {
+		return nil, fmt.Errorf("invoice payment lines: %w", err)
+	}
+	status.Lines = lines
 
 	doc, err := newDoc()
 	if err != nil {
@@ -301,7 +311,9 @@ func invoicePageWithPaymentStatus(pdf *gopdf.GoPdf, iv *models.Invoice, status *
 		}
 	}
 	if status != nil {
-		invoicePaymentBlock(pdf, iv, *status, y)
+		if err := invoicePaymentBlock(pdf, iv, *status, y); err != nil {
+			return err
+		}
 		gfooter(pdf, c.Issuer.Name, c.Issuer.Address, c.Issuer.TaxID, c.Issuer.IBAN)
 		return nil
 	}
@@ -330,12 +342,19 @@ func invoicePageWithPaymentStatus(pdf *gopdf.GoPdf, iv *models.Invoice, status *
 
 // invoicePaymentBlock keeps the dated live settlement visibly separate from
 // immutable invoice totals and keeps the entire supplement clear of the footer.
-func invoicePaymentBlock(pdf *gopdf.GoPdf, iv *models.Invoice, status InvoicePaymentStatus, y float64) {
+func invoicePaymentBlock(pdf *gopdf.GoPdf, iv *models.Invoice, status InvoicePaymentStatus, y float64) error {
 	c := iv.Content
 	hasPayment := status.Remaining.IsPositive()
 	hasIBAN := strings.TrimSpace(c.Issuer.IBAN) != ""
 	hasSkonto := c.SkontoPct.IsPositive() && !c.SkontoUntil.IsZero()
 	// Heading, settled/open rows, explanation, and optional bank/terms lines.
+	if len(status.Lines) > 0 {
+		var err error
+		y, err = settlementTable(pdf, "Rechnung "+iv.Number+" - Einzelnachweis", status.Lines, y+8)
+		if err != nil {
+			return err
+		}
+	}
 	height := 132.0
 	if hasPayment && hasIBAN {
 		height += 32
@@ -391,6 +410,7 @@ func invoicePaymentBlock(pdf *gopdf.GoPdf, iv *models.Invoice, status InvoicePay
 			c.SkontoUntil.Format("02.01.2006")
 		gtext(pdf, marginL, y, 9, false, line)
 	}
+	return nil
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -38,7 +38,7 @@ func TestPaymentFlowIntegration(t *testing.T) {
 	}
 	pageURL := neighborPaymentsURL(nid, yid)
 	page := e.get(pageURL)
-	if !strings.Contains(page, "bar · Rechnung "+p.InvoiceNumber) {
+	if !strings.Contains(page, "bar · Ursprüngliche Referenz "+p.InvoiceNumber) {
 		t.Errorf("payment row does not show method and invoice number")
 	}
 

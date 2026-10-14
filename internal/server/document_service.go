@@ -32,6 +32,7 @@ func (s *Server) documents() documentService {
 func (documentService) invoicePDF(view invoiceDocumentView) ([]byte, error) {
 	blob, err := pdf.RenderInvoiceWithPaymentStatus(&view.Invoice, pdf.InvoicePaymentStatus{
 		AsOf: view.SettlementAsOf, Remaining: view.Remaining,
+		Lines: view.SettlementLines,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("render invoice pdf: %w", err)
@@ -61,6 +62,16 @@ func (s documentService) invoiceMail(
 		"Rechnungsbetrag: %s\nBereits bezahlt / verrechnet: %s\nNoch offen: %s",
 		invoice.Number, view.SettlementAsOf.Format("02.01.2006 15:04 MST"),
 		web.Money(invoice.Content.Gross), web.Money(view.AppliedSettlement), web.Money(view.Remaining))
+	if len(view.SettlementLines) > 0 {
+		intro += "\n\nEinzelnachweis (nur auf diese Rechnung angerechnete Beträge):"
+		for _, line := range view.SettlementLines {
+			date := "Datum nicht eindeutig zuordenbar"
+			if !line.Date.IsZero() {
+				date = line.Date.Format("02.01.2006")
+			}
+			intro += "\n" + date + " · " + line.Label + ": -" + web.Money(line.Amount)
+		}
+	}
 	if view.Remaining.IsZero() {
 		intro += "\nKeine weitere Zahlung für diese Rechnung erforderlich."
 	} else {

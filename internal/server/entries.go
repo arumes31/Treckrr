@@ -142,20 +142,32 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	view.Invoices, view.HasInvoice = invoices, len(invoices) > 0
 	view.PaymentAmount = remaining
-	if view.Section == "payments" {
+	if view.Section == "payments" || view.Section == "overview" {
 		selectedID, selected, err := requestedInvoiceID(r)
 		if err != nil {
 			s.invoiceRequestError(w, r, err)
 			return
 		}
-		allocations, err := s.store.AccountInvoiceAllocations(r.Context(), year.ID, neighbor.ID)
-		if err != nil {
-			s.serverError(w, "payment invoice balances", err)
-			return
+		var settlement store.AccountSettlement
+		// A neighbor can be opened in a year they have not joined yet (for
+		// example after editing master data). Preserve that empty-account view;
+		// only actual documents or payments need an allocation explanation.
+		if len(invoices) > 0 || len(view.Payments) > 0 {
+			settlement, err = s.store.ReadAccountSettlement(r.Context(), year.ID, neighbor.ID)
+			if err != nil {
+				s.serverError(w, "payment invoice balances", err)
+				return
+			}
+			view.Remaining = settlement.AnnualRemaining
+			view.CreditAmount = settlement.AnnualRemaining.Neg()
+			view.PaymentAmount = settlement.AnnualRemaining
 		}
-		balances := make(map[int64]decimal.Decimal, len(allocations.Invoices))
-		for _, allocation := range allocations.Invoices {
+		view.PaymentUsage = settlement.Payments
+		view.InvoiceBalances = make(map[int64]decimal.Decimal)
+		balances := make(map[int64]decimal.Decimal, len(settlement.Allocations.Invoices))
+		for _, allocation := range settlement.Allocations.Invoices {
 			balances[allocation.InvoiceID] = allocation.Remaining
+			view.InvoiceBalances[allocation.InvoiceID] = allocation.Remaining
 		}
 		for _, invoice := range invoices {
 			balance, exists := balances[invoice.ID]
@@ -164,6 +176,9 @@ func (s *Server) handleNeighborDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			paymentView, err := newInvoiceDocumentView(invoice, balance)
+			if err == nil {
+				paymentView, err = paymentView.withSettlementLines(settlement.Lines[invoice.ID])
+			}
 			if err != nil {
 				s.invoiceRequestError(w, r, err)
 				return
@@ -293,11 +308,12 @@ func (s *Server) handleNeighborOverview(w http.ResponseWriter, r *http.Request) 
 	// One query for the whole history (membership, totals, ledger, paid flag)
 	// instead of a 4-queries-per-year fan-out. Cost carries the net (bookings +
 	// ledger), same as the dashboard/detail views.
-	history, err := s.store.NeighborYearHistory(r.Context(), id)
+	statement, err := s.store.ReadNeighborStatement(r.Context(), id)
 	if err != nil {
 		s.serverError(w, "neighbor year history", err)
 		return
 	}
+	history := statement.Years
 	type yearRow struct {
 		Year       int
 		YearID     int64
@@ -330,11 +346,7 @@ func (s *Server) handleNeighborOverview(w http.ResponseWriter, r *http.Request) 
 	company, _ := s.store.GetCompany(r.Context())
 	// The heading promised a Zahlungshistorie and rendered only year tiles
 	// (Ausbaukarte 79) — here are the payments themselves, across all years.
-	payments, err := s.store.ListNeighborPayments(r.Context(), neighbor.ID)
-	if err != nil {
-		s.serverError(w, r.URL.Path, err)
-		return
-	}
+	payments := statement.Payments
 	var paidTotal decimal.Decimal
 	for _, p := range payments {
 		paidTotal = paidTotal.Add(p.Amount)
@@ -398,11 +410,12 @@ func (s *Server) handleNeighborOverviewPDF(w http.ResponseWriter, r *http.Reques
 		s.notFound(w, r)
 		return
 	}
-	history, err := s.store.NeighborYearHistory(r.Context(), id)
+	statement, err := s.store.ReadNeighborStatement(r.Context(), id)
 	if err != nil {
 		s.serverError(w, "overview pdf: history", err)
 		return
 	}
+	history := statement.Years
 	company, _ := s.store.GetCompany(r.Context())
 	sd := pdf.StatementData{
 		IssuerName: company.Name, IssuerAddress: company.Address,
@@ -410,15 +423,21 @@ func (s *Server) handleNeighborOverviewPDF(w http.ResponseWriter, r *http.Reques
 	}
 	for _, h := range history {
 		sd.Rows = append(sd.Rows, pdf.StatementYear{
-			Year:      h.Year,
-			Cost:      h.Net,
-			Hours:     h.Hours,
-			Remaining: h.Remaining,
-			Paid:      h.Paid,
-			Credit:    h.Credit,
+			Year:       h.Year,
+			Cost:       h.Net,
+			Hours:      h.Hours,
+			PaidAmount: h.PaidAmount,
+			Remaining:  h.Remaining,
+			Paid:       h.Paid,
+			Credit:     h.Credit,
 		})
 		sd.TotalCost = sd.TotalCost.Add(h.Net)
 		sd.TotalHours = sd.TotalHours.Add(h.Hours)
+	}
+	payments := statement.Payments
+	for _, payment := range payments {
+		sd.Payments = append(sd.Payments, pdf.StatementPayment{Year: payment.Year, Date: payment.PaidOn,
+			Amount: payment.Amount, Reference: payment.InvoiceNumber, Reversal: payment.Reversal})
 	}
 	blob, err := pdf.RenderStatement(sd)
 	if err != nil {

@@ -320,7 +320,7 @@
 
 	{{if and .Invoices (or (eq .Section "overview") (eq .Section "payments"))}}
 	<details class="disclosure page-more" open><summary>Rechnungen ({{len .Invoices}})</summary><div class="action-list">
-		{{range .Invoices}}<a href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}&amp;invoice_id={{.ID}}"><span><strong>{{.Number}}</strong><small>{{date .IssuedOn}}</small></span><span>{{money .Content.Gross}}</span></a>{{end}}
+		{{range .Invoices}}<a href="/neighbors/{{$.Neighbor.ID}}/beleg?year={{$.Year.ID}}&amp;invoice_id={{.ID}}"><span><strong>{{.Number}}</strong><small>{{date .IssuedOn}} · Rechnungsbetrag {{money .Content.Gross}}</small></span><span>Offen {{money (index $.InvoiceBalances .ID)}}</span></a>{{end}}
 	</div></details>
 	{{end}}
 	{{if eq .Section "payments"}}
@@ -335,7 +335,7 @@
 				<span class="bcard__cost">{{if .Reversal}}+{{money .DisplayAmount}}{{else}}−{{money .Amount}}{{end}}</span>
 			</div>
 			<div class="bcard__foot">
-				<span class="bcard__detail">{{if .Method}}{{.Method}}{{end}}{{if .InvoiceNumber}}{{if .Method}} · {{end}}Rechnung {{.InvoiceNumber}}{{end}}{{if .Note}}{{if or .Method .InvoiceNumber}} · {{end}}{{.Note}}{{end}}{{if not (or .Method .InvoiceNumber .Note)}}—{{end}}</span>
+				<span class="bcard__detail">{{if .Method}}{{.Method}}{{end}}{{if .InvoiceNumber}}{{if .Method}} · {{end}}Ursprüngliche Referenz {{.InvoiceNumber}}{{end}}{{if .Note}}{{if or .Method .InvoiceNumber}} · {{end}}{{.Note}}{{end}}{{if not (or .Method .InvoiceNumber .Note)}}—{{end}}</span>
 				<span class="bcard__acts">
 					{{if not .ImportBatchID}}{{if not .Reversal}}
 					<a class="iconact" href="/payments/{{.ID}}/copy" title="Als neue Zahlung duplizieren" aria-label="Duplizieren">{{template "ic-copy"}}</a>
@@ -346,6 +346,7 @@
 					{{end}}{{end}}
 				</span>
 			</div>
+			{{with index $.PaymentUsage .ID}}<details class="disclosure"><summary>Aktuelle Zahlungszuordnung</summary>{{template "payment-usage" .}}</details>{{end}}
 		</div>
 		{{else}}
 		<div class="empty empty--slim">
@@ -384,7 +385,12 @@
 					<input class="input" type="number" step="0.1" min="0" max="10" name="skonto" placeholder="z. B. 2"></label>
 				{{end}}
 			</div>
-			{{if .HasInvoice}}<p class="muted small">Ohne Auswahl wird die älteste offene Rechnung zuerst bezahlt; Überschüsse bleiben Guthaben. Bei mehreren Rechnungen muss für Skonto eine Rechnung ausgewählt werden.</p>{{end}}
+			{{if .HasInvoice}}<p class="muted small">Ohne Auswahl wird die älteste offene Rechnung zuerst bezahlt; Überschüsse bleiben Guthaben. Bei mehreren Rechnungen muss für Skonto eine Rechnung ausgewählt werden.</p>
+			{{range .PaymentInvoices}}<details class="disclosure" data-payment-breakdown="{{.Invoice.ID}}"{{if ne .Invoice.ID $.SelectedInvoiceID}} hidden{{end}}>
+				<summary>Zahlungsstand Rechnung {{.Invoice.Number}} · offen {{money .Remaining}}</summary>
+				{{template "settlement-lines" (dict "Rows" .SettlementLines)}}
+				<p class="small">Rechnungsbetrag {{money .Invoice.Content.Gross}} · bereits angerechnet {{money .AppliedSettlement}} · offen {{money .Remaining}}.</p>
+			</details>{{end}}{{end}}
 			<div class="btnrow">
 				<button class="btn btn--primary btn--sm" type="submit">Zahlung erfassen</button>
 				{{if .Remaining.IsPositive}}<button class="btn btn--ghost btn--sm" type="submit" formaction="/years/mark-paid" formnovalidate>Gesamten Rest bezahlen</button>{{end}}
@@ -392,6 +398,7 @@
 			<p class="muted small">Teilzahlung: Betrag anpassen und „Zahlung erfassen“ wählen. „Gesamten Rest bezahlen“ begleicht immer das ganze Jahreskonto ohne Skonto und unabhängig von der Rechnungsauswahl, mit Datum und Zahlungsart.</p>
 		</form>
 	</details>
+	<a class="link small" href="/neighbors/{{.Neighbor.ID}}/settlement.csv?year={{.Year.ID}}">Zahlungszuordnung als CSV herunterladen</a>
 
 	{{if or .Installments (not .Remaining.IsZero)}}
 	<details class="card disclosure"{{if .Installments}} open{{end}}>

@@ -34,6 +34,7 @@
 			<div class="beleg__payinfo-txt">
 				<span class="beleg__payinfo-k">Zahlungsstand dieser Rechnung</span>
 				{{if not .Doc.SettlementAsOf.IsZero}}<span class="muted small">Stand {{.Doc.SettlementAsOf.Format "02.01.2006 15:04"}}</span>{{end}}
+				{{template "settlement-lines" (dict "Rows" .Doc.SettlementLines)}}
 				<span>Bereits verrechnet / bezahlt: {{money .Doc.AppliedSettlement}}</span>
 				<strong>Offen: {{money .Doc.Remaining}}</strong>
 				{{with .DueOn}}<span class="beleg__inv-due">Fällig am {{date .}} · {{if $.Invoice.Content.PaymentTermFrozen}}vereinbartes{{else}}aktuelles{{end}} Zahlungsziel{{if gt $.DueDays 0}} (in {{$.DueDays}} Tagen){{else if eq $.DueDays 0}} (heute){{end}}</span>{{end}}
@@ -61,6 +62,7 @@
 	<div class="btnrow no-print">
 		<a class="btn btn--primary" href="{{if .Shared}}/s/portal/{{.PortalToken}}/invoice.pdf{{else}}/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}">Rechnung als PDF</a>
 		{{if not .Shared}}
+		<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}/settlement.csv?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}">Zahlungszuordnung CSV</a>
 		{{if not .EInvoiceMissing}}<a class="btn btn--ghost" href="/documents/{{.Invoice.ID}}/ebinterface.xml">e-Rechnung XML</a>{{end}}
 		{{if and .Doc.Active .Doc.Remaining.IsPositive}}<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments&amp;invoice_id={{.Invoice.ID}}#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
 		{{if .Doc.Active}}
@@ -68,6 +70,12 @@
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} als versendet markieren? Dies ist nur ein interner Vermerk; es wird nichts verschickt."><button class="btn btn--ghost{{if .LastSend}} is-sent{{end}}" type="submit">{{if .LastSend}}Versendet am {{date .LastSend.SentAt}}{{else}}Als versendet markieren{{end}}</button></form>
 		{{end}}
 		{{end}}
+	</div>
+	<div class="btnrow no-print" aria-label="Rechnung drucken und weitergeben">
+		<button class="btn btn--ghost btn--sm" type="button" data-beleg-print>Drucken</button>
+		<button class="btn btn--ghost btn--sm" type="button" data-beleg-copy>Text kopieren</button>
+		<button class="btn btn--ghost btn--sm" type="button" data-beleg-image>Bild</button>
+		<button class="btn btn--ghost btn--sm" type="button" data-beleg-share>Teilen</button>
 	</div>
 	{{with .LastSend}}<p class="muted small">Zuletzt versendet am {{.SentAt.Format "02.01.2006, 15:04"}} ({{.Channel}}).</p>{{end}}
 

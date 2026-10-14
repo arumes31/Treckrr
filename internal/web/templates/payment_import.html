@@ -31,6 +31,7 @@
 	{{end}}
 	{{else}}
 	<p class="muted small">{{.Importable}} von {{.Total}} Eingängen werden automatisch zugeordnet.{{if .Assignable}} Offene Eingänge können unten manuell einer Rechnung zugewiesen werden.{{end}}</p>
+		<p class="muted small">Die Zuordnung ist die bevorzugte Rechnung. Ein Überschuss wird auf weitere offene Rechnungen verteilt; der verbleibende Rest bleibt im Jahreskonto. Der Importbericht bleibt als ursprünglicher Nachweis unverändert.</p>
 	<form method="post" action="/payments/import" data-confirm="Ausgewählte Zahlungen wie zugeordnet verbuchen?">
 		<input type="hidden" name="upload_token" value="{{.UploadToken}}">
 		<div class="tablewrap" role="region" aria-label="Vorschau des Zahlungsimports" tabindex="0">
