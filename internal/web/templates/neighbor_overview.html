@@ -60,7 +60,7 @@
 	{{if .Payments}}
 	<div class="tablewrap" role="region" aria-label="Zahlungsverlauf" tabindex="0">
 		<table class="dtable">
-			<thead><tr><th>Datum</th><th>Jahr</th><th>Art</th><th>Rechnung</th><th>Notiz</th><th class="num">Betrag</th></tr></thead>
+			<thead><tr><th>Datum</th><th>Jahr</th><th>Art</th><th>Ursprüngliche Referenz</th><th>Notiz / aktuelle Zuordnung</th><th class="num">Betrag</th></tr></thead>
 			<tbody>
 				{{range .Payments}}
 				<tr>
@@ -68,7 +68,7 @@
 					<td><a href="/neighbors/{{$.Neighbor.ID}}?year={{.BillingYearID}}">{{.Year}}</a></td>
 					<td>{{if .Method}}{{.Method}}{{else}}—{{end}}</td>
 					<td>{{if .InvoiceNumber}}{{.InvoiceNumber}}{{else}}—{{end}}</td>
-					<td>{{if .Note}}{{.Note}}{{else}}—{{end}}</td>
+					<td>{{if .Note}}{{.Note}}{{else}}—{{end}} <a class="link small" href="/neighbors/{{$.Neighbor.ID}}?year={{.BillingYearID}}&amp;view=payments#zahlungen">Aktuelle Zuordnung</a></td>
 					<td class="num">{{money .Amount}}</td>
 				</tr>
 				{{end}}

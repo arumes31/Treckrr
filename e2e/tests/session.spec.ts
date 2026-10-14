@@ -44,7 +44,7 @@ test("record a payment and see it in the cross-year history", async ({ page }) =
 
   const details = page.locator("#zahlung-erfassen");
   await expect(details).toHaveAttribute("open", "");
-  await expect(details.locator("summary")).toHaveText("Zahlung verbuchen");
+  await expect(details.locator(":scope > summary")).toHaveText("Zahlung verbuchen");
   await details.locator('input[name="amount"]').fill("25");
   await details.locator('select[name="method"]').selectOption("bar");
   await details.locator('input[name="note"]').fill("E2E Teilzahlung");
@@ -76,7 +76,7 @@ test("bookings list filters, and bulk storno leaves a reason", async ({ page }, 
   const frozenDocuments: { url: string; lines: string }[] = [];
   for (const url of documentURLs) {
     await page.goto(url);
-    frozenDocuments.push({ url, lines: await page.getByRole("table").innerText() });
+    frozenDocuments.push({ url, lines: await page.locator(".beleg--document > .tablewrap table").innerText() });
   }
 
   // Two fresh, mutable bookings isolate this test from previous financial work
@@ -117,7 +117,7 @@ test("bookings list filters, and bulk storno leaves a reason", async ({ page }, 
   }
   for (const document of frozenDocuments) {
     await page.goto(document.url);
-    await expect(page.getByRole("table")).toHaveText(document.lines, { useInnerText: true });
+    await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(document.lines, { useInnerText: true });
     await expect(page.locator("#beleg")).toContainText("festgeschrieben");
   }
 });
@@ -181,7 +181,7 @@ test("year closing keeps additional account residual visible after the invoice i
   await page.getByRole("button", { name: "Jetzt festschreiben", exact: true }).click();
   await confirmModal(page, /\/neighbors\/1\/beleg\?.*invoice_id=/);
   const invoiceURL = page.url();
-  const frozenLines = await page.getByRole("table").innerText();
+  const frozenLines = await page.locator(".beleg--document > .tablewrap table").innerText();
   await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 100,00 €");
   await page.locator('form[action*="mark-sent"] button').click();
   await confirmModal(page);
@@ -197,7 +197,7 @@ test("year closing keeps additional account residual visible after the invoice i
   await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("10,00 €");
   await page.goto(invoiceURL);
   await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
-  await expect(page.getByRole("table")).toHaveText(frozenLines, { useInnerText: true });
+  await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(frozenLines, { useInnerText: true });
 
   await page.goto(closingURL);
   const residual = page.locator(".closing-check").filter({ has: page.getByText("Zusätzliche offene Kontoposten", { exact: true }) });
@@ -228,7 +228,7 @@ test("year closing keeps additional account residual visible after the invoice i
   await expect(residual).toHaveCount(0);
   await page.goto(invoiceURL);
   await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
-  await expect(page.getByRole("table")).toHaveText(frozenLines, { useInnerText: true });
+  await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(frozenLines, { useInnerText: true });
 });
 
 test("year closing review lists what is open, and closing locks documents", async ({ page }) => {

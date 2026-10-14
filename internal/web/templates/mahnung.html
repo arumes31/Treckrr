@@ -34,6 +34,7 @@
 
 		<div class="beleg__sec">{{.Title}}</div>
 		<p class="muted">{{.Intro}}</p>
+		{{template "settlement-lines" (dict "Rows" .SettlementLines)}}
 
 		<div class="beleg__payinfo">
 			<div class="beleg__payinfo-txt">

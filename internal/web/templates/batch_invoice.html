@@ -13,7 +13,7 @@
 	<form method="post" action="/years/{{.Year.ID}}/issue-all">
 	<div class="tablewrap" role="region" aria-label="Nachbarn für die Sammel-Festschreibung" tabindex="0">
 		<table class="dtable">
-			<thead><tr><th><span class="sr-only">Auswahl</span></th><th>Nachbar</th><th class="num">Buchungen</th><th class="num">Brutto</th><th>Status</th></tr></thead>
+			<thead><tr><th><span class="sr-only">Auswahl</span></th><th>Nachbar</th><th class="num">Buchungen</th><th class="num">Rechnungsbetrag brutto</th><th>Status</th></tr></thead>
 			<tbody>
 				{{range .Rows}}
 				<tr>
@@ -45,6 +45,7 @@
 		{{end}}
 	</div>
 	</form>
+	<p class="muted small">Dies sind Rechnungsbeträge, keine Zahlungsaufforderungen. Bereits bezahlte oder verrechnete Beträge werden im Zahlungsstand jeder festgeschriebenen Rechnung gesondert ausgewiesen.</p>
 	{{end}}
 </section>
 {{end}}

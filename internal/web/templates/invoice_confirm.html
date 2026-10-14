@@ -38,6 +38,7 @@
 			{{end}}
 		</div>
 		<p class="muted small">Nach dem Festschreiben bleiben Rechnungsnummer und Inhalt <strong>unveränderbar gespeichert</strong>. Korrekturen sind nur über Storno oder Gutschrift möglich.</p>
+		<p class="muted small">Der Rechnungsbetrag ist nicht automatisch der noch zu überweisende Betrag. Bereits vorhandene Zahlungen und Verrechnungen werden nach dem Festschreiben im gesonderten Zahlungsstand mit Einzelnachweis berücksichtigt.</p>
 		<p class="flash flash--info"><strong>{{.Neighbor.Name}} · {{.Year.Year}}:</strong> Nur die hier aufgeführten Leistungen werden gesperrt. Solange das Jahr offen ist, können Sie neue Leistungen erfassen und später mit einer weiteren Rechnung abrechnen – auch wenn diese Rechnung noch nicht bezahlt ist.</p>
 	</div>
 	<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice" data-confirm="Diese noch nicht abgerechneten Leistungen für {{.Neighbor.Name}} · {{.Year.Year}} jetzt festschreiben? Nummer und Inhalt bleiben unveränderbar. Neue Leistungen können danach weiterhin erfasst werden, solange das Jahr offen ist.">

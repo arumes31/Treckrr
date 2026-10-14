@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"github.com/d0linger/treckrr/internal/models"
 )
 
 func TestRenderWithPaymentStatus(t *testing.T) {
@@ -67,5 +69,29 @@ func TestRenderWithPaymentStatusRejectsCanceledInvoice(t *testing.T) {
 	})
 	if err == nil || len(data) != 0 {
 		t.Fatal("canceled invoice produced a payment demand")
+	}
+}
+
+func TestRenderWithItemizedPaymentStatus(t *testing.T) {
+	t.Parallel()
+	invoice := testInvoice()
+	status := PaymentStatus{Remaining: decimal.NewFromInt(20), DueOn: invoice.IssuedOn.AddDate(0, 0, 14), AsOf: time.Now(), Lines: []models.SettlementLine{
+		{Date: invoice.IssuedOn, Kind: "credit", Label: "Gutschrift <R1-G1>", Amount: decimal.NewFromInt(30)},
+		{Date: invoice.IssuedOn, Kind: "payment", Label: "Zahlung (bar)", Amount: decimal.NewFromInt(70)},
+	}}
+	data, err := RenderWithPaymentStatus(invoice, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got invoiceXML
+	if err := xml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TotalGross.Value != "120.00" || got.Prepaid.Value != "100.00" || got.Payable.Value != "20.00" || !strings.Contains(got.Comment, "Gutschrift <R1-G1>: -30.00 EUR") || !strings.Contains(got.Comment, "Zahlung (bar): -70.00 EUR") {
+		t.Fatalf("invalid XML detail: %s", data)
+	}
+	status.Lines[0].Amount = decimal.NewFromInt(31)
+	if _, err := RenderWithPaymentStatus(invoice, status); err == nil {
+		t.Fatal("inconsistent itemization accepted")
 	}
 }

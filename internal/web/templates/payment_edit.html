@@ -4,7 +4,8 @@
 		<a class="backbtn" href="{{.Back}}" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">{{if .Copy}}Zahlung duplizieren{{else}}Zahlung bearbeiten{{end}}</h2>
 	</div>
-	<p class="muted small">{{.NeighborName}}{{if not .Copy}} · erfasst am {{date .Payment.Created}}{{if .Payment.InvoiceNumber}} · Rechnung {{.Payment.InvoiceNumber}}{{end}}{{else}} · Kopie einer bestehenden Zahlung — wird erst beim Speichern angelegt{{end}}</p>
+	<p class="muted small">{{.NeighborName}}{{if not .Copy}} · erfasst am {{date .Payment.Created}}{{if .Payment.InvoiceNumber}} · ursprüngliche Referenz {{.Payment.InvoiceNumber}}{{end}}{{else}} · Kopie einer bestehenden Zahlung — wird erst beim Speichern angelegt{{end}}</p>
+	{{if not .Copy}}{{with .PaymentUsage}}<section class="card"><h3>Aktuelle Zahlungszuordnung</h3>{{template "payment-usage" .}}<p class="muted small">Änderungen an Betrag oder Datum können die Zuordnung verändern; Rechnungsinhalte bleiben unverändert.</p></section>{{end}}{{end}}
 	<form method="post" action="{{if .Copy}}/neighbors/{{.Payment.NeighborID}}/payments{{else}}/payments/{{.Payment.ID}}/update{{end}}" class="card form">
 		{{if .Copy}}<input type="hidden" name="year_id" value="{{.Payment.BillingYearID}}">
 		<input type="hidden" name="idempotency_key" value="{{formKey}}">{{end}}

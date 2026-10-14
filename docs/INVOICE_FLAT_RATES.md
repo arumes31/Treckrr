@@ -47,6 +47,68 @@ allocation and surplus credit behavior.
 
 ## Validation
 
+### Itemized settlement supplement
+
+Customer invoice HTML, PDF, email, shared links and XML comments now explain
+applied reductions individually, separately from immutable invoice positions.
+The same projection feeds reminders, payment-history allocation details and the
+new authenticated `settlement.csv` export. A selected invoice CSV contains only
+that invoice; the annual payment page exports all active invoices in the account.
+
+Payment portions come directly from the existing allocator. Attached credits
+retain their exact document reference. Pooled offsets are itemized only when
+their attribution is unambiguous; mixed-sign ledger net and ambiguous partial
+allocations are explicitly labelled as combined account offsets. No source date
+or historical allocation is invented. Private payment/account notes are never
+copied to customer invoice supplements; structured counterservice task labels
+may describe an unambiguously applied source.
+
+No migration, monetary recalculation, payment-preference rewrite or invoice
+snapshot change is introduced. Accounting/journal CSV, collective invoice PDF
+and archive ZIP retain their original financial values. The archive actions are
+labelled accordingly; they are not current payment demands. The multi-year
+account PDF separately shows payments, remaining balances and payment history.
+
+The new CSV records invoice gross/open once per invoice, with signed applied
+reductions on separate detail rows. It does not replace booking or accounting
+exports. Invoice PNG, text-copy and share actions include the same dated
+supplement without the private annual-account comparison.
+
+### Itemized settlement validation
+
+The immediate pre-itemization baseline is `4ee39df`. Its 30 financial
+scenario/checkpoint snapshots match without a difference allowlist. The
+historical pre-migration rehearsal separately checks frozen invoice values,
+payments, balances, reminders and closing warnings on the same database.
+
+New regressions cover exact payment portions across multiple invoices, FIFO and
+explicit selection, surplus, reversals, attached/standalone credits, historical
+negative invoices, and ambiguous or mixed-sign account offsets. They also prove
+that the read-only projections preserve financial/audit rows and archive bytes.
+Public HTML/PDF, email attachments, XML, selected CSV and payment dialogs are
+checked for agreement and for exclusion of private notes and unrelated invoices.
+Empty account pages for non-member years stay usable without granting document
+or CSV access. The account statement's year totals and payment history share a
+single read-only snapshot.
+
+Browser checks exercise mobile/desktop layouts, both themes, accessibility,
+actual PNG decoding, copied text, selected-payment disclosures, and the existing
+book/close/mark-paid flow. PDF checks include all 120 individual rows, repeated
+page headings, measured wrapping and visual inspection of every rendered page.
+
+Validation completed with 168 full-suite browser tests and 10 affected-workflow
+tests repeated after the empty-account fix. Full race/integration/migration
+suites pass on PostgreSQL 16 and 18, with 64.2% overall statement coverage
+(CI floor: 50%). Vet, pinned CI lint/security/deadcode checks, generated-asset
+verification, module verification/tidiness, 40 workflow-script tests, staged
+secret scanning and a Linux ARM64 build pass. Allocation fuzzing completed
+47,167 executions, and the corrected background-drain test passed 100
+race-enabled repetitions. All databases and artifacts used for this validation
+are disposable/synthetic or remain under ignored `tmp/`; existing Dev and
+production data are not accessed or changed.
+
+### Earlier flat-rate validation
+
 The pre-change comparison uses commit `1314437c586a8542d0b7af56fc8a34452fd83efd`.
 All 30 existing financial scenario/checkpoint snapshots match the final source
 exactly, including invoice contents/hashes, entries, account postings, payments,

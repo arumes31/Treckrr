@@ -25,7 +25,7 @@ async function frozenDocument(page: Page): Promise<FrozenDocument> {
   return {
     url: page.url(), id: id!, hash,
     header: await page.locator(".beleg__invoice").innerText(),
-    lines: await page.getByRole("table").innerText(),
+    lines: await page.locator(".beleg--document > .tablewrap table").innerText(),
   };
 }
 

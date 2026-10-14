@@ -23,6 +23,20 @@
 
 		// Clean, label-based plain-text version of the currently shown beleg.
 		function belegText() {
+			if (beleg.classList.contains("beleg--document")) {
+				var sections = [];
+				var header = beleg.querySelector(".beleg__invoice");
+				if (header) sections.push(header.innerText.trim());
+				beleg.querySelectorAll("table").forEach(function (table) {
+					sections.push(Array.from(table.rows).map(function (row) {
+						return Array.from(row.cells).map(function (cell) { return cell.innerText.trim(); }).join(" | ");
+					}).join("\n"));
+				});
+				beleg.querySelectorAll(":scope > p, .beleg__payinfo-txt > span, .beleg__payinfo-txt > strong").forEach(function (el) {
+					if (!el.closest(".no-print")) sections.push(el.innerText.trim());
+				});
+				return sections.join("\n\n");
+			}
 			var out = [];
 			Array.prototype.forEach.call(beleg.children, function (el) {
 				if (el.classList.contains("beleg__hero")) {
@@ -167,6 +181,9 @@
 			// screen the beleg's rows/summary line can be wider than what's visible, and
 			// sizing the canvas to rect.width alone clips everything on the right.
 			var w = Math.ceil(Math.max(rect.width, beleg.scrollWidth));
+			beleg.querySelectorAll(".tablewrap").forEach(function (region) {
+				w = Math.max(w, region.scrollWidth + 32);
+			});
 			// Measure the height AND capture the computed styles at the SAME width the
 			// clone will render at: forcing a wider width reflows the content (grid
 			// tracks, wrap points, height), so both must be read while the widened layout
@@ -197,7 +214,19 @@
 			["max-width", "max-inline-size"].forEach(function (k) { clone.style.setProperty(k, "none"); });
 			["width", "inline-size"].forEach(function (k) { clone.style.setProperty(k, w + "px"); });
 			["margin-left", "margin-right", "margin-inline"].forEach(function (k) { clone.style.setProperty(k, "0"); });
-			return inlineFonts().then(function (fontCss) {
+			clone.querySelectorAll(".tablewrap").forEach(function (region) {
+				region.style.width = "100%"; region.style.maxWidth = "none"; region.style.overflow = "visible";
+			});
+			var images = Array.from(clone.querySelectorAll("img")).map(function (picture) {
+				var src = new URL(picture.getAttribute("src"), window.location.href);
+				if (src.origin !== window.location.origin) return Promise.reject(new Error("non-local image"));
+				return fetch(src.href, { credentials: "same-origin" }).then(function (response) {
+					if (!response.ok || response.headers.get("Content-Type") !== "image/png") throw new Error("image export failed");
+					return response.arrayBuffer();
+				}).then(function (buffer) { picture.setAttribute("src", "data:image/png;base64," + b64(buffer)); });
+			});
+			return Promise.all([inlineFonts(), Promise.all(images)]).then(function (assets) {
+				var fontCss = assets[0];
 				var xml = new XMLSerializer().serializeToString(clone);
 				var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
 					+ '<foreignObject width="100%" height="100%">'

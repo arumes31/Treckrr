@@ -42,6 +42,7 @@ func (s *Server) handleEInvoiceXML(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := einvoice.RenderWithPaymentStatus(iv, einvoice.PaymentStatus{
 		Remaining: view.Remaining, AsOf: view.SettlementAsOf,
+		Lines: view.SettlementLines,
 		DueOn: iv.IssuedOn.AddDate(0, 0, invoicePaymentTerm(iv, company, *neighbor)),
 	})
 	if err != nil {

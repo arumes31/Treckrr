@@ -119,7 +119,11 @@ type NeighborYearHistoryRow struct {
 // 4-queries-per-year fan-out. Years the neighbor is not a member of are
 // naturally absent via the billing_year_neighbors join.
 func (s *Store) NeighborYearHistory(ctx context.Context, neighborID int64) ([]NeighborYearHistoryRow, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return neighborYearHistory(ctx, s.db, neighborID)
+}
+
+func neighborYearHistory(ctx context.Context, q statementQueryer, neighborID int64) ([]NeighborYearHistoryRow, error) {
+	rows, err := q.QueryContext(ctx, `
 		SELECT y.id, y.year, y.status,
 		  COALESCE((SELECT SUM(e.cost) FROM entries e
 		             WHERE e.neighbor_id = byn.neighbor_id

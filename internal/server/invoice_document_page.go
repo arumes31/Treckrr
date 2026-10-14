@@ -13,8 +13,9 @@ import (
 	"github.com/d0linger/treckrr/internal/store"
 )
 
-// renderInvoiceDocument is the only HTML adapter for frozen invoices. It must
-// not load live entries, annual ledger rows or other invoices for a public link.
+// renderInvoiceDocument is the only HTML adapter for frozen invoices. Public
+// links receive only the selected document and its customer-safe reductions;
+// private annual comparisons and unrelated documents must never be rendered.
 func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 	neighbor *models.Neighbor, year *models.BillingYear, invoice models.Invoice, token string, shareID int64,
 ) {
@@ -22,7 +23,7 @@ func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 	var err error
 	data := s.newPage(w, r, "Rechnung "+invoice.Number, "dashboard")
 	if token == "" {
-		account, accountErr := s.store.ReadInvoiceAccountReconciliation(r.Context(), year.ID, neighbor.ID)
+		account, accountErr := s.store.ReadAccountSettlement(r.Context(), year.ID, neighbor.ID)
 		if accountErr != nil {
 			s.invoiceRequestError(w, r, accountErr)
 			return
@@ -45,8 +46,11 @@ func (s *Server) renderInvoiceDocument(w http.ResponseWriter, r *http.Request,
 			}
 		}
 		view, err = newInvoiceDocumentView(invoice, remaining)
+		if err == nil {
+			view, err = view.withSettlementLines(account.Lines[invoice.ID])
+		}
 		view.SettlementAsOf = time.Now()
-		data["AccountReconciliation"] = account
+		data["AccountReconciliation"] = account.InvoiceAccountReconciliation
 	} else {
 		view, err = s.loadInvoiceDocumentView(r.Context(), invoice)
 	}

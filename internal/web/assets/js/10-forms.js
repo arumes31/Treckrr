@@ -1,6 +1,13 @@
 	// An explicit invoice selection proposes that document's open amount.
 	// Subsequent edits remain possible for partial payments or account credit.
 	document.querySelectorAll("[data-payment-invoice]").forEach(function (select) {
+		function showBreakdown() {
+			document.querySelectorAll("[data-payment-breakdown]").forEach(function (panel) {
+				panel.hidden = panel.getAttribute("data-payment-breakdown") !== select.value;
+			});
+		}
+		select.addEventListener("change", showBreakdown);
+		showBreakdown();
 		select.addEventListener("change", function () {
 			var field = select.form && select.form.querySelector("[data-payment-amount]");
 			var option = select.options[select.selectedIndex];

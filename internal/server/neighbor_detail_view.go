@@ -35,6 +35,8 @@ type neighborDetailView struct {
 	HasInvoice         bool
 	Invoices           []models.Invoice
 	PaymentInvoices    []invoiceDocumentView
+	PaymentUsage       map[int64]store.PaymentUsage
+	InvoiceBalances    map[int64]decimal.Decimal
 	PaymentAmount      decimal.Decimal
 	SelectedInvoiceID  int64
 	PhotoCounts        map[int64]int
@@ -83,6 +85,8 @@ func (v neighborDetailView) bind(data pageData) {
 	data["HasInvoice"] = v.HasInvoice
 	data["Invoices"] = v.Invoices
 	data["PaymentInvoices"] = v.PaymentInvoices
+	data["PaymentUsage"] = v.PaymentUsage
+	data["InvoiceBalances"] = v.InvoiceBalances
 	data["PaymentAmount"] = v.PaymentAmount
 	data["SelectedInvoiceID"] = v.SelectedInvoiceID
 	data["PhotoCounts"] = v.PhotoCounts

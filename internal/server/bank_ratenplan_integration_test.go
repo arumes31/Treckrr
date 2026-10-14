@@ -148,6 +148,10 @@ func TestBankImportMatchingIntegration(t *testing.T) {
 	if !strings.Contains(done, "Ergebnisbericht herunterladen") {
 		t.Error("completed import did not open its durable result page")
 	}
+	allocationLink := fmt.Sprintf("/neighbors/%d?year=%d&amp;view=payments", nid, yid)
+	if !strings.Contains(done, allocationLink) {
+		t.Fatalf("import result lacks current payment-allocation link %q", allocationLink)
+	}
 	pays, err := e.st.ListPayments(e.ctx, yid, nid)
 	if err != nil || len(pays) != 3 {
 		t.Fatalf("payments after import: %v (n=%d, want 3)", err, len(pays))

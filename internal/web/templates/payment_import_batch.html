@@ -34,6 +34,7 @@
 							<span class="tag {{if eq .Status "booked"}}tag--paid{{else if eq .Status "reversed"}}tag--progress{{else if or (eq .Status "unmatched") (eq .Status "skipped")}}tag--open{{end}}">{{.StatusLabel}}</span>
 							{{with .MatchMethod}} <span class="tag">per {{.}}</span>{{end}}
 							{{with .Reason}}<div class="muted small">{{.}}</div>{{end}}
+							{{if and .NeighborID .YearID}}<a class="link small" href="/neighbors/{{.NeighborID}}?year={{.YearID}}&amp;view=payments">Aktuelle Zahlungszuordnung ansehen</a>{{end}}
 						</td>
 						<td class="num">
 							{{if .Correctable}}

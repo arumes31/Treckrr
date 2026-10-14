@@ -115,7 +115,7 @@ test("issue an invoice, see it on the Beleg, mark sent + undo", async ({ page })
   // --- selected document contains only its frozen invoice lines ---
   await page.goto("/neighbors/1/beleg?year=1&rechnung=1");
   await expect(page.locator("#beleg").getByRole("heading", { name: /^Rechnung / })).toBeVisible();
-  await expect(page.getByRole("table")).toContainText("E2E Ballen");
+  await expect(page.locator(".beleg--document > .tablewrap table")).toContainText("E2E Ballen");
   await expect(page.locator(".beleg__inv-due")).toContainText("Fällig am");
 
   // An issued invoice freezes only its own sources, not future work.
@@ -166,7 +166,7 @@ test("new work creates a separate invoice; selected and FIFO payments preserve b
   const firstLink = await page.getByRole("link", { name: "Rechnung als PDF", exact: true }).getAttribute("href");
   const firstID = new URL(firstLink!, page.url()).searchParams.get("invoice_id")!;
   const firstURL = `/neighbors/1/beleg?year=1&invoice_id=${firstID}`;
-  const firstLines = await page.getByRole("table").innerText();
+  const firstLines = await page.locator(".beleg--document > .tablewrap table").innerText();
   const firstOpen = await page.locator(".beleg__payinfo strong").innerText();
   const firstAmount = Number(firstOpen.replace("Offen: ", "").replace(/\./g, "").replace(",", ".").replace(/[^0-9.-]/g, ""));
   expect(firstAmount).toBeGreaterThan(7);
@@ -196,9 +196,9 @@ test("new work creates a separate invoice; selected and FIFO payments preserve b
   const secondID = new URL(page.url()).searchParams.get("invoice_id")!;
   expect(secondID).not.toBe(firstID);
   const secondURL = `/neighbors/1/beleg?year=1&invoice_id=${secondID}`;
-  await expect(page.getByRole("table")).toContainText("E2E Folgearbeit B");
-  await expect(page.getByRole("table")).not.toContainText("E2E Ballen");
-  const secondLines = await page.getByRole("table").innerText();
+  await expect(page.locator(".beleg--document > .tablewrap table")).toContainText("E2E Folgearbeit B");
+  await expect(page.locator(".beleg--document > .tablewrap table")).not.toContainText("E2E Ballen");
+  const secondLines = await page.locator(".beleg--document > .tablewrap table").innerText();
   await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 40,00 €");
 
   // Bounded responsive checks using only this synthetic frozen document.
@@ -243,11 +243,11 @@ test("new work creates a separate invoice; selected and FIFO payments preserve b
 
   await book("E2E Noch nicht abgerechnet C", "1.00");
   await page.goto(firstURL);
-  await expect(page.getByRole("table")).toHaveText(firstLines, { useInnerText: true });
+  await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(firstLines, { useInnerText: true });
   await expect(page.locator(".beleg__payinfo strong")).toHaveText(firstOpen);
   await page.goto(secondURL);
-  await expect(page.getByRole("table")).toHaveText(secondLines, { useInnerText: true });
-  await expect(page.getByRole("table")).not.toContainText("E2E Noch nicht abgerechnet C");
+  await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(secondLines, { useInnerText: true });
+  await expect(page.locator(".beleg--document > .tablewrap table")).not.toContainText("E2E Noch nicht abgerechnet C");
   await page.goto("/neighbors/1/beleg?year=1");
   for (const label of ["E2E Ballen", "E2E Folgearbeit B", "E2E Noch nicht abgerechnet C"]) {
     await expect(page.locator("#beleg")).toContainText(label);
@@ -289,7 +289,7 @@ test("new work creates a separate invoice; selected and FIFO payments preserve b
   await expect(page.locator("header.summary-card .summary-card__value")).toHaveText("0,00 €");
   for (const [url, lines] of [[firstURL, firstLines], [secondURL, secondLines]]) {
     await page.goto(url);
-    await expect(page.getByRole("table")).toHaveText(lines, { useInnerText: true });
+    await expect(page.locator(".beleg--document > .tablewrap table")).toHaveText(lines, { useInnerText: true });
     await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 0,00 €");
   }
 });

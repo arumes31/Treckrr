@@ -496,7 +496,11 @@ type PaymentRow struct {
 // ListNeighborPayments returns every payment a neighbor ever made, newest
 // first — the "Zahlungshistorie" the overview page promised but never showed.
 func (s *Store) ListNeighborPayments(ctx context.Context, neighborID int64) ([]PaymentRow, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return neighborPayments(ctx, s.db, neighborID)
+}
+
+func neighborPayments(ctx context.Context, q statementQueryer, neighborID int64) ([]PaymentRow, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT p.id, p.billing_year_id, p.neighbor_id, p.amount, p.paid_on, p.note,
 		        p.method, p.invoice_id, COALESCE(iv.number, ''),
 		        (SELECT r.batch_id FROM payment_import_rows r

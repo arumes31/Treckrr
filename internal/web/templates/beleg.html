@@ -105,7 +105,8 @@
 		{{end}}
 
 		{{if .IssuedVAT.IsPositive}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>USt aus festgeschriebenen Rechnungen</span><span></span><span class="beleg__r">{{money .IssuedVAT}}</span></div>{{end}}
-		{{if .HasCredits}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>Gutschriften</span><span></span><span class="beleg__r">{{money .InvCredits}}</span></div>{{end}}
+		{{if .HasCredits}}<div class="beleg__sec beleg__sum-informal">Gutschriften</div>
+		{{range .Documents}}{{if and (eq .Kind "gutschrift") (eq .Status "issued") .Content}}<div class="beleg__lrow beleg__sum-informal"><span class="beleg__d">{{.IssuedOn.Format "02.01."}}</span><span class="beleg__t">Gutschrift {{.Number}}</span><span class="beleg__h"></span><span class="beleg__b beleg__r">{{money .Content.Gross}}</span></div>{{end}}{{end}}{{end}}
 		{{if .InvoiceReconciliation}}{{if not .InvoiceReconciliation.IsZero}}<div class="beleg__lrow beleg__sum-informal"><span></span><span>Abgleich festgeschriebener Beträge / Rundung</span><span></span><span class="beleg__r">{{money .InvoiceReconciliation}}</span></div>{{end}}{{end}}
 		{{if .HasPayments}}
 		<div class="beleg__sec beleg__pay">Zahlungen</div>
