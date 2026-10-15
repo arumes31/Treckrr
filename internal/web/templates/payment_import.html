@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Zahlungen importieren</h2>
@@ -7,11 +8,11 @@
 
 	{{if not .Rows}}
 	<p class="muted small">Lade einen Bank-Export hoch (CSV, camt.052/053/054 oder MT940). Zahlungseingänge werden über den Verwendungszweck der Rechnung zugeordnet (Rechnungsnummer = Zahlungsreferenz), ersatzweise über die beim Nachbarn hinterlegte IBAN. Was offen bleibt, kann in der Vorschau manuell zugewiesen werden. Bereits importierte Zahlungen werden übersprungen.</p>
-	<form method="post" action="/payments/import/preview" enctype="multipart/form-data" class="card form">
+	{{if .User.CanWrite}}<form method="post" action="/payments/import/preview" enctype="multipart/form-data" class="card form">
 		<label class="field"><span>Datei (CSV, camt-XML oder MT940, höchstens 4 MB)</span>
 			<input class="input" type="file" name="file" accept=".csv,.xml,.sta,.mt940,.txt,text/csv,application/xml,text/xml,text/plain" required></label>
 		<div class="btnrow"><button class="btn btn--ghost btn--sm" type="submit">Vorschau</button></div>
-	</form>
+	</form>{{end}}
 	{{if .Batches}}
 	<div class="card">
 		<h3 class="section-title">Letzte Importläufe</h3>
@@ -29,7 +30,7 @@
 		</div>
 	</div>
 	{{end}}
-	{{else}}
+	{{else if .User.CanWrite}}
 	<p class="muted small">{{.Importable}} von {{.Total}} Eingängen werden automatisch zugeordnet.{{if .Assignable}} Offene Eingänge können unten manuell einer Rechnung zugewiesen werden.{{end}}</p>
 		<p class="muted small">Die Zuordnung ist die bevorzugte Rechnung. Ein Überschuss wird auf weitere offene Rechnungen verteilt; der verbleibende Rest bleibt im Jahreskonto. Der Importbericht bleibt als ursprünglicher Nachweis unverändert.</p>
 	<form method="post" action="/payments/import" data-confirm="Ausgewählte Zahlungen wie zugeordnet verbuchen?">

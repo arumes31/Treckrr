@@ -72,6 +72,8 @@ func TestRenderWithPaymentStatusRejectsCanceledInvoice(t *testing.T) {
 	}
 }
 
+// TestRenderWithItemizedPaymentStatus writes itemized settlement lines and the
+// prepaid/payable split into the XML and rejects lines that do not add up.
 func TestRenderWithItemizedPaymentStatus(t *testing.T) {
 	t.Parallel()
 	invoice := testInvoice()

@@ -499,6 +499,8 @@ func (s *Store) ListNeighborPayments(ctx context.Context, neighborID int64) ([]P
 	return neighborPayments(ctx, s.db, neighborID)
 }
 
+// neighborPayments implements ListNeighborPayments on any queryer, so the
+// statement can read it inside its own snapshot transaction.
 func neighborPayments(ctx context.Context, q statementQueryer, neighborID int64) ([]PaymentRow, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT p.id, p.billing_year_id, p.neighbor_id, p.amount, p.paid_on, p.note,

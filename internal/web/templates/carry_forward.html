@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<a class="backlink" href="{{.Back}}">‹ Zahlungen {{.Year.Year}}</a>
 	<header class="pagehead"><h2 class="pagehead__t">Jahresübertrag prüfen · {{.Neighbor.Name}}</h2></header>
 	<div class="card stack">
@@ -11,7 +12,7 @@
 			<tr><td><a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.NextID}}&amp;view=bookings">{{.NextYear}} · Zieljahr</a></td><td class="num">{{money .Preview.Target}}</td><td class="num">{{money .Preview.TargetAfter}}</td></tr></tbody></table>
 		</div>
 		<p class="muted small">Positive Werte sind offene Forderungen. Negative Werte sind Guthaben des Nachbarn.</p>
-		{{if .Preview.Source.IsZero}}<p>Kein offener Rest zum Übernehmen.</p>{{else}}
+		{{if .Preview.Source.IsZero}}<p>Kein offener Rest zum Übernehmen.</p>{{else if .User.CanWrite}}
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/carry-forward" class="form">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
 			<input type="hidden" name="expected_source" value="{{.Preview.Source.StringFixed 2}}">

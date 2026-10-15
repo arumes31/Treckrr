@@ -178,6 +178,9 @@ func (s *Server) registerCatalogRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /bases/{id}/unlock", s.auth(s.handleBaseUnlock))
 }
 
+// registerAccountAndOperationsRoutes registers the personal account (profile,
+// notifications, password, passkeys, 2FA, sessions) and operations: payment
+// and booking imports, recurring bookings, exports, and dunning.
 func (s *Server) registerAccountAndOperationsRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /profile", s.auth(s.handleProfile))
 	mux.Handle("GET /notifications", s.auth(s.handleNotifications))

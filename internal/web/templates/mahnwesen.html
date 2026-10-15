@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/?year={{.Year.ID}}" aria-label="Zurück zur Übersicht">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Mahnwesen{{if not .AllYears}} · {{.Year.Year}}{{end}}</h2>
@@ -17,7 +18,7 @@
 		{{end}}
 	</div>
 
-	{{if and .Rows .MailEnabled (not .AllYears)}}
+	{{if and .User.CanWrite .Rows .MailEnabled (not .AllYears)}}
 	<form method="post" action="/mahnwesen/batch-email" class="card form form--inline">
 		<input type="hidden" name="year" value="{{.Year.ID}}">
 		<label class="field field--inline"><span>Sammel-Mahnlauf</span>
@@ -53,7 +54,7 @@
 					<a class="btn btn--ghost btn--sm" href="/neighbors/{{.NeighborID}}/mahnung?year={{$.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe=0">Erinnerung</a>
 					<a class="btn btn--ghost btn--sm" href="/neighbors/{{.NeighborID}}/mahnung?year={{$.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe=1">1. Mahnung</a>
 					<a class="btn btn--ghost btn--sm" href="/neighbors/{{.NeighborID}}/mahnung?year={{$.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe=2">2. Mahnung</a>
-					<form method="post" action="/neighbors/{{.NeighborID}}/mahnung/mark-sent" class="inlineform">
+					{{if $.User.CanWrite}}<form method="post" action="/neighbors/{{.NeighborID}}/mahnung/mark-sent" class="inlineform">
 						<input type="hidden" name="year" value="{{$.Year.ID}}"><input type="hidden" name="invoice_id" value="{{.InvoiceID}}">
 						<select class="select select--sm" name="stufe" aria-label="Stufe für Vermerk">
 							<option value="0">Erinnerung</option>
@@ -61,7 +62,7 @@
 							<option value="2">2. Mahnung</option>
 						</select>
 						<button class="btn btn--ghost btn--sm" type="submit" title="Versand außerhalb der App (Post, persönlich) im Verlauf festhalten">Versand vermerken</button>
-					</form>
+					</form>{{end}}
 				</span>
 				{{else}}
 				<span class="btnrow">

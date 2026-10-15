@@ -59,6 +59,8 @@ func (s *Server) loadInvoiceDocumentView(ctx context.Context, invoice models.Inv
 	return view.withSettlementLines(lines)
 }
 
+// withSettlementLines attaches the invoice's settlement explanation after
+// checking it accounts exactly for AppliedSettlement.
 func (v invoiceDocumentView) withSettlementLines(lines []models.SettlementLine) (invoiceDocumentView, error) {
 	var err error
 	v.SettlementLines, err = models.SettlementLines(lines, v.AppliedSettlement)

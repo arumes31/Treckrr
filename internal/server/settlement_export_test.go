@@ -2,6 +2,8 @@ package server
 
 import "testing"
 
+// TestSettlementKindLabel maps known kinds to their German record types and
+// falls back to "Ausgleich".
 func TestSettlementKindLabel(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

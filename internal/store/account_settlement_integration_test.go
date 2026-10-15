@@ -9,6 +9,9 @@ import (
 	"github.com/d0linger/treckrr/internal/store"
 )
 
+// TestReadAccountSettlementPreservesValuesIntegration checks that the detail
+// read keeps the existing reconciliation, explains each invoice exactly,
+// reports payment splits and surplus, and writes nothing.
 func TestReadAccountSettlementPreservesValuesIntegration(t *testing.T) {
 	f := newMultiAllocationFixture(t)
 	if _, err := f.store.AddNeighborLedger(t.Context(), f.yearID, f.neighborID, dec("-44"), "PRIVATE LEDGER NOTE", day(2026, 9, 11)); err != nil {

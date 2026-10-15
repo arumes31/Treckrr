@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"html"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +22,15 @@ import (
 // parses fine but errors at render time — producing a 500 in production.
 func execPage(t *testing.T, page string, data map[string]any) string {
 	t.Helper()
+	// Authenticated-page fixtures historically omitted the user. Render those
+	// as an editor; explicit users (including nil) and public pages stay intact.
+	if _, explicitUser := data["User"]; !explicitUser && page != "login" && page != "offline" && data["Shared"] != true {
+		data = maps.Clone(data)
+		if data == nil {
+			data = make(map[string]any)
+		}
+		data["User"] = &models.User{Role: models.RoleEditor}
+	}
 	pages, err := Templates()
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)
@@ -508,6 +518,52 @@ func TestCompanyPageRenders(t *testing.T) {
 	})
 }
 
+// TestCompanyDecimalInputsPreserveValues renders company decimal fields with
+// their exact stored values, including large, fractional and zero amounts.
+func TestCompanyDecimalInputsPreserveValues(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		company models.Company
+		want    map[string]string
+	}{
+		{
+			name: "large and fractional amounts",
+			company: models.Company{
+				SmallBusinessLimit: decimal.NewFromInt(55000),
+				DunningFee1:        decimal.RequireFromString("1234.56"),
+				DunningFee2:        decimal.NewFromInt(1000),
+				SkontoPct:          decimal.RequireFromString("2.5"),
+				TravelFlat:         decimal.RequireFromString("1000000.01"),
+				TravelPerKm:        decimal.RequireFromString("1234.56"),
+			},
+			want: map[string]string{
+				"small_business_limit": "55000", "dunning_fee_1": "1234.56",
+				"dunning_fee_2": "1000", "skonto_pct": "2.5",
+				"travel_flat": "1000000.01", "travel_per_km": "1234.56",
+			},
+		},
+		{
+			name: "zero amounts",
+			want: map[string]string{
+				"small_business_limit": "0", "dunning_fee_1": "0",
+				"dunning_fee_2": "0", "skonto_pct": "0",
+				"travel_flat": "0", "travel_per_km": "0",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := execPage(t, "company", map[string]any{"Company": tc.company})
+			for name, want := range tc.want {
+				input := regexp.MustCompile(`<input\b[^>]*\bname="` + regexp.QuoteMeta(name) + `"[^>]*>`).FindString(page)
+				value := regexp.MustCompile(`\bvalue="([^"]*)"`).FindStringSubmatch(input)
+				if len(value) != 2 || value[1] != want {
+					t.Errorf("%s input = %s, want value %q", name, input, want)
+				}
+			}
+		})
+	}
+}
+
 func TestYearClosingRenders(t *testing.T) {
 	// A clean year and an open one, so both branches of every check render.
 	execPage(t, "year_closing", map[string]any{
@@ -722,7 +778,7 @@ func TestMahnungPagePreservesDocumentAndPaymentActions(t *testing.T) {
 			}
 			page := execPage(t, "mahnung", data)
 			for _, want := range []string{
-				`class="beleg beleg--rechnung"`,
+				`class="beleg beleg--rechnung beleg--reminder"`,
 				"Hof &lt;Bergmann&gt;", "Dorfweg 1", "Testnachbar", "Feldweg 2",
 				models.DunningStageTitle(tc.stage), "Rechnung Nr. 2026-012",
 				"Offener Betrag", "100,00 €", "<strong>" + tc.wantTotal + "</strong>",

@@ -1,8 +1,48 @@
-import { expect, test } from "@playwright/test";
+import { expect, test as base } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
+type CompanySettings = Record<string, string>;
+
+const test = base.extend<{ configureCompany: (settings: CompanySettings) => Promise<void> }>({
+  configureCompany: async ({ page }, use) => {
+    let original: CompanySettings | undefined;
+    const form = page.locator('form[action="/admin/company"]');
+    /** Reads the company form fields, without the CSRF token. */
+    const readSettings = () => form.evaluate(element => Object.fromEntries(
+      [...new FormData(element as HTMLFormElement).entries()]
+        .filter(([name]) => name !== "csrf_token")
+        .map(([name, value]) => [name, String(value)]),
+    ));
+    /** Posts the given company settings and verifies they round-trip. */
+    const saveSettings = async (settings: CompanySettings) => {
+      const csrf = await form.locator('[name="csrf_token"]').inputValue();
+      const response = await page.request.post("/admin/company", {
+        form: { ...settings, csrf_token: csrf },
+      });
+      expect(response.ok()).toBeTruthy();
+      await page.goto("/admin/company");
+      expect(await readSettings()).toEqual(settings);
+    };
+
+    try {
+      await use(async settings => {
+        await page.goto("/admin/company");
+        original ??= await readSettings();
+        // The save handler replaces all fields, including omitted settings.
+        await saveSettings({ ...original, ...settings });
+      });
+    } finally {
+      if (original) {
+        // Fixture teardown also runs after assertion failures and test timeouts.
+        await page.goto("/admin/company");
+        await saveSettings(original);
+      }
+    }
+  },
+});
+
 // This journey owns a synthetic year/account and never uses the Dev database.
-test("itemized invoice, payment dialog, text and PNG exports agree", async ({ page }) => {
+test("itemized invoice, payment dialog, text and PNG exports agree", async ({ page, configureCompany }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
@@ -23,6 +63,7 @@ test("itemized invoice, payment dialog, text and PNG exports agree", async ({ pa
   const create = page.locator('form[action="/years"]');
   const year = await create.locator('[name="year"]').inputValue();
   const csrf = await create.locator('[name="csrf_token"]').inputValue();
+  /** Posts a form with the page CSRF token and requires a successful response. */
   const post = async (path: string, form: Record<string, string>) => {
     const response = await page.request.post(path, { form: { csrf_token: csrf, ...form } });
     expect(response.ok(), path).toBeTruthy();
@@ -36,7 +77,7 @@ test("itemized invoice, payment dialog, text and PNG exports agree", async ({ pa
   const neighbor = page.locator(".neighbor-row").filter({ has: page.getByText(neighborName, { exact: true }) });
   const neighborID = (await neighbor.getAttribute("id"))!.replace("neighbor-", "");
   await post("/years/add-neighbor", { year_id: yearID, neighbor_id: neighborID });
-  await post("/admin/company", { name: "Synthetic settlement issuer", address: "Testfeld 1\n4710 Testdorf", tax_mode: "kleinunternehmer", tax_note: "Synthetischer Rechnungsnachweis", vat_rate: "0", iban: "AT611904300234573201" });
+  await configureCompany({ name: "Synthetic settlement issuer", address: "Testfeld 1\n4710 Testdorf", tax_mode: "kleinunternehmer", tax_note: "Synthetischer Rechnungsnachweis", vat_rate: "0", iban: "AT611904300234573201" });
   await post(`/neighbors/${neighborID}/update`, { name: neighborName, address: "Testfeld 2\n4710 Testdorf" });
   await post("/entries", { year_id: yearID, neighbor_id: neighborID, entry_date: `${year}-05-01`, unit: "Pauschale", quantity: "1", unit_price: "322.20", task_label: "Synthetic invoice work" });
   await post("/entries", { booking_form_version: "3", booking_direction: "in", booking_kind: "fixed", year_id: yearID, neighbor_id: neighborID, entry_date: `${year}-05-02`, amount: "44", task_label: "Synthetic counterservice", note: "PRIVATE COUNTERSERVICE NOTE" });
@@ -57,6 +98,12 @@ test("itemized invoice, payment dialog, text and PNG exports agree", async ({ pa
   await expect(page.locator(".beleg__payinfo strong")).toHaveText("Offen: 178,20 €");
   await expect(page.locator("#beleg")).not.toContainText("PRIVATE CASH NOTE");
   await expect(page.locator("#beleg")).not.toContainText("PRIVATE COUNTERSERVICE NOTE");
+
+  const exports = page.locator("details.document-actions__group");
+  await expect(exports).not.toHaveAttribute("open");
+  await expect(exports.getByRole("button", { name: "Text kopieren", exact: true })).toBeHidden();
+  await exports.getByText("Weitere Formate und Export", { exact: true }).click();
+  await expect(exports).toHaveAttribute("open", "");
 
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });

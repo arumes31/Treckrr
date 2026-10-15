@@ -4,6 +4,7 @@
 		<a class="backbtn" href="/years/{{.Source.ID}}/abschluss" aria-label="Zurück zur Abschluss-Prüfung">{{template "ic-back"}}</a>
 		<div><h2 class="pagehead__t">Jahreswechsel {{.Source.Year}} → {{.TargetYear}}</h2><p class="muted small">Geführt und wiederaufnehmbar: erledigte Schritte werden bei Wiederholung übersprungen.</p></div>
 	</div>
+	{{template "readonly-notice" .}}
 
 	<div class="rollgrid">
 		<article class="card stack stack--tight">
@@ -17,7 +18,7 @@
 			<span class="eyebrow">2 · Ausgangsjahr</span>
 			<h3>{{if .Source.Completed}}Abgeschlossen{{else}}Noch in Bearbeitung{{end}}</h3>
 			<p class="muted small">{{if .OpenChecks}}{{.OpenChecks}} fachliche Prüfpunkte sind noch offen. Sie bleiben sichtbar und werden nicht automatisch verändert.{{else}}Die Abschluss-Checkliste ist vollständig.{{end}}</p>
-			{{if not .Source.Completed}}
+			{{if and .User.CanWrite (not .Source.Completed)}}
 			<form method="post" action="/years/{{.Source.ID}}/status" data-confirm="Abrechnungsjahr {{.Source.Year}} abschließen? Buchungen und Belege werden gesperrt; Zahlungen bleiben erfassbar.">
 				<input type="hidden" name="status" value="completed"><input type="hidden" name="origin" value="rollover">
 				<button class="btn btn--primary btn--sm" type="submit">Jahr abschließen</button>
@@ -29,10 +30,11 @@
 			<span class="eyebrow">3 · Folgejahr &amp; Preisbasis</span>
 			{{if .Target}}
 			<h3>{{.Target.Year}} ist angelegt</h3>
-			<p class="muted small">Grundlage: {{with .Target.Base}}{{.Year}} · {{.Name}}{{end}}. Dieser Schritt ist idempotent erledigt.</p>
+			<p class="muted small">Grundlage: {{with .Target.Base}}{{.Year}} · {{.Name}}{{end}}. Bereits erledigt — bei Wiederholung wird kein weiteres Jahr angelegt.</p>
 			<a class="btn btn--ghost btn--sm" href="/?year={{.Target.ID}}">Folgejahr öffnen</a>
 			{{else}}
 			<h3>{{.TargetYear}} anlegen</h3>
+			{{if .User.CanWrite}}
 			<form method="post" action="/years/{{.Source.ID}}/wechsel/create" class="form">
 				<label class="choice"><input type="radio" name="base_mode" value="reuse" checked><span>Vorhandene Preisbasis verwenden</span></label>
 				<select class="select" name="base_id" aria-label="Preisbasis">
@@ -42,13 +44,14 @@
 				<button class="btn btn--primary btn--sm" type="submit" {{if not .Source.Completed}}disabled title="Zuerst Ausgangsjahr abschließen"{{end}}>Folgejahr anlegen</button>
 			</form>
 			{{end}}
+			{{end}}
 		</article>
 
 		<article class="card stack stack--tight">
 			<span class="eyebrow">4 · Nachbarn</span>
 			<h3>{{.SourceMembers}} im Ausgangsjahr · {{.TargetMembers}} im Folgejahr</h3>
 			<p class="muted small">{{if .PendingMembers}}{{.PendingMembers}} aktive Nachbarn können noch übernommen werden. Archivierte Datensätze bleiben außen vor.{{else}}Alle aktiven Nachbarn sind bereits enthalten.{{end}}</p>
-			{{if and .Target .PendingMembers}}<form method="post" action="/years/{{.Source.ID}}/wechsel/neighbors"><button class="btn btn--primary btn--sm" type="submit">Fehlende Nachbarn übernehmen</button></form>{{end}}
+			{{if and .User.CanWrite .Target .PendingMembers}}<form method="post" action="/years/{{.Source.ID}}/wechsel/neighbors"><button class="btn btn--primary btn--sm" type="submit">Fehlende Nachbarn übernehmen</button></form>{{end}}
 		</article>
 
 		<article class="card stack stack--tight">

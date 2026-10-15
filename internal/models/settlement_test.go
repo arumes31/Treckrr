@@ -6,6 +6,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// TestSettlementLines covers complete, legacy-aggregate and invalid
+// explanations, and that the result does not alias the input slice.
 func TestSettlementLines(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

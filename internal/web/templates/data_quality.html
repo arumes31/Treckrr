@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/?year={{.Year.ID}}" aria-label="Zurück zur Übersicht">{{template "ic-back"}}</a>
 		<div><h2 class="pagehead__t">Datenqualität {{.Year.Year}}</h2><p class="muted small">Hinweise, keine Sperren: Bestehende Abläufe funktionieren unverändert weiter.</p></div>
@@ -15,7 +16,7 @@
 		<li class="qualityitem qualityitem--{{.Severity}}">
 			<span class="qualityitem__mark" aria-hidden="true">{{if eq .Severity "high"}}!{{else}}i{{end}}</span>
 			<div class="qualityitem__body"><span class="eyebrow">{{.Group}}</span><strong>{{.Title}}</strong><span class="muted small">{{.Detail}}</span></div>
-			{{if .Href}}<a class="btn btn--ghost btn--sm" href="{{.Href}}">Ergänzen</a>{{else}}<span class="muted small">Administrator erforderlich</span>{{end}}
+			{{if not $.User.CanWrite}}<span class="muted small">Nur-Lese-Zugriff</span>{{else if .Href}}<a class="btn btn--ghost btn--sm" href="{{.Href}}">Ergänzen</a>{{else}}<span class="muted small">Administrator erforderlich</span>{{end}}
 		</li>
 		{{end}}
 	</ol>

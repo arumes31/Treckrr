@@ -1,42 +1,40 @@
 {{define "content"}}
 <section class="stack" data-base-id="{{.Base.ID}}">
+	<div class="account-backlinks">
 	<a class="backlink" href="/?year={{.Year.ID}}">‹ Nachbarn {{.Year.Year}}</a>
 	<a class="backlink" href="/years/{{.Year.ID}}/abschluss">Jahresabschluss prüfen</a>
+	</div>
 
-	<header class="summary-card card">
+	<header class="summary-card card{{if eq .Section "booking"}} summary-card--booking{{end}}">
 		<div>
 			<span class="summary-card__label">{{.Neighbor.Name}} · {{.Year.Year}} · {{if .Remaining.IsNegative}}Guthaben{{else if .Remaining.IsZero}}Ausgeglichen{{else}}Offen{{end}}</span>
 			<span class="summary-card__value">{{if .Remaining.IsNegative}}{{money .CreditAmount}}{{else}}{{money .Remaining}}{{end}}</span>
-			<span class="summary-card__label summary-card__breakdown">
-				<span>Eigene Leistungen {{money .TotalCost}}</span>
-				<span>Konto {{money .LedgerSum}}</span>
-				<span>Bezahlt {{money .PaidSum}}</span>
-			</span>
+			{{if ne .Section "booking"}}{{template "neighbor-summary-breakdown" .}}{{end}}
 		</div>
-		<div class="summary-card__meta">
-			<span>Eigene Maschinenstunden {{num .TotalHours}} h · {{.BookingCount}} Positionen gesamt</span>
-			<span class="btnrow">
-				{{if .User.CanWrite}}<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
-				<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Beleg</a>
-				<a class="btn btn--ghost btn--sm" href="/export/neighbor/{{.Neighbor.ID}}?year={{.Year.ID}}">CSV Export</a>
-			</span>
-		</div>
+		{{if eq .Section "booking"}}
+		<details class="summary-card__details">
+			<summary>Kontodetails und Exporte</summary>
+			{{template "neighbor-summary-breakdown" .}}
+			{{template "neighbor-summary-meta" .}}
+		</details>
+		{{else}}{{template "neighbor-summary-meta" .}}{{end}}
 	</header>
 
 	<div class="work-surface account-workspace">
 	<nav class="section-tabs" aria-label="Bereiche für {{.Neighbor.Name}}">
 		<a class="section-tabs__item{{if eq .Section "overview"}} is-active{{end}}" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}"{{if eq .Section "overview"}} aria-current="page"{{end}}>Übersicht</a>
-		{{if not .Completed}}<a class="section-tabs__item section-tabs__item--primary{{if eq .Section "booking"}} is-active{{end}}" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking"{{if eq .Section "booking"}} aria-current="page"{{end}}>Buchen</a>{{end}}
+		{{if and .User.CanWrite (not .Completed)}}<a class="section-tabs__item section-tabs__item--primary{{if eq .Section "booking"}} is-active{{end}}" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking"{{if eq .Section "booking"}} aria-current="page"{{end}}>Buchen</a>{{end}}
 		<a class="section-tabs__item{{if eq .Section "bookings"}} is-active{{end}}" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings"{{if eq .Section "bookings"}} aria-current="page"{{end}}>Buchungen</a>
 		<a class="section-tabs__item{{if eq .Section "payments"}} is-active{{end}}" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments"{{if eq .Section "payments"}} aria-current="page"{{end}}>Zahlungen</a>
 	</nav>
+	{{if ne .Section "booking"}}{{template "readonly-notice" .}}{{end}}
 
 	{{if eq .Section "overview"}}
-	{{if .HasInvoice}}<div class="flash flash--info">Festgeschriebene Rechnungen bleiben unverändert. Neue Leistungen können separat erfasst und abgerechnet werden. <a class="link" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Rechnungen ansehen</a> · <a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a></div>{{end}}
+	{{if .HasInvoice}}<div class="flash flash--info">Festgeschriebene Rechnungen bleiben unverändert. Neue Leistungen können separat erfasst und abgerechnet werden. <a class="link" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Rechnungen ansehen</a>{{if .User.CanWrite}} · <a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a>{{end}}</div>{{end}}
 	<section class="account-overview" aria-labelledby="account-overview-title">
 		<div class="account-overview__heading">
 			<div><h2 id="account-overview-title">Stand {{.Year.Year}}</h2><p class="muted small">Die wichtigsten Werte auf einen Blick.</p></div>
-			{{if not .Completed}}<a class="btn btn--primary btn--sm" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking">Neue Buchung</a>{{end}}
+			{{if and .User.CanWrite (not .Completed)}}<a class="btn btn--primary btn--sm" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking">Neue Buchung</a>{{end}}
 		</div>
 		<div class="account-summary">
 			<a href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=bookings"><span><strong>Meine Leistungen</strong><small>{{.BookingCount}} Positionen</small></span><b>{{money .TotalCost}}</b></a>
@@ -61,14 +59,14 @@
 	{{with .PrefilledMachine}}<div class="flash flash--info"><strong>{{.Name}}</strong> wurde über den Maschinen-QR vorausgewählt. Bitte Nachbar, Richtung, Datum und Stunden prüfen; gespeichert wird erst mit „Buchung speichern“.</div>{{end}}
 	{{if .HasInvoice}}<p class="flash flash--info">Neue Leistungen werden getrennt von bereits festgeschriebenen Rechnungen erfasst.</p>{{end}}
 	{{template "booking-form" .}}
+	{{if .User.CanWrite}}
 	<details class="disclosure disclosure--plain page-more">
 		<summary>Schnellerfassung (mehrere Zeilen)</summary>
 		<form method="post" action="/entries/quick" class="form" data-quick-form>
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
 			<input type="hidden" name="neighbor_id" value="{{.Neighbor.ID}}">
 			<p class="muted small">Je Zeile ein festes Gespann und die Stunden{{if .Persons}}, auf Wunsch mit Person — dann werden deren Mannstunden über dieselben Stunden als verknüpfte Position mitgebucht{{end}}. Leere Zeilen werden ignoriert.</p>
-			<p class="muted small quick-scroll-hint" id="quick-scroll-hint">Die Tabelle lässt sich seitlich scrollen — Gespann und Person bleiben so gut lesbar.</p>
-			<div class="tablewrap" role="region" aria-label="Schnellerfassung" aria-describedby="quick-scroll-hint" tabindex="0">
+			<div class="tablewrap" role="region" aria-label="Schnellerfassung" tabindex="0">
 				<table class="dtable">
 					<thead><tr><th>Datum</th><th>Gespann</th><th class="num">Stunden</th>{{if .Persons}}<th>Person</th>{{end}}</tr></thead>
 					<tbody data-quick-rows>
@@ -102,6 +100,7 @@
 			</div>
 		</form>
 	</details>
+	{{end}}
 	{{end}}
 
 	{{if eq .Section "bookings"}}
@@ -137,7 +136,7 @@
 	</div>
 	{{end}}
 
-	{{if and (not .Completed) .StaleCount}}
+	{{if and .User.CanWrite (not .Completed) .StaleCount}}
 	<div class="card statusrow statusrow--warn">
 		<div class="statusrow__info">
 			<strong>{{.StaleCount}} Buchung(en) weichen von der aktuellen Grundlage ab.</strong>
@@ -171,7 +170,7 @@
 			</div>
 			<div class="bcard__foot">
 				<span class="bcard__detail">{{if eq .Unit "h"}}{{num .Hours}} h × {{money .HourlyRate}}/h{{if .TractorLabel}} · {{.TractorLabel}} · {{.LoadLabel}}{{else}} · ohne Traktor{{end}}{{if .MachineLabels}} · {{.MachineLabels}}{{end}}{{else}}{{num .Quantity}} {{.Unit}} × {{money .UnitPrice}}/{{.Unit}}{{end}}{{if .Note}} · {{.Note}}{{end}}{{if .VoidReason}} · Storno: {{.VoidReason}}{{end}}{{if .LinkedEntryID}} · <a class="bcard__link" href="#entry-{{.LinkedEntryID}}" title="Zur verknüpften Maschinenbuchung springen">↳ {{if $pl}}{{$pl}}{{else}}zur Maschinenbuchung{{end}}</a>{{end}}{{with (index $.LinkedFrom .ID)}} · <a class="bcard__link" href="#entry-{{.}}" title="Zur verknüpften Mannstunden-Buchung springen">＋ {{if $pl}}{{$pl}}{{else}}Mannstunden verknüpft{{end}}</a>{{end}}</span>
-				{{if and (not $.Completed) (not .InvoiceLocked)}}
+				{{if and $.User.CanWrite (not $.Completed) (not .InvoiceLocked)}}
 				<span class="bcard__acts">
 					{{if .Voided}}
 					<form method="post" action="/entries/{{.ID}}/void"
@@ -211,7 +210,7 @@
 				<path d="M4 41h68" stroke-dasharray="2 5"/>
 			</svg>
 			<span class="empty__title">Noch keine Buchungen in {{.Year.Year}}</span>
-			{{if not .Completed}}
+			{{if and .User.CanWrite (not .Completed)}}
 			<span class="empty__sub">Die erste Fahrt ist schnell erfasst.</span>
 			<a class="btn btn--primary btn--sm" href="/neighbors/{{$.Neighbor.ID}}?year={{$.Year.ID}}&amp;view=booking">＋ Erste Buchung erfassen</a>
 			{{end}}
@@ -255,7 +254,7 @@
 				<span class="bcard__detail">{{if .Description}}{{.Description}}{{else}}—{{end}}{{if .VoidReason}} · Storno: {{.VoidReason}}{{end}}</span>
 				{{end}}
 				{{with $.TransferTargets}}{{with index . $lid}}<a class="link small" href="/neighbors/{{$.Neighbor.ID}}?year={{.YearID}}&amp;view=bookings#ledger-{{.LedgerID}}">Gegenbuchung {{.Year}} ansehen</a>{{end}}{{end}}
-				{{if not $.Completed}}
+				{{if and $.User.CanWrite (not $.Completed)}}
 				<span class="bcard__acts">
 					{{if .Voided}}
 					<form method="post" action="/ledger/{{.ID}}/void">
@@ -287,7 +286,7 @@
 		{{else}}
 		<div class="empty empty--slim">
 			<span class="empty__title">Keine Verrechnungspositionen</span>
-			{{if not .Completed}}<a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking">Neue Buchung erfassen</a>{{end}}
+			{{if and .User.CanWrite (not .Completed)}}<a class="link" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking">Neue Buchung erfassen</a>{{end}}
 		</div>
 		{{end}}
 	</div>
@@ -296,7 +295,7 @@
 	<div class="bcard__summary"><span>Saldo</span><span>{{money .Saldo}}</span></div>
 	{{end}}
 
-	{{if not .Completed}}
+	{{if and .User.CanWrite (not .Completed)}}
 	{{if .HasTravelRates}}
 	<details class="card disclosure">
 		<summary>+ Anfahrt verrechnen</summary>
@@ -336,7 +335,7 @@
 			</div>
 			<div class="bcard__foot">
 				<span class="bcard__detail">{{if .Method}}{{.Method}}{{end}}{{if .InvoiceNumber}}{{if .Method}} · {{end}}Ursprüngliche Referenz {{.InvoiceNumber}}{{end}}{{if .Note}}{{if or .Method .InvoiceNumber}} · {{end}}{{.Note}}{{end}}{{if not (or .Method .InvoiceNumber .Note)}}—{{end}}</span>
-				<span class="bcard__acts">
+				{{if $.User.CanWrite}}<span class="bcard__acts">
 					{{if not .ImportBatchID}}{{if not .Reversal}}
 					<a class="iconact" href="/payments/{{.ID}}/copy" title="Als neue Zahlung duplizieren" aria-label="Duplizieren">{{template "ic-copy"}}</a>
 					<a class="iconact" href="/payments/{{.ID}}/edit" title="Bearbeiten" aria-label="Bearbeiten">{{template "ic-edit"}}</a>
@@ -344,7 +343,7 @@
 						<button class="iconact iconact--danger" type="submit" title="Löschen" aria-label="Löschen">{{template "ic-trash"}}</button>
 					</form>
 					{{end}}{{end}}
-				</span>
+				</span>{{end}}
 			</div>
 			{{with index $.PaymentUsage .ID}}<details class="disclosure"><summary>Aktuelle Zahlungszuordnung</summary>{{template "payment-usage" .}}</details>{{end}}
 		</div>
@@ -357,7 +356,7 @@
 	<div class="bcard__summary"><span class="muted">Bezahlt</span><span>{{money .PaidSum}}</span></div>
 	<div class="bcard__summary"><span>{{if .Remaining.IsNegative}}Guthaben{{else if .Remaining.IsZero}}Ausgeglichen{{else}}Offen{{end}}</span><span>{{if .Remaining.IsNegative}}{{money .CreditAmount}}{{else}}{{money .Remaining}}{{end}}</span></div>
 
-	<details class="card disclosure" id="zahlung-erfassen" open>
+	{{if .User.CanWrite}}<details class="card disclosure" id="zahlung-erfassen" open>
 		<summary>Zahlung verbuchen</summary>
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/payments" class="form">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
@@ -397,10 +396,10 @@
 			</div>
 			<p class="muted small">Teilzahlung: Betrag anpassen und „Zahlung erfassen“ wählen. „Gesamten Rest bezahlen“ begleicht immer das ganze Jahreskonto ohne Skonto und unabhängig von der Rechnungsauswahl, mit Datum und Zahlungsart.</p>
 		</form>
-	</details>
+	</details>{{end}}
 	<a class="link small" href="/neighbors/{{.Neighbor.ID}}/settlement.csv?year={{.Year.ID}}">Zahlungszuordnung als CSV herunterladen</a>
 
-	{{if or .Installments (not .Remaining.IsZero)}}
+	{{if or .Installments (and .User.CanWrite (not .Remaining.IsZero))}}
 	<details class="card disclosure"{{if .Installments}} open{{end}}>
 		<summary>Ratenplan{{with .Installments}} ({{len .}}){{end}}</summary>
 		<p class="muted small">Vereinbarte Teilzahlungen. Der Status ergibt sich aus der Summe der erhaltenen Zahlungen — Zahlungen werden weiterhin normal erfasst.</p>
@@ -415,17 +414,17 @@
 				</div>
 				<div class="bcard__foot">
 					<span class="bcard__detail"><span class="tag{{if eq .Status "erledigt"}} tag--paid{{else if eq .Status "überfällig"}} tag--open{{end}}">{{.Status}}</span></span>
-					<span class="bcard__acts">
+					{{if $.User.CanWrite}}<span class="bcard__acts">
 						<form method="post" action="/installments/{{.Plan.ID}}/delete" data-confirm-danger data-confirm="Rate vom {{date .Plan.DueOn}} über {{money .Plan.Amount}} entfernen?">
 							<button class="iconact iconact--danger" type="submit" title="Entfernen" aria-label="Entfernen">{{template "ic-trash"}}</button>
 						</form>
-					</span>
+					</span>{{end}}
 				</div>
 			</div>
 			{{end}}
 		</div>
 		{{end}}
-		<form method="post" action="/neighbors/{{.Neighbor.ID}}/installments" class="form">
+		{{if .User.CanWrite}}<form method="post" action="/neighbors/{{.Neighbor.ID}}/installments" class="form">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}">
 			<input type="hidden" name="idempotency_key" value="{{formKey}}">
 			<div class="form__grid">
@@ -437,10 +436,11 @@
 					<input class="input" name="note" placeholder="z. B. Monatsrate"></label>
 			</div>
 			<button class="btn btn--ghost btn--sm" type="submit">Rate hinzufügen</button>
-		</form>
+		</form>{{end}}
 	</details>
 	{{end}}
 
+	{{if .User.CanWrite}}
 	{{if .Remaining.IsPositive}}
 	<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/carry-forward?year={{.Year.ID}}">Rest ins Folgejahr übernehmen</a>
 	{{else if .Remaining.IsNegative}}
@@ -454,10 +454,30 @@
 	</div>
 	{{end}}
 	{{end}}
+	{{end}}
 	</div>
 
-	{{if and (not .Completed) (ne .Section "booking")}}<a class="fab" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking" aria-label="Neue Buchung" title="Neue Buchung">{{template "ic-plus"}}</a>{{end}}
+	{{if and .User.CanWrite (not .Completed) (ne .Section "booking")}}<a class="fab" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=booking" aria-label="Neue Buchung" title="Neue Buchung">{{template "ic-plus"}}</a>{{end}}
 </section>
+{{end}}
+
+{{define "neighbor-summary-breakdown"}}
+<span class="summary-card__label summary-card__breakdown">
+	<span>Eigene Leistungen {{money .TotalCost}}</span>
+	<span>Konto {{money .LedgerSum}}</span>
+	<span>Bezahlt {{money .PaidSum}}</span>
+</span>
+{{end}}
+
+{{define "neighbor-summary-meta"}}
+<div class="summary-card__meta">
+	<span>Eigene Maschinenstunden {{num .TotalHours}} h · {{.BookingCount}} Positionen gesamt</span>
+	<span class="btnrow">
+		{{if .User.CanWrite}}<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
+		<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">Beleg</a>
+		<a class="btn btn--ghost btn--sm" href="/export/neighbor/{{.Neighbor.ID}}?year={{.Year.ID}}">CSV Export</a>
+	</span>
+</div>
 {{end}}
 
 {{define "scripts"}}<script src="/static/js/unified-booking.js?v={{.AssetVersion}}" defer></script><script src="/static/js/entry-form.js?v={{.AssetVersion}}" defer></script>{{end}}

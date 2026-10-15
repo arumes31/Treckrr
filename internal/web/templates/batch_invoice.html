@@ -1,31 +1,33 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/?year={{.Year.ID}}" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Sammel-Festschreibung · {{.Year.Year}}</h2>
 	</div>
 
 	{{if not .CompanyOK}}
-	<div class="card"><p class="muted">Bitte zuerst die <a class="link" href="/admin/company">Betriebsdaten (Absender)</a> ausfüllen — ohne diese kann keine Rechnung festgeschrieben werden.</p></div>
+	<div class="card"><p class="muted">{{if .User.IsAdmin}}Bitte zuerst die <a class="link" href="/admin/company">Betriebsdaten (Absender)</a> ausfüllen{{else}}Die Betriebsdaten (Absender) müssen von einem Administrator ergänzt werden{{end}} — ohne diese kann keine Rechnung festgeschrieben werden.</p></div>
 	{{else}}
 	<p class="muted small">Vorschau der noch nicht abgerechneten Leistungen. Jede neue Rechnung erhält eine fortlaufende Nummer und wird unveränderbar gespeichert. Bestehende Rechnungen bleiben erhalten; neue Leistungen können separat abgerechnet werden. Nachbarn ohne neue Leistungen oder mit unvollständigen Pflichtangaben werden übersprungen.</p>
 
-	<form method="post" action="/years/{{.Year.ID}}/issue-all">
+	<form method="post" action="/years/{{.Year.ID}}/issue-all" data-batch-invoice
+		data-confirm="Die ausgewählten Rechnungen jetzt endgültig festschreiben? Festgeschriebene Rechnungen können nur per Storno korrigiert werden.">
 	<div class="tablewrap" role="region" aria-label="Nachbarn für die Sammel-Festschreibung" tabindex="0">
 		<table class="dtable">
 			<thead><tr><th><span class="sr-only">Auswahl</span></th><th>Nachbar</th><th class="num">Buchungen</th><th class="num">Rechnungsbetrag brutto</th><th>Status</th></tr></thead>
 			<tbody>
 				{{range .Rows}}
 				<tr>
-					<td>{{if and .Issuable (not .AlreadyInvoiced)}}<input type="checkbox" name="neighbor_id" value="{{.Neighbor.ID}}" checked aria-label="{{.Neighbor.Name}} festschreiben"><input type="hidden" name="hash_{{.Neighbor.ID}}" value="{{.ContentHash}}">{{end}}</td>
+					<td>{{if and $.User.CanWrite .Issuable (not .AlreadyInvoiced)}}<label class="table-check"><input type="checkbox" name="neighbor_id" value="{{.Neighbor.ID}}" checked data-invoice-gross="{{.Gross.StringFixed 2}}"><span class="sr-only">{{.Neighbor.Name}} festschreiben</span></label><input type="hidden" name="hash_{{.Neighbor.ID}}" value="{{.ContentHash}}">{{end}}</td>
 					<td><a href="/neighbors/{{.Neighbor.ID}}?year={{$.Year.ID}}">{{.Neighbor.Name}}</a></td>
 					<td class="num">{{.Bookings}}</td>
 					<td class="num">{{if .AlreadyInvoiced}}–{{else}}{{money .Gross}}{{end}}</td>
 					<td>
 						{{if .AlreadyInvoiced}}<span class="tag">keine neuen Leistungen</span>
-						{{else if .Issuable}}<span class="tag tag--paid">wird festgeschrieben</span>
+						{{else if .Issuable}}<span class="tag tag--paid">bereit zur Festschreibung</span>
 						{{else}}<span class="tag tag--open">unvollständig: {{range $i, $m := .Missing}}{{if $i}}, {{end}}{{$m}}{{end}}</span>
-						<a class="link small" href="/neighbors/{{.Neighbor.ID}}?year={{$.Year.ID}}">ergänzen</a>{{end}}
+						<a class="link small" href="/neighbors/{{.Neighbor.ID}}?year={{$.Year.ID}}">{{if $.User.CanWrite}}ergänzen{{else}}ansehen{{end}}</a>{{end}}
 					</td>
 				</tr>
 				{{else}}
@@ -37,11 +39,12 @@
 
 	<div class="card statusrow">
 		<div class="statusrow__info">
-			<strong>bis zu {{.Issuable}} Rechnung(en)</strong> · Summe {{money .Total}} — einzelne Nachbarn lassen sich abwählen.
+			<span data-batch-fallback><strong>bis zu {{.Issuable}} Rechnung(en)</strong> · Summe {{money .Total}}{{if .User.CanWrite}} — einzelne Nachbarn lassen sich abwählen. Ohne JavaScript bleibt dies die Summe aller wählbaren Rechnungen.{{else}} — Vorschau aller zur Festschreibung bereiten Rechnungen.{{end}}</span>
+			<span data-batch-summary role="status" aria-live="polite" aria-atomic="true" hidden></span>
 		</div>
-		{{if .Issuable}}
+		{{if and .Issuable .User.CanWrite}}
 		<button class="btn btn--primary btn--sm" type="submit"
-			data-confirm="Die ausgewählten Rechnungen jetzt endgültig festschreiben (wählbar: {{.Issuable}} über {{money .Total}})? Das ist irreversibel (nur per Storno korrigierbar).">Ausgewählte festschreiben</button>
+			data-batch-submit data-confirm="Die ausgewählten Rechnungen jetzt endgültig festschreiben? Festgeschriebene Rechnungen können nur per Storno korrigiert werden.">Ausgewählte festschreiben</button>
 		{{end}}
 	</div>
 	</form>

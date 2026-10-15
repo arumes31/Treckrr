@@ -53,6 +53,7 @@
 				<span>Treckrr</span>
 			</a>
 			<h1 class="appbar__title">{{.Title}}</h1>
+			<div class="appbar__tools" role="group" aria-label="Globale Werkzeuge">
 			<button type="button" class="appbar__icon" data-cmdk-open aria-label="Schnellsuche (Strg+K)" title="Schnellsuche (Strg+K)">
 				<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
 			</button>
@@ -60,8 +61,6 @@
 				<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
 				{{if .UnreadNotifications}}<span class="appbar__notify-count">{{.UnreadNotifications}}</span>{{end}}
 			</a>
-			<button type="button" class="appbar__offline" data-offline-badge aria-live="polite" hidden
-				aria-haspopup="dialog" title="Offline erfasste Buchungen ansehen"></button>
 			{{with .BackupHealth}}
 			<div class="bkdot bkdot--{{.Tone}}" data-bk>
 				<button class="appbar__icon bkdot__btn" type="button" data-bk-toggle aria-expanded="false" aria-controls="bkPop" aria-label="Backup: {{.Title}}{{if .AgeLabel}}, {{.AgeLabel}}{{end}}">
@@ -83,6 +82,9 @@
 					<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
 				</svg>
 			</button>
+			</div>
+			<button type="button" class="appbar__offline" data-offline-badge aria-live="polite" hidden
+				aria-haspopup="dialog" title="Offline erfasste Buchungen ansehen"></button>
 		</header>
 
 		{{if .Years}}

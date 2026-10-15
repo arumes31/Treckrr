@@ -23,7 +23,7 @@ function fixture(): string {
       <label><input type="radio" name="booking_direction" value="out" checked>Ich verrechne</label>
       <label><input type="radio" name="booking_direction" value="in">Nachbar verrechnet</label>
     </fieldset>
-    <label>Was wird verrechnet?<select name="booking_kind" data-booking-kind><option value="equipment">Traktor / Gespann / Gefährt</option><option value="labor">Arbeitszeit / Mannstunden</option><option value="quantity">Mengenleistung</option><option value="fixed">Freie Position / Kosten</option></select></label>
+    <label>Was wird verrechnet?<select name="booking_kind" data-booking-kind><option value="equipment">Traktor / Gespann / Gefährt</option><option value="labor">Arbeitszeit / Mannstunden</option><option value="quantity">Mengenleistung</option><option value="fixed">Material / Pauschale</option></select></label>
     <label>Datum<input type="date" name="entry_date" value="2026-09-13" required></label>
     <p data-booking-direction-note></p>
     <div data-booking-panel="equipment:out equipment:in">

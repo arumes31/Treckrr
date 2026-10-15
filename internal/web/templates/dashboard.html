@@ -1,5 +1,7 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
+	{{if .User.CanWrite}}
 	{{with .Onboarding}}
 	<div class="card onboard">
 		<div class="onboard__h">Erste Schritte</div>
@@ -12,6 +14,7 @@
 			{{end}}
 		</ol>
 	</div>
+	{{end}}
 	{{end}}
 	<header class="summary-card card">
 		<div>
@@ -48,13 +51,13 @@
 	</div>
 	{{end}}
 
-	{{if not .Completed}}
+	{{if and .User.CanWrite (not .Completed)}}
 	<div class="next-action">
 		<div><strong>{{if .Summaries}}Buchen und bezahlen{{else}}Nächster Schritt{{end}}</strong><span>{{if .Summaries}}Nachbarn wählen, Arbeit erfassen oder Zahlung verbuchen.{{else}}Nachbarn zum Abrechnungsjahr hinzufügen.{{end}}</span></div>
 		{{if .Summaries}}<div class="btnrow"><a class="btn btn--primary btn--sm" href="#nachbarn">Neue Buchung</a><a class="btn btn--ghost btn--sm" href="/years/{{.Year.ID}}/abschluss">Abschluss prüfen</a></div>
 		{{else}}<a class="btn btn--primary btn--sm" href="#nachbarn">Nachbarn hinzufügen</a>{{end}}
 	</div>
-	{{else if or .OpenCount .CreditCount}}
+	{{else if and .Completed (or .OpenCount .CreditCount)}}
 	<div class="next-action next-action--payment">
 		<div><strong>Zahlungen abschließen</strong><span>{{.OpenCount}} offen{{if .CreditCount}} · {{.CreditCount}} Guthaben{{end}}</span></div>
 		<a class="btn btn--primary btn--sm" href="{{if .OpenCount}}#offene-zahlungen{{else}}#auszuzahlen{{end}}">Beträge prüfen</a>
@@ -115,7 +118,7 @@
 				</div>
 				{{end}}
 			</div>
-			{{else}}
+			{{else if $.User.CanWrite}}
 			<form method="post" action="/years/remove-neighbor" class="list__remove"
 				data-confirm-danger data-confirm="{{.Neighbor.Name}} aus diesem Jahr entfernen?">
 				<input type="hidden" name="year_id" value="{{$.Year.ID}}">
@@ -132,13 +135,13 @@
 				<circle cx="52" cy="17" r="5.4"/><path d="M50 26.5c5.7.8 9 4.6 9 10.5"/>
 			</svg>
 			<span class="empty__title">Noch keine Nachbarn in {{.Year.Year}}</span>
-			<span class="empty__sub">Unten übernehmen oder hinzufügen — neue Nachbarn legst du im Reiter Nachbarn an.</span>
+			{{if .User.CanWrite}}<span class="empty__sub">Unten übernehmen oder hinzufügen — neue Nachbarn legst du im Reiter Nachbarn an.</span>{{end}}
 			<a class="btn btn--primary btn--sm" href="/neighbors">Nachbarn verwalten</a>
 		</div>
 		{{end}}
 	</div>
 
-	{{if .PrevNeighbors}}
+	{{if and .User.CanWrite .PrevNeighbors}}
 	<details class="card disclosure">
 		<summary>Nachbarn aus {{.PrevYear}} übernehmen</summary>
 		<form method="post" action="/years/carry-over" class="form">
@@ -160,7 +163,7 @@
 	</details>
 	{{end}}
 
-	{{if .Available}}
+	{{if and .User.CanWrite .Available}}
 	<details class="card disclosure">
 		<summary>Bestehenden Nachbarn hinzufügen</summary>
 		<form method="post" action="/years/add-neighbor" class="form">
@@ -182,10 +185,10 @@
 		<div class="action-list">
 			<a href="/buchungen?year={{.Year.ID}}"><span><strong>Buchungen &amp; Filter</strong><small>Alle Buchungen durchsuchen und filtern</small></span><span aria-hidden="true">›</span></a>
 			<a href="/export/year/{{.Year.ID}}"><span><strong>CSV exportieren</strong><small>Buchungsdaten dieses Jahres herunterladen</small></span><span aria-hidden="true">›</span></a>
-			{{if not .Completed}}<a href="/entries/import?year={{.Year.ID}}"><span><strong>Buchungen importieren</strong><small>Mehrere Buchungen aus einer Datei übernehmen</small></span><span aria-hidden="true">›</span></a>{{end}}
-			<a href="/years/{{.Year.ID}}/issue-all"><span><strong>Sammel-Festschreibung</strong><small>Alle offenen Nachbarn gemeinsam abrechnen</small></span><span aria-hidden="true">›</span></a>
+			{{if and .User.CanWrite (not .Completed)}}<a href="/entries/import?year={{.Year.ID}}"><span><strong>Buchungen importieren</strong><small>Mehrere Buchungen aus einer Datei übernehmen</small></span><span aria-hidden="true">›</span></a>{{end}}
+			{{if .User.CanWrite}}<a href="/years/{{.Year.ID}}/issue-all"><span><strong>Sammel-Festschreibung</strong><small>Alle offenen Nachbarn gemeinsam abrechnen</small></span><span aria-hidden="true">›</span></a>{{end}}
 		</div>
-		{{if .Completed}}
+		{{if and .User.CanWrite .Completed}}
 		<form method="post" action="/years/{{.Year.ID}}/status" class="page-more__form"
 			data-confirm="Abrechnungsjahr {{.Year.Year}} wieder öffnen? Buchungen und Belege werden dadurch wieder änderbar."
 			data-confirm-reason="Grund für das Wiederöffnen (wird protokolliert)">
@@ -197,9 +200,9 @@
 		{{end}}
 	</details>
 
-	<p class="muted center">
+	{{if .User.CanWrite}}<p class="muted center">
 		Neue Nachbarn werden im Reiter <a class="link" href="/neighbors">Nachbarn</a> angelegt
 		und hier dem Jahr zugeordnet. · <a class="link" href="/years">Abrechnungsjahre verwalten</a>
-	</p>
+	</p>{{else}}<p class="muted center"><a class="link" href="/years">Abrechnungsjahre ansehen</a></p>{{end}}
 </section>
 {{end}}

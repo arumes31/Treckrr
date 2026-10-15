@@ -175,6 +175,7 @@
 			var sc = src.children, dc = dst.children;
 			for (var j = 0; j < sc.length; j++) inlineStyles(sc[j], dc[j]);
 		}
+		/** Renders the full-width document, without screen-only scroll tools, and resolves to a 2x PNG blob. */
 		function belegPng() {
 			var rect = beleg.getBoundingClientRect();
 			// Use the full CONTENT size, not the viewport-constrained box: on a narrow
@@ -191,15 +192,21 @@
 			// inside that window; try/finally guarantees the live element is restored even
 			// if cloning throws.
 			var prevW = beleg.style.width, prevMax = beleg.style.maxWidth, prevOv = beleg.style.overflow;
+			var scrollTools = Array.from(beleg.querySelectorAll(".table-scroll-tools"));
+			var toolVisibility = scrollTools.map(function (tool) { return tool.hidden; });
 			var h, clone;
 			try {
+				// Navigation affordances belong to the screen, not the exported document.
+				scrollTools.forEach(function (tool) { tool.hidden = true; });
 				beleg.style.maxWidth = "none"; beleg.style.overflow = "visible"; beleg.style.width = w + "px";
 				h = Math.ceil(beleg.scrollHeight);
 				clone = beleg.cloneNode(true);
 				inlineStyles(beleg, clone);
 			} finally {
 				beleg.style.width = prevW; beleg.style.maxWidth = prevMax; beleg.style.overflow = prevOv;
+				scrollTools.forEach(function (tool, i) { tool.hidden = toolVisibility[i]; });
 			}
+			clone.querySelectorAll(".table-scroll-tools").forEach(function (tool) { tool.remove(); });
 			// The live .beleg clips with overflow:hidden and is capped by max-width; in the
 			// foreignObject those would shave the right edge off. Let the clone size to the
 			// full captured width and show everything so no column is cut.
@@ -221,7 +228,8 @@
 				var src = new URL(picture.getAttribute("src"), window.location.href);
 				if (src.origin !== window.location.origin) return Promise.reject(new Error("non-local image"));
 				return fetch(src.href, { credentials: "same-origin" }).then(function (response) {
-					if (!response.ok || response.headers.get("Content-Type") !== "image/png") throw new Error("image export failed");
+					var mediaType = (response.headers.get("Content-Type") || "").split(";", 1)[0].trim().toLowerCase();
+					if (!response.ok || mediaType !== "image/png") throw new Error("image export failed");
 					return response.arrayBuffer();
 				}).then(function (buffer) { picture.setAttribute("src", "data:image/png;base64," + b64(buffer)); });
 			});

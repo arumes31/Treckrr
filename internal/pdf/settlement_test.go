@@ -13,6 +13,9 @@ import (
 	"github.com/d0linger/treckrr/internal/testutil/pdftext"
 )
 
+// TestItemizedInvoiceSettlementPaginationAndArchive paginates many settlement
+// rows, each exactly once, keeps the archive PDF byte-identical, and rejects an
+// inconsistent supplement.
 func TestItemizedInvoiceSettlementPaginationAndArchive(t *testing.T) {
 	t.Parallel()
 	invoice := paymentTestInvoice()
@@ -50,6 +53,8 @@ func TestItemizedInvoiceSettlementPaginationAndArchive(t *testing.T) {
 	}
 }
 
+// TestStatementIncludesPaymentHistoryAndRemaining checks the statement PDF shows
+// the open balance and the dated payment history.
 func TestStatementIncludesPaymentHistoryAndRemaining(t *testing.T) {
 	t.Parallel()
 	date := time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
@@ -68,6 +73,8 @@ func TestStatementIncludesPaymentHistoryAndRemaining(t *testing.T) {
 	}
 }
 
+// TestSettlementTextLinesMeasuresWideAndUnbrokenLabels wraps wide glyphs and
+// unbroken labels so that no line exceeds the column width.
 func TestSettlementTextLinesMeasuresWideAndUnbrokenLabels(t *testing.T) {
 	t.Parallel()
 	doc, err := newDoc()

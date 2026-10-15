@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="{{.BackURL}}" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Kosten neu berechnen</h2>
@@ -33,13 +34,13 @@
 		</div>
 	</div>
 
-	<form method="post" action="{{.ApplyURL}}" data-confirm-danger data-confirm="{{.Count}} Buchungen mit der aktuellen Grundlage neu berechnen? Die eingefrorenen Preise dieser Buchungen werden überschrieben.">
+	{{if .User.CanWrite}}<form method="post" action="{{.ApplyURL}}" data-confirm-danger data-confirm="{{.Count}} Buchungen mit der aktuellen Grundlage neu berechnen? Die eingefrorenen Preise dieser Buchungen werden überschrieben.">
 		{{if not .YearScope}}<input type="hidden" name="year_id" value="{{.YearID}}">{{end}}
 		<div class="btnrow btnrow--split">
 			<a class="btn btn--ghost btn--sm" href="{{.BackURL}}">Abbrechen</a>
 			<button class="btn btn--primary" type="submit">Neuberechnung anwenden</button>
 		</div>
-	</form>
+	</form>{{end}}
 	{{else}}
 	<div class="card"><p class="muted center">Alle Buchungen sind bereits auf dem Stand der aktuellen Grundlage – nichts zu tun.</p></div>
 	{{end}}

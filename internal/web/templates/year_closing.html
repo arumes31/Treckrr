@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack year-closing">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/years" aria-label="Zurück zu den Jahren">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Jahresabschluss · {{.Year.Year}}</h2>
@@ -53,7 +54,7 @@
 		</div>
 	</details>
 
-	{{if not .Year.Completed}}
+	{{if and .User.CanWrite (not .Year.Completed)}}
 	<div class="closing-action">
 		<form method="post" action="/years/{{.Year.ID}}/status"
 			data-confirm="Abrechnungsjahr {{.Year.Year}} abschließen? Danach sind Buchungen und Belege gesperrt; Zahlungen bleiben erfassbar.">

@@ -1,12 +1,14 @@
 {{define "content"}}
 <section class="stack">
 	<a class="backlink" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}">‹ Zurück zu {{.Neighbor.Name}}</a>
-	<h2 class="section-title">{{if .Copy}}Position duplizieren{{else}}Position bearbeiten{{end}} · {{.Year.Year}}</h2>
+	<h2 class="section-title">{{if not .User.CanWrite}}Position ansehen{{else if .Copy}}Position duplizieren{{else}}Position bearbeiten{{end}} · {{.Year.Year}}</h2>
 	{{if .Ledger.Booking}}
 	{{template "booking-form" .}}
 	{{if not .BookingCopy}}{{template "booking-extras" .}}{{end}}
 	{{else}}
+	{{template "readonly-notice" .}}
 	<form method="post" action="{{if .Copy}}/neighbors/{{.Neighbor.ID}}/ledger{{else}}/ledger/{{.Ledger.ID}}/update{{end}}" class="card form">
+		{{if not .User.CanWrite}}<fieldset class="readonly-fields" disabled><legend class="sr-only">Position – Nur-Lese-Zugriff</legend>{{end}}
 		{{if .Copy}}<input type="hidden" name="year_id" value="{{.Year.ID}}">{{end}}
 		<div class="form__grid">
 			<label class="field"><span>Betrag (€)</span>
@@ -26,7 +28,7 @@
 				<span>Zusatzforderung (+)</span>
 			</label>
 		</div>
-		<button class="btn btn--primary" type="submit">{{if .Copy}}Als neue Position speichern{{else}}Speichern{{end}}</button>
+		{{if .User.CanWrite}}<button class="btn btn--primary" type="submit">{{if .Copy}}Als neue Position speichern{{else}}Speichern{{end}}</button>{{else}}</fieldset>{{end}}
 	</form>
 	{{end}}
 </section>

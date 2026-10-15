@@ -170,6 +170,8 @@ func deDecimal(v decimal.Decimal) string {
 // feed, NBSP, …), because several importers strip it before evaluating a formula
 // (so " =X" or " =X" are dangerous too). Applied to user-entered text
 // columns only, never to the numeric columns.
+// Keep literal percent/pipe prefixes unchanged: they are not documented formula
+// starters in Excel/Calc; a pipe inside a formula is covered by its leading trigger.
 func csvSafe(v string) string {
 	if v == "" {
 		return v

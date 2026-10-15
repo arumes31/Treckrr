@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Wiederkehrende Buchungen</h2>
@@ -18,7 +19,7 @@
 					<td>{{.NextRun.Format "02.01.2006"}}{{with .EndsOn}}<br><span class="muted small">endet {{.Format "02.01.2006"}}</span>{{end}}</td>
 					<td>{{if .Active}}<span class="tag tag--paid">aktiv</span>{{else}}<span class="tag tag--open">pausiert</span>{{end}}{{if and .Active .LastError}} <span class="tag tag--open" title="{{.LastError}}">wartet</span><br><span class="muted small">{{.LastError}}{{if .LastErrorAt}} (seit {{pdate .LastErrorAt}}){{end}}</span>{{end}}</td>
 					<td>
-						<div class="recur__acts">
+						{{if $.User.CanWrite}}<div class="recur__acts">
 							{{if .Active}}
 							<form method="post" action="/recurring/{{.ID}}/run-now"
 								data-confirm="Jetzt eine zusätzliche Buchung für heute erstellen? Der Rhythmus bleibt unverändert.">
@@ -29,12 +30,12 @@
 							{{end}}
 							<form method="post" action="/recurring/{{.ID}}/toggle"><button class="btn btn--ghost btn--sm" type="submit">{{if .Active}}Pausieren{{else}}Fortsetzen{{end}}</button></form>
 							<form method="post" action="/recurring/{{.ID}}/delete" data-confirm-danger data-confirm="Serie entfernen? Bereits erstellte Buchungen bleiben erhalten."><button class="btn btn--ghost btn--icon" type="submit" aria-label="Serie entfernen">{{template "ic-trash"}}</button></form>
-						</div>
+						</div>{{end}}
 						<details class="disclosure disclosure--plain recur__preview">
 							<summary>Nächste Termine</summary>
 							<div class="ratechips">{{range .Upcoming}}<span class="chip">{{.Format "02.01.2006"}}</span>{{else}}<span class="muted small">Keine weiteren Termine innerhalb der Laufzeit.</span>{{end}}</div>
 						</details>
-						<details class="disclosure disclosure--plain">
+						{{if $.User.CanWrite}}<details class="disclosure disclosure--plain">
 							<summary>Zukünftige Termine ändern</summary>
 							<form method="post" action="/recurring/{{.ID}}/update" class="form">
 								<label class="field"><span>Rhythmus</span>
@@ -49,7 +50,7 @@
 								<button class="btn btn--primary btn--sm" type="submit">Speichern</button>
 							</form>
 							<p class="muted small">Die Änderung gilt nur für noch nicht erzeugte Termine. Bereits gebuchte Leistungen bleiben unverändert. Für einen anderen Inhalt die Serie entfernen und aus der korrigierten Buchung neu einrichten.</p>
-						</details>
+						</details>{{end}}
 					</td>
 				</tr>
 				{{end}}

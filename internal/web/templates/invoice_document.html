@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack beleg-page">
+	{{if not .Shared}}{{template "readonly-notice" .}}{{end}}
 	{{if not .Shared}}<a class="backlink no-print" href="/neighbors/{{.Neighbor.ID}}/beleg?year={{.Year.ID}}">‹ Jahresübersicht {{.Year.Year}} · {{.Invoice.Content.Recipient.Name}}</a>{{end}}
 	<article class="beleg beleg--rechnung beleg--document" id="beleg" data-beleg-name="Rechnung_{{.Invoice.Number}}">
 		<header class="beleg__invoice">
@@ -36,7 +37,7 @@
 				{{if not .Doc.SettlementAsOf.IsZero}}<span class="muted small">Stand {{.Doc.SettlementAsOf.Format "02.01.2006 15:04"}}</span>{{end}}
 				{{template "settlement-lines" (dict "Rows" .Doc.SettlementLines)}}
 				<span>Bereits verrechnet / bezahlt: {{money .Doc.AppliedSettlement}}</span>
-				<strong>Offen: {{money .Doc.Remaining}}</strong>
+				<strong class="beleg__settlement-total">Offen: {{money .Doc.Remaining}}</strong>
 				{{with .DueOn}}<span class="beleg__inv-due">Fällig am {{date .}} · {{if $.Invoice.Content.PaymentTermFrozen}}vereinbartes{{else}}aktuelles{{end}} Zahlungsziel{{if gt $.DueDays 0}} (in {{$.DueDays}} Tagen){{else if eq $.DueDays 0}} (heute){{end}}</span>{{end}}
 				{{if .Doc.Remaining.IsPositive}}<span>Referenz: {{.Doc.PaymentReference}}</span>{{with .Invoice.Content.Issuer.IBAN}}<span>IBAN: {{.}}</span>{{end}}{{else}}<span>Diese Rechnung ist ausgeglichen.</span>{{end}}
 			</div>
@@ -59,27 +60,40 @@
 	</section>
 	{{end}}{{end}}
 
-	<div class="btnrow no-print">
-		<a class="btn btn--primary" href="{{if .Shared}}/s/portal/{{.PortalToken}}/invoice.pdf{{else}}/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}">Rechnung als PDF</a>
-		{{if not .Shared}}
-		<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}/settlement.csv?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}">Zahlungszuordnung CSV</a>
-		{{if not .EInvoiceMissing}}<a class="btn btn--ghost" href="/documents/{{.Invoice.ID}}/ebinterface.xml">e-Rechnung XML</a>{{end}}
-		{{if and .Doc.Active .Doc.Remaining.IsPositive}}<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments&amp;invoice_id={{.Invoice.ID}}#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
-		{{if .Doc.Active}}
-		{{if and .MailEnabled .NeighborEmail}}<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/email?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} an {{.NeighborEmail}} senden?"><button class="btn btn--ghost" type="submit">Per E-Mail senden</button></form>{{end}}
-		<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} als versendet markieren? Dies ist nur ein interner Vermerk; es wird nichts verschickt."><button class="btn btn--ghost{{if .LastSend}} is-sent{{end}}" type="submit">{{if .LastSend}}Versendet am {{date .LastSend.SentAt}}{{else}}Als versendet markieren{{end}}</button></form>
-		{{end}}
-		{{end}}
+	<div class="document-actions no-print">
+		<section class="document-actions__group" aria-labelledby="invoice-primary-actions">
+			<h2 id="invoice-primary-actions">Rechnung und Zahlung</h2>
+			<div class="btnrow">
+				<a class="btn btn--primary" href="{{if .Shared}}/s/portal/{{.PortalToken}}/invoice.pdf{{else}}/neighbors/{{.Neighbor.ID}}/beleg.pdf?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}{{end}}">Rechnung als PDF</a>
+				{{if and (not .Shared) .User.CanWrite .Doc.Active .Doc.Remaining.IsPositive}}<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}&amp;view=payments&amp;invoice_id={{.Invoice.ID}}#zahlung-erfassen">Zahlung verbuchen</a>{{end}}
+			</div>
+		</section>
+		<section class="document-actions__group" aria-labelledby="invoice-delivery-actions">
+			<h2 id="invoice-delivery-actions">Weitergeben und Versand dokumentieren</h2>
+			<div class="btnrow">
+				<button class="btn btn--ghost btn--sm" type="button" data-beleg-share>Teilen</button>
+				{{if and (not .Shared) .User.CanWrite .Doc.Active}}
+				{{if and .MailEnabled .NeighborEmail}}<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/email?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} an {{.NeighborEmail}} senden?"><button class="btn btn--ghost" type="submit">Per E-Mail senden</button></form>{{end}}
+				<form method="post" action="/neighbors/{{.Neighbor.ID}}/beleg/mark-sent?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}" data-confirm="Rechnung {{.Invoice.Number}} als versendet markieren? Dies ist nur ein interner Vermerk; es wird nichts verschickt."><button class="btn btn--ghost{{if .LastSend}} is-sent{{end}}" type="submit">{{if .LastSend}}Versendet am {{date .LastSend.SentAt}}{{else}}Als versendet markieren{{end}}</button></form>
+				{{end}}
+			</div>
+			{{with .LastSend}}<p class="muted small">Zuletzt versendet am {{.SentAt.Format "02.01.2006, 15:04"}} ({{.Channel}}).</p>{{end}}
+		</section>
+		<details class="document-actions__group disclosure">
+			<summary>Weitere Formate und Export</summary>
+			<div class="btnrow">
+				<button class="btn btn--ghost btn--sm" type="button" data-beleg-print>Drucken</button>
+				<button class="btn btn--ghost btn--sm" type="button" data-beleg-copy>Text kopieren</button>
+				<button class="btn btn--ghost btn--sm" type="button" data-beleg-image>Bild</button>
+				{{if not .Shared}}
+				<a class="btn btn--ghost" href="/neighbors/{{.Neighbor.ID}}/settlement.csv?year={{.Year.ID}}&amp;invoice_id={{.Invoice.ID}}">Zahlungszuordnung CSV</a>
+				{{if not .EInvoiceMissing}}<a class="btn btn--ghost" href="/documents/{{.Invoice.ID}}/ebinterface.xml">e-Rechnung XML</a>{{end}}
+				{{end}}
+			</div>
+		</details>
 	</div>
-	<div class="btnrow no-print" aria-label="Rechnung drucken und weitergeben">
-		<button class="btn btn--ghost btn--sm" type="button" data-beleg-print>Drucken</button>
-		<button class="btn btn--ghost btn--sm" type="button" data-beleg-copy>Text kopieren</button>
-		<button class="btn btn--ghost btn--sm" type="button" data-beleg-image>Bild</button>
-		<button class="btn btn--ghost btn--sm" type="button" data-beleg-share>Teilen</button>
-	</div>
-	{{with .LastSend}}<p class="muted small">Zuletzt versendet am {{.SentAt.Format "02.01.2006, 15:04"}} ({{.Channel}}).</p>{{end}}
 
-	{{if and (not .Shared) .Doc.Active}}
+	{{if and (not .Shared) .User.CanWrite .Doc.Active}}
 	<details class="card disclosure no-print" {{if .ShareToken}}open{{end}}>
 		<summary>Rechnung freigeben</summary>
 		<p class="muted small">Der Link zeigt ausschließlich diese Rechnung und ihren Zahlungsstand, keine anderen Rechnungen oder neuen Buchungen.</p>
@@ -106,7 +120,7 @@
 	</section>
 	{{end}}
 	{{if .Feedback}}<details class="card disclosure"><summary>Rückmeldungen zu dieser Rechnung</summary>{{range .Feedback}}<p>{{if eq .Status "confirmed"}}Bestätigt{{else}}Einwand{{end}} · {{pdate .CreatedAt}}{{with .Message}} · {{.}}{{end}}</p>{{end}}</details>{{end}}
-	{{if and (not .Shared) .Doc.Active (not .Completed)}}
+	{{if and (not .Shared) .User.CanWrite .Doc.Active (not .Completed)}}
 	<details class="card disclosure no-print"><summary>Rechnung korrigieren</summary>
 		<form method="post" action="/neighbors/{{.Neighbor.ID}}/invoice/gutschrift" class="form">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}"><input type="hidden" name="invoice_id" value="{{.Invoice.ID}}">

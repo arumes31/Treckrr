@@ -52,10 +52,10 @@ func TestBookingRowLabels(t *testing.T) {
 	for _, tc := range []struct {
 		name, kind, label string
 	}{
-		{name: "equipment", kind: "equipment", label: "Traktor / Geräte"},
+		{name: "equipment", kind: "equipment", label: "Traktor / Gespann / Gefährt"},
 		{name: "labor", kind: "labor", label: "Mannstunden"},
 		{name: "quantity", kind: "quantity", label: "Mengenleistung"},
-		{name: "fixed", kind: "fixed", label: "Freie Kosten"},
+		{name: "fixed", kind: "fixed", label: "Material / Pauschale"},
 		{name: "transfer", kind: "transfer", label: "Jahresübertrag"},
 		{name: "legacy", kind: "manual", label: "Manuelle Position"},
 	} {

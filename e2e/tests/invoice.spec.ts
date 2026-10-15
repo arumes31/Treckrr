@@ -133,6 +133,22 @@ test("issue an invoice, see it on the Beleg, mark sent + undo", async ({ page })
   await expect(page.getByText("Offener Betrag", { exact: true })).toBeVisible();
   await expect(page.locator(".beleg__hv.beleg__sum-invoice")).toBeVisible();
 
+  // A reminder's allocated payments use a wide table too. Only that region may
+  // scroll on a narrow phone; the parties, open amount and PDF action must fit.
+  const reminderAmount = await page.locator(".beleg__hv").innerText();
+  const settlement = page.locator(".settlement-lines");
+  await expect(settlement).toBeVisible();
+  const settlementText = await settlement.innerText();
+  await page.setViewportSize({ width: 320, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await expect(page.locator(".beleg__hv")).toHaveText(reminderAmount);
+  await expect(page.getByRole("link", { name: "Als PDF", exact: true })).toBeVisible();
+  const scrollRight = page.locator(".beleg--reminder").getByRole("button", { name: "Tabelle nach rechts scrollen" });
+  await expect(scrollRight).toBeVisible();
+  await scrollRight.click();
+  await expect.poll(() => settlement.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
+  expect(await settlement.innerText()).toBe(settlementText);
+
   // A populated journal adds an export action beside its long heading. The
   // action must wrap into the viewport without hiding any financial columns.
   await page.setViewportSize({ width: 320, height: 844 });

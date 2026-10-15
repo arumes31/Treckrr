@@ -1,6 +1,7 @@
 {{define "content"}}
 <section class="stack">
-	{{if .Onboarding}}
+	{{template "readonly-notice" .}}
+	{{if and .User.CanWrite .Onboarding}}
 	<div class="onboard">
 		<div>
 			<span class="onboard__eyebrow">Willkommen</span>
@@ -49,7 +50,7 @@
 					<a href="/?year={{.ID}}"><span><strong>Jahr öffnen</strong><small>Nachbarn, Buchungen und Zahlungen</small></span><span aria-hidden="true">›</span></a>
 					{{if .Completed}}<a href="/years/{{.ID}}/abschluss"><span><strong>Abschluss-Prüfung</strong><small>Prüfpunkte erneut ansehen</small></span><span aria-hidden="true">›</span></a>{{end}}
 				</div>
-				{{if .Completed}}
+				{{if and $.User.CanWrite .Completed}}
 				<form method="post" action="/years/{{.ID}}/status"
 					data-confirm="Abrechnungsjahr {{.Year}} wieder öffnen? Buchungen und Belege werden dadurch wieder änderbar."
 					data-confirm-reason="Grund für das Wiederöffnen (wird protokolliert)">
@@ -58,7 +59,7 @@
 					<button class="btn btn--ghost btn--sm" type="submit">Jahr wieder öffnen</button>
 				</form>
 				{{end}}
-				<div class="year-editor">
+				{{if $.User.CanWrite}}<div class="year-editor">
 				<h3>Jahresdaten bearbeiten</h3>
 				<form method="post" action="/years/{{.ID}}/update" class="form">
 					<label class="field"><span>Bezeichnung</span>
@@ -84,7 +85,7 @@
 				{{else}}
 				<p class="muted">Jahr enthält Buchungen und kann nicht gelöscht werden.</p>
 				{{end}}
-			</div>
+				</div>{{end}}
 			</details>
 		</article>
 		{{else}}
@@ -92,7 +93,7 @@
 		{{end}}
 	</div>
 
-	<details class="disclosure work-surface__section" id="neues-jahr" {{if not .Rows}}open{{end}}>
+	{{if .User.CanWrite}}<details class="disclosure work-surface__section" id="neues-jahr" {{if not .Rows}}open{{end}}>
 		<summary>{{template "ic-plus"}} Neues Abrechnungsjahr</summary>
 		{{if .HasBases}}
 		<form method="post" action="/years" class="form">
@@ -116,7 +117,7 @@
 		<p class="muted">Es gibt noch keine Bemessungsgrundlage.
 			<a class="link" href="/bases">Zuerst eine Grundlage anlegen →</a></p>
 		{{end}}
-	</details>
+	</details>{{end}}
 	</div>
 </section>
 {{end}}

@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/payments/import" aria-label="Zurück">{{template "ic-back"}}</a>
 		<div>
@@ -37,7 +38,7 @@
 							{{if and .NeighborID .YearID}}<a class="link small" href="/neighbors/{{.NeighborID}}?year={{.YearID}}&amp;view=payments">Aktuelle Zahlungszuordnung ansehen</a>{{end}}
 						</td>
 						<td class="num">
-							{{if .Correctable}}
+							{{if and $.User.CanWrite .Correctable}}
 							<form method="post" action="/payments/import/rows/{{.ID}}/reverse" data-confirm-danger data-confirm="Zahlung über {{money .Amount}} durch eine nachvollziehbare Gegenbuchung korrigieren?">
 								<button class="btn btn--ghost btn--sm" type="submit">Gegenbuchen</button>
 							</form>

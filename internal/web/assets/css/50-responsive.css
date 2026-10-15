@@ -156,3 +156,106 @@
 }
 @media (max-width: 720px) { .rollgrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .savedviews__save { grid-template-columns: minmax(0, 1fr); } }
+
+/* Read-only forms retain their values without suggesting that they can save. */
+.readonly-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: .8rem; }
+.readonly-fields :disabled { cursor: not-allowed; }
+.readonly-fields .input:disabled, .readonly-fields .select:disabled { opacity: 1; color: var(--muted); }
+
+/* Booking keeps identity and balance visible, with secondary context on demand. */
+.account-backlinks { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+.account-backlinks .backlink { margin: 0; }
+.summary-card--booking { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+.summary-card--booking .summary-card__value { font-size: 1.5rem; }
+.summary-card__details { border-top: 1px solid currentColor; padding-top: .3rem; min-width: 0; }
+.summary-card__details > summary { min-height: var(--tap); display: flex; align-items: center; gap: .5rem; font-weight: 600; cursor: pointer; list-style: none; }
+.summary-card__details > summary::-webkit-details-marker { display: none; }
+.summary-card__details > summary::after { content: "+"; margin-left: auto; font: 700 1.2rem var(--font-mono); }
+.summary-card__details[open] > summary::after { content: "−"; }
+.summary-card__details .summary-card__meta { margin-top: .65rem; align-items: flex-start; }
+.summary-card__details .summary-card__breakdown { margin-bottom: .5rem; }
+
+.document-actions { display: grid; gap: 1rem; }
+.document-actions__group { border-top: 1px solid var(--border); padding-top: .75rem; }
+.document-actions__group h2 { margin: 0 0 .6rem; font: 600 1rem/1.4 var(--font-body); }
+.document-actions__group > summary { min-height: var(--tap); font-weight: 600; cursor: pointer; }
+.document-actions__group > .btnrow { margin: 0; }
+.document-actions__group[open] > .btnrow { margin-top: .65rem; }
+.beleg__settlement-total { display: block; font: 700 1.5rem/1.3 var(--font-mono); color: var(--primary); border-top: 1px solid var(--border); padding-top: .7rem; margin-top: .5rem; }
+.savedviews > summary { min-height: var(--tap); display: flex; align-items: center; }
+.mailfilters a[aria-current="page"] { outline: 2px solid var(--primary); outline-offset: 2px; font-weight: 700; }
+
+/* Screen-only label floor: printed document geometry stays unchanged. */
+@media screen {
+	.beleg__yr, .beleg__hl, .beleg__hb, .beleg__sec, .beleg__lhead,
+	.beleg__d, .beleg__t small, .beleg__lsub-h, .beleg__bx, .beleg__grund-sub,
+	.beleg__gt--head, .beleg__gt--head .beleg__r, .beleg__gt-id small, .beleg__gt-bl small,
+	.beleg__gm--head, .beleg__gm--head .beleg__r, .beleg__foot,
+	.beleg__doclist-h, .beleg__gform-h, .beleg__inv-lock, .beleg__inv-hash,
+	.beleg__inv-k, .beleg__inv-note, .beleg__payinfo-k, .beleg__actlabel, .cfm-h,
+	.statusrow__label, .tag, .chip2, .badge, .fieldset legend, .dtable thead th,
+	.sharemenu__h, .sharemenu__once, .maildetail__facts dt,
+	.bkp__badge, .bkp__sec, .bkp__lbl, .bkp__next, .bkp__tl,
+	.bkp__meta dt, .bkp__tlbl, .bkp__fm, .bkp__files--compact .bkp__fm,
+	.bkp__files--compact .bkp__fn, .bkp__seg button,
+	.status, .neighbor-account-card__label, .paychip, .btn--xs,
+	.field > span:first-child, input[type="file"].input::file-selector-button,
+	.kpi__label, .delta, .barpair__v, .barpair__yr, .sparktip, .dchart__legend,
+	.drawer__account-hint, .drawer__group-toggle small, .basebar__label,
+	.bcard__date, .yearcard__meta, .cmdk__ic,
+	.opsbar__item strong, .opsbar__item small { font-size: var(--fs-xs); }
+	.bkp__meta dt { overflow-wrap: anywhere; }
+	/* The bottom navigation also remains in use at tablet widths. Desktop rail
+	   typography is already larger and must keep its existing hierarchy. */
+	@media (min-width: 601px) and (max-width: 1023px) {
+		.tabbar__item { font-size: var(--fs-xs); }
+	}
+	/* Reminders contain the same wide settlement table as invoices. Constrain
+	   the sheet, not its columns, without changing the printed document. */
+	.beleg--reminder { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+	.beleg--reminder .beleg__inv-top, .beleg--reminder .beleg__hero-top,
+	.beleg--reminder .beleg__payinfo { flex-wrap: wrap; }
+	.beleg--reminder .beleg__inv-pp { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.beleg--reminder .beleg__payinfo-txt { flex-basis: 14rem; }
+}
+
+/* Later source parts used to overwrite the shared touch target floor. */
+.backbtn { min-width: var(--tap); min-height: var(--tap); }
+.pwwrap .input { padding-right: calc(var(--tap) + .5rem); }
+.pw-toggle { top: 0; bottom: 0; right: 0; width: var(--tap); min-height: var(--tap); }
+.table-check { display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: var(--tap); cursor: pointer; }
+.table-check:has(:disabled) { cursor: not-allowed; }
+.table-check input { margin: 0; }
+.table-scroll-tools { display: flex; align-items: center; gap: .35rem; margin: .35rem 0; color: var(--muted); font-size: var(--fs-xs); }
+.table-scroll-tools[hidden] { display: none; }
+.table-scroll-tools > span { flex: 1; min-width: 0; }
+.table-scroll-tools__button { flex: 0 0 var(--tap); width: var(--tap); height: var(--tap); padding: 0; font-size: 1.25rem; }
+.table-scroll-tools__button:disabled { opacity: .4; cursor: default; }
+@media print { .table-scroll-tools { display: none !important; } }
+@media (max-width: 640px), (pointer: coarse) {
+	.savedview .iconact { width: var(--tap); height: var(--tap); }
+	a.chip2, button.chip2, .mailfilters .chip2 { min-height: var(--tap); min-width: var(--tap); padding: .5rem .65rem; }
+}
+
+/* Every utility remains visible; long titles no longer compete for its row. */
+@media (max-width: 600px) {
+	.appbar { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .15rem .75rem; padding: calc(.35rem + env(safe-area-inset-top)) .65rem .35rem; }
+	.appbar__brand { min-width: var(--tap); min-height: var(--tap); }
+	.appbar__brand > span { display: none; }
+	.appbar__title { overflow: visible; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; text-align: left; font-size: .95rem; margin: 0; }
+	.appbar__tools { position: relative; grid-column: 1 / -1; justify-content: space-between; width: 100%; }
+	.appbar__offline { grid-column: 1 / -1; min-height: var(--tap); justify-self: stretch; font-size: var(--fs-xs); white-space: normal; }
+	.appbar__tools .bkdot { position: static; }
+	.appbar__tools .bkdot__pop { left: 0; right: 0; top: calc(100% + .25rem); width: auto; max-width: 100%; }
+	.tabbar__item { font-size: var(--fs-xs); }
+	.account-workspace > .section-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0; overflow: visible; }
+	.account-workspace > .section-tabs > .section-tabs__item { display: grid; place-items: center; font-family: var(--font-body); font-size: var(--fs-sm); padding: .7rem .2rem; text-align: center; white-space: normal; overflow-wrap: anywhere; }
+	.pricing-workspace > .section-tabs { flex-wrap: wrap; overflow: visible; }
+	.pricing-workspace > .section-tabs > .section-tabs__item { flex: 1 1 42%; text-align: center; }
+	.summary-card--booking { padding: .75rem; gap: .25rem; }
+	.summary-card--booking .summary-card__value { font-size: 1.4rem; }
+	.summary-card--booking .summary-card__label { font-size: var(--fs-xs); }
+	.account-backlinks { gap: 0 .8rem; }
+	.account-backlinks .backlink { min-height: var(--tap); font-size: var(--fs-sm); }
+	.document-actions__group > .btnrow { display: grid; grid-template-columns: minmax(0, 1fr); }
+}

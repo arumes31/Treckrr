@@ -1,7 +1,7 @@
 {{define "content"}}
 <section class="stack" data-base-id="{{.Base.ID}}">
 	<a class="backlink" href="/neighbors/{{.Neighbor.ID}}?year={{.Year.ID}}">‹ Zurück zu {{.Neighbor.Name}}</a>
-	<h2 class="section-title">{{if .BookingCopy}}Buchung kopieren{{else}}Buchung bearbeiten{{end}} · {{.Year.Year}}</h2>
+	<h2 class="section-title">{{if not .User.CanWrite}}Buchung ansehen{{else if .BookingCopy}}Buchung kopieren{{else}}Buchung bearbeiten{{end}} · {{.Year.Year}}</h2>
 	{{template "booking-form" .}}
 	{{if not .BookingCopy}}{{template "booking-extras" .}}{{end}}
 </section>

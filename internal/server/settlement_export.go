@@ -67,6 +67,7 @@ func (s *Server) handleSettlementCSV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// settlementKindLabel maps a settlement line kind to its German CSV record type.
 func settlementKindLabel(kind string) string {
 	switch kind {
 	case "payment":

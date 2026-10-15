@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+// TestReadNeighborStatementPreservesValuesIntegration checks that the snapshot
+// statement matches the separate history and payment reads and writes nothing.
 func TestReadNeighborStatementPreservesValuesIntegration(t *testing.T) {
 	f := newMultiAllocationFixture(t)
 	if err := f.store.AddPayment(t.Context(), f.yearID, f.neighborID, dec("70"), day(2026, 9, 12), "private note", "bar"); err != nil {

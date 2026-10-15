@@ -114,6 +114,77 @@ func TestPriceDecimalLimits(t *testing.T) {
 	}
 }
 
+// TestFuelAdjustmentInputLimits rejects oversized dates and amounts before the
+// base-lock lookup, preserving the return location and field-specific message.
+func TestFuelAdjustmentInputLimits(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, field, value, message string
+	}{
+		{
+			name: "date over limit", field: "effective_from",
+			value:   "2026-10-15" + strings.Repeat(" ", 41),
+			message: "Stichtag darf höchstens 50 Zeichen lang sein.",
+		},
+		{
+			name: "amount over limit", field: "amount_per_h",
+			value:   strings.Repeat("1", maxDecimalLen+1),
+			message: "Zuschlag darf höchstens 32 Zeichen lang sein.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &Server{cfg: &config.Config{SessionSecret: "test-session-secret-at-least-16-bytes"}}
+			form := url.Values{
+				"base_id": {"7"}, "label": {"Dieselzuschlag"},
+				"effective_from": {"2026-10-15"}, "amount_per_h": {"1,50"},
+			}
+			form.Set(tc.field, tc.value)
+			assertFormRedirect(
+				t,
+				s,
+				s.handleFuelAdjustmentSave,
+				form,
+				pricesURL(7)+"#fuel-adjustments",
+				tc.message,
+			)
+		})
+	}
+}
+
+// TestFuelAdjustmentInputLimitsAllowBoundary proves that ordinary values and
+// values exactly at each ceiling still reach the existing base lookup. The
+// counting mock deliberately does not serve a base or perform any writes.
+func TestFuelAdjustmentInputLimitsAllowBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name, date, amount string
+	}{
+		{name: "ordinary", date: "2026-10-15", amount: "1,50"},
+		{name: "date at limit", date: "2026-10-15" + strings.Repeat(" ", 40), amount: "1,50"},
+		{name: "amount at limit", date: "2026-10-15", amount: "1," + strings.Repeat("0", maxDecimalLen-2)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, queries := quickServer(t)
+			form := url.Values{
+				"base_id": {"7"}, "label": {"Dieselzuschlag"},
+				"effective_from": {tc.date}, "amount_per_h": {tc.amount},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/prices/fuel-adjustments", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rr := httptest.NewRecorder()
+
+			s.handleFuelAdjustmentSave(rr, req)
+
+			if *queries != 1 {
+				t.Errorf("database calls = %d, want exactly the base lookup", *queries)
+			}
+			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "Unbekannte Bemessungsgrundlage") {
+				t.Errorf("response = %d %q, want unavailable-base response", rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 // TestLogin2FACodeLimit uses a valid pending token so the code guard, not an
 // expired cookie or rate limiter, must reject before accessing the absent store.
 func TestLogin2FACodeLimit(t *testing.T) {

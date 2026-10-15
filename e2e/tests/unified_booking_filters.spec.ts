@@ -84,15 +84,18 @@ test("dashboard booking shortcut opens both directions with working filters and 
   await shortcut.click();
   await expect(page).toHaveURL(new RegExp(`/buchungen\\?year=${account.yearID}$`));
   const filter = page.locator('form[action="/buchungen"]');
+  const moreFilters = filter.locator("[data-booking-filters]");
   const rows = page.locator(".dtable tbody tr");
   await expect(rows).toHaveCount(3);
+  await expect(moreFilters).not.toHaveAttribute("open");
+  await moreFilters.locator(":scope > summary").click();
   await filter.getByRole("combobox", { name: "Verrechnungsrichtung", exact: true }).selectOption("in");
   await filter.getByRole("button", { name: "Filtern", exact: true }).click();
   await expect(rows).toHaveCount(2);
+  await expect(moreFilters).toHaveAttribute("open", "");
   await expect(page.locator('input[name="booking_id"]')).toHaveCount(2);
   await expect(page.locator('input[name="entry_id"]')).toHaveCount(0);
   await filter.getByRole("combobox", { name: "Leistungsart", exact: true }).selectOption("equipment");
-  await filter.locator("details > summary").click();
   await filter.getByLabel("Von", { exact: true }).fill(`${account.year}-05-01`);
   await filter.getByLabel("Bis", { exact: true }).fill(`${account.year}-05-01`);
   await filter.getByLabel("Tätigkeit / Notiz", { exact: true }).fill("50%");
@@ -123,8 +126,28 @@ test("dashboard booking shortcut opens both directions with working filters and 
     expect(sorted.searchParams.get(key)).toBe(value);
   }
   await expect(rows).toHaveCount(1);
+
+  // Saving and reopening the actual query must preserve the filter values,
+  // not URL-encode the entire query as one unnamed parameter.
+  const savedViews = page.locator("[data-saved-views]");
+  await expect(savedViews).not.toHaveAttribute("open");
+  await savedViews.locator(":scope > summary").click();
+  const viewName = `Synthetischer Filter ${account.year}`;
+  await savedViews.getByRole("textbox", { name: "Name der Ansicht", exact: true }).fill(viewName);
+  await savedViews.getByRole("button", { name: "Aktuelle Filter speichern", exact: true }).click();
+  await expect(savedViews).toHaveAttribute("open", "");
+  const saved = savedViews.getByRole("link", { name: viewName, exact: true });
+  await expect(saved).toHaveAttribute("aria-current", "true");
+  await saved.click();
+  expect(new URL(page.url()).searchParams.get("direction")).toBe("in");
+  expect(new URL(page.url()).searchParams.get("kind")).toBe("equipment");
+  expect(new URL(page.url()).searchParams.get("task")).toBe("50%");
+  await expect(rows).toHaveCount(1);
+
   await filter.getByRole("link", { name: "Zurücksetzen", exact: true }).click();
   await expect(rows).toHaveCount(3);
+  await expect(moreFilters).not.toHaveAttribute("open");
+  await moreFilters.locator(":scope > summary").click();
   await expect(filter.getByRole("combobox", { name: "Verrechnungsrichtung", exact: true })).toHaveValue("");
   await expect(filter.getByRole("combobox", { name: "Leistungsart", exact: true })).toHaveValue("");
 
