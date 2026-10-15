@@ -47,6 +47,11 @@ func quickServer(t *testing.T) (*Server, *int) {
 	if err != nil {
 		t.Fatalf("open mock db: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close mock db: %v", err)
+		}
+	})
 	st := store.New(db, "test-encryption-key-at-least-32-bytes!!")
 	return &Server{
 		cfg:    &config.Config{SessionSecret: "test-session-secret-at-least-16-bytes"},
