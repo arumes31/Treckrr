@@ -2,6 +2,7 @@ import { expect, test, type Download } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+/** Reads a built static asset so the fixture runs the shipped script. */
 const asset = (file: string) => readFileSync(path.resolve(__dirname, "../../internal/web/static", file));
 // A synthetic one-pixel image stays inline; no screenshot or customer document is stored.
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=", "base64");

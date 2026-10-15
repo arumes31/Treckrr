@@ -518,6 +518,8 @@ func TestCompanyPageRenders(t *testing.T) {
 	})
 }
 
+// TestCompanyDecimalInputsPreserveValues renders company decimal fields with
+// their exact stored values, including large, fractional and zero amounts.
 func TestCompanyDecimalInputsPreserveValues(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

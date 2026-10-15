@@ -7,11 +7,13 @@ const test = base.extend<{ configureCompany: (settings: CompanySettings) => Prom
   configureCompany: async ({ page }, use) => {
     let original: CompanySettings | undefined;
     const form = page.locator('form[action="/admin/company"]');
+    /** Reads the company form fields, without the CSRF token. */
     const readSettings = () => form.evaluate(element => Object.fromEntries(
       [...new FormData(element as HTMLFormElement).entries()]
         .filter(([name]) => name !== "csrf_token")
         .map(([name, value]) => [name, String(value)]),
     ));
+    /** Posts the given company settings and verifies they round-trip. */
     const saveSettings = async (settings: CompanySettings) => {
       const csrf = await form.locator('[name="csrf_token"]').inputValue();
       const response = await page.request.post("/admin/company", {
@@ -61,6 +63,7 @@ test("itemized invoice, payment dialog, text and PNG exports agree", async ({ pa
   const create = page.locator('form[action="/years"]');
   const year = await create.locator('[name="year"]').inputValue();
   const csrf = await create.locator('[name="csrf_token"]').inputValue();
+  /** Posts a form with the page CSRF token and requires a successful response. */
   const post = async (path: string, form: Record<string, string>) => {
     const response = await page.request.post(path, { form: { csrf_token: csrf, ...form } });
     expect(response.ok(), path).toBeTruthy();

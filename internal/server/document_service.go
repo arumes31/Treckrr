@@ -29,6 +29,8 @@ func (s *Server) documents() documentService {
 	return documentService{smtpFrom: s.cfg.SMTPFrom}
 }
 
+// invoicePDF renders the frozen invoice with the view's dated payment status
+// and per-invoice settlement lines appended.
 func (documentService) invoicePDF(view invoiceDocumentView) ([]byte, error) {
 	blob, err := pdf.RenderInvoiceWithPaymentStatus(&view.Invoice, pdf.InvoicePaymentStatus{
 		AsOf: view.SettlementAsOf, Remaining: view.Remaining,
@@ -40,6 +42,9 @@ func (documentService) invoicePDF(view invoiceDocumentView) ([]byte, error) {
 	return blob, nil
 }
 
+// invoiceMail prepares the delivery mail for an active invoice of the given
+// account: the PDF attachment plus a body stating the dated payment status.
+// Document parties come from the frozen invoice, not the current company.
 func (s documentService) invoiceMail(
 	company models.Company,
 	neighbor models.Neighbor,

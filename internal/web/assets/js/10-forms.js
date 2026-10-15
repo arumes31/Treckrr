@@ -1,6 +1,7 @@
 	// An explicit invoice selection proposes that document's open amount.
 	// Subsequent edits remain possible for partial payments or account credit.
 	document.querySelectorAll("[data-payment-invoice]").forEach(function (select) {
+		/** Shows only the settlement breakdown of the selected invoice. */
 		function showBreakdown() {
 			document.querySelectorAll("[data-payment-breakdown]").forEach(function (panel) {
 				panel.hidden = panel.getAttribute("data-payment-breakdown") !== select.value;
@@ -75,11 +76,13 @@
 		var fallback = form.querySelector("[data-batch-fallback]");
 		var submit = form.querySelector("[data-batch-submit]");
 		if (!summary || !fallback || !submit || typeof BigInt !== "function") return;
+		/** Formats integer cents as a German euro amount without float rounding. */
 		function money(cents) {
 			var negative = cents < BigInt(0);
 			var digits = (negative ? -cents : cents).toString().padStart(3, "0");
 			return (negative ? "−" : "") + digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + digits.slice(-2) + " €";
 		}
+		/** Recomputes the selected count and gross total, gates submit, and returns whether the selection can be issued. */
 		function update() {
 			var count = 0, total = BigInt(0), valid = true;
 			form.querySelectorAll('input[name="neighbor_id"]:checked:not(:disabled)').forEach(function (box) {

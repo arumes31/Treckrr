@@ -21,6 +21,10 @@ import (
 	"github.com/d0linger/treckrr/internal/testutil/pdftext"
 )
 
+// TestItemizedSettlementDeliveryIntegration follows one itemized invoice through
+// HTML, PDF, CSV, payment pages, mail and the public share. Each output shows
+// only that invoice's settlement and no private notes, and no read changes
+// financial values or the archive PDF.
 func TestItemizedSettlementDeliveryIntegration(t *testing.T) {
 	e := newItEnv(t)
 	first := issuePaymentDeliveryInvoice(t, e, "100", "-44")
@@ -153,6 +157,8 @@ func TestItemizedSettlementDeliveryIntegration(t *testing.T) {
 	}
 }
 
+// TestSettlementCSVAccessIntegration sends anonymous settlement CSV requests to
+// the login and rejects malformed or unknown invoice selections.
 func TestSettlementCSVAccessIntegration(t *testing.T) {
 	e := newItEnv(t)
 	invoice := issuePaymentDeliveryInvoice(t, e, "100", "-44")
@@ -188,6 +194,9 @@ func TestSettlementCSVAccessIntegration(t *testing.T) {
 	}
 }
 
+// TestNeighborWithoutSelectedYearSettlementIntegration shows an empty account
+// for a neighbor outside the selected year without granting invoice or CSV
+// access.
 func TestNeighborWithoutSelectedYearSettlementIntegration(t *testing.T) {
 	e := newItEnv(t)
 	id, err := e.st.CreateNeighbor(e.ctx, "Unassigned "+e.uname, "")

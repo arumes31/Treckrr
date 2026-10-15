@@ -8,6 +8,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// TestExplainAccountSettlement covers exact, ambiguous and summarized sources:
+// payments, counterservices, credits, historical surpluses and reversals.
 func TestExplainAccountSettlement(t *testing.T) {
 	t.Parallel()
 	d := decimal.RequireFromString
@@ -101,6 +103,9 @@ func TestExplainAccountSettlement(t *testing.T) {
 	}
 }
 
+// TestExplainAccountSettlementPaymentSplitAndSurplus splits one payment across
+// invoices, keeps its surplus unallocated, keeps free-text methods out of
+// labels, and fails when payment metadata is missing.
 func TestExplainAccountSettlementPaymentSplitAndSurplus(t *testing.T) {
 	t.Parallel()
 	d := decimal.RequireFromString

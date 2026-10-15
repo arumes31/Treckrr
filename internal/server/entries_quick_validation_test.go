@@ -34,6 +34,8 @@ func (c countingConn) Begin() (driver.Tx, error) { return nil, driver.ErrSkip }
 
 var quickDriverSeq atomic.Uint64
 
+// quickServer returns a server on a counting mock database together with the
+// counter of prepared statements.
 func quickServer(t *testing.T) (*Server, *int) {
 	t.Helper()
 	n := 0

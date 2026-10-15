@@ -12,6 +12,8 @@ import (
 	"github.com/d0linger/treckrr/internal/store"
 )
 
+// TestBookingFiltersRevealActiveSecondaryFilters opens the secondary filter
+// disclosure only when one of its filters is active.
 func TestBookingFiltersRevealActiveSecondaryFilters(t *testing.T) {
 	t.Parallel()
 	for _, field := range []string{"none", "neighbor_id", "task", "direction", "kind", "from", "to", "unit", "voided"} {
@@ -39,6 +41,8 @@ func TestBookingFiltersRevealActiveSecondaryFilters(t *testing.T) {
 	}
 }
 
+// TestBookingSavedViewsPreserveActiveSelection opens the saved views and marks
+// one active only when the current query matches it.
 func TestBookingSavedViewsPreserveActiveSelection(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -71,6 +75,8 @@ func TestBookingSavedViewsPreserveActiveSelection(t *testing.T) {
 	}
 }
 
+// TestBookingBulkActionsRespectReadOnlyRole offers bulk void, unvoid and delete
+// to writers only while keeping booking data readable.
 func TestBookingBulkActionsRespectReadOnlyRole(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{models.RoleViewer, models.RoleEditor, models.RoleAdmin} {
@@ -97,6 +103,8 @@ func TestBookingBulkActionsRespectReadOnlyRole(t *testing.T) {
 	}
 }
 
+// TestBatchInvoiceSelectionMetadataAndPermissions gives writers selection
+// metadata for issuable invoices only and shows viewers a read-only preview.
 func TestBatchInvoiceSelectionMetadataAndPermissions(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{models.RoleViewer, models.RoleEditor} {
@@ -134,6 +142,8 @@ func TestBatchInvoiceSelectionMetadataAndPermissions(t *testing.T) {
 	}
 }
 
+// TestMailFiltersExposeCurrentPage marks exactly the current mail status filter
+// with aria-current.
 func TestMailFiltersExposeCurrentPage(t *testing.T) {
 	t.Parallel()
 	for _, status := range []string{"", "pending", "sending", "sent", "failed", "ambiguous", "held"} {
@@ -158,6 +168,8 @@ func TestMailFiltersExposeCurrentPage(t *testing.T) {
 	}
 }
 
+// TestReadOnlyWorkflowPagesDoNotOfferMutations hides year rollover and mail
+// outbox write actions from viewers; the rollover page explains why.
 func TestReadOnlyWorkflowPagesDoNotOfferMutations(t *testing.T) {
 	t.Parallel()
 	rollover := execPage(t, "year_rollover", map[string]any{
@@ -177,6 +189,8 @@ func TestReadOnlyWorkflowPagesDoNotOfferMutations(t *testing.T) {
 	}
 }
 
+// TestOfflineCopyMatchesBookingQueueScope keeps the offline page's promises
+// limited to what the booking queue stores and syncs.
 func TestOfflineCopyMatchesBookingQueueScope(t *testing.T) {
 	t.Parallel()
 	page := execPage(t, "offline", nil)

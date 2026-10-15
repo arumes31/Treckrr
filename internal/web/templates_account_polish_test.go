@@ -13,6 +13,7 @@ import (
 	"github.com/d0linger/treckrr/internal/models"
 )
 
+// accountPolishContent renders only the "content" block of a page.
 func accountPolishContent(t *testing.T, page string, data map[string]any) string {
 	t.Helper()
 	pages, err := Templates()
@@ -26,6 +27,8 @@ func accountPolishContent(t *testing.T, page string, data map[string]any) string
 	return out.String()
 }
 
+// accountPolishData builds a populated neighbor account for the given user and
+// section.
 func accountPolishData(user models.User, section string) map[string]any {
 	d := decimal.RequireFromString
 	date := time.Date(2026, time.October, 15, 0, 0, 0, 0, time.UTC)
@@ -47,6 +50,8 @@ func accountPolishData(user models.User, section string) map[string]any {
 	}
 }
 
+// TestNeighborRoleControls keeps account data and exports readable for every
+// role and section while offering mutation controls to writers only.
 func TestNeighborRoleControls(t *testing.T) {
 	t.Parallel()
 	for _, user := range []models.User{
@@ -80,6 +85,8 @@ func TestNeighborRoleControls(t *testing.T) {
 	}
 }
 
+// TestNeighborSummaryDetailsOnlyOnBookingView collapses the summary card into
+// closed details on the booking view only, without losing values or actions.
 func TestNeighborSummaryDetailsOnlyOnBookingView(t *testing.T) {
 	t.Parallel()
 	for _, section := range []string{"overview", "booking", "bookings", "payments"} {
@@ -103,6 +110,8 @@ func TestNeighborSummaryDetailsOnlyOnBookingView(t *testing.T) {
 	}
 }
 
+// TestReadOnlyBookingRetainsSnapshotDetails shows viewers the stored details of
+// own and neighbor services without an edit form.
 func TestReadOnlyBookingRetainsSnapshotDetails(t *testing.T) {
 	t.Parallel()
 	d := decimal.RequireFromString
@@ -142,6 +151,8 @@ func TestReadOnlyBookingRetainsSnapshotDetails(t *testing.T) {
 	}
 }
 
+// TestClosedAccountKeepsPaymentFlowForWriters hides booking forms in a
+// completed year but keeps recording payments and marking the year paid.
 func TestClosedAccountKeepsPaymentFlowForWriters(t *testing.T) {
 	t.Parallel()
 	user := models.User{Role: models.RoleEditor}
@@ -160,6 +171,8 @@ func TestClosedAccountKeepsPaymentFlowForWriters(t *testing.T) {
 	}
 }
 
+// invoicePolishData builds an active, partly settled invoice document for an
+// editor.
 func invoicePolishData() map[string]any {
 	d := decimal.RequireFromString
 	date := time.Date(2026, time.October, 15, 0, 0, 0, 0, time.UTC)
@@ -179,6 +192,9 @@ func invoicePolishData() map[string]any {
 	}
 }
 
+// TestInvoiceRoleControlsPreserveExportsAndSettlement keeps frozen content,
+// settlement amounts and exports for every role and limits payment, delivery
+// and correction actions to writers.
 func TestInvoiceRoleControlsPreserveExportsAndSettlement(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{models.RoleViewer, models.RoleEditor, models.RoleAdmin} {
@@ -206,6 +222,8 @@ func TestInvoiceRoleControlsPreserveExportsAndSettlement(t *testing.T) {
 	}
 }
 
+// TestInvoiceActionsAreGroupedByTask checks the primary, delivery and export
+// action groups and that the open amount stays prominent.
 func TestInvoiceActionsAreGroupedByTask(t *testing.T) {
 	t.Parallel()
 	page := accountPolishContent(t, "invoice_document", invoicePolishData())
@@ -232,6 +250,8 @@ func TestInvoiceActionsAreGroupedByTask(t *testing.T) {
 	}
 }
 
+// TestSharedInvoicePreservesPortalFeedback keeps the portal PDF and feedback on
+// a shared invoice and hides internal actions and exports.
 func TestSharedInvoicePreservesPortalFeedback(t *testing.T) {
 	t.Parallel()
 	data := invoicePolishData()

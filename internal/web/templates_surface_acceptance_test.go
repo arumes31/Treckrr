@@ -53,6 +53,9 @@ func TestCarryForwardPreviewRetainsBalancesAndGuardValues(t *testing.T) {
 	}
 }
 
+// TestPaymentImportResultPreservesAmountsLinksAndCorrectionEligibility keeps
+// amounts, statuses, escaped text and links, and offers a counter-entry only for
+// booked rows and only to writers.
 func TestPaymentImportResultPreservesAmountsLinksAndCorrectionEligibility(t *testing.T) {
 	t.Parallel()
 	day := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
@@ -91,6 +94,9 @@ func TestPaymentImportResultPreservesAmountsLinksAndCorrectionEligibility(t *tes
 	}
 }
 
+// TestMailDeliveryDetailPreservesStatusSpecificSafetyControls offers only the
+// action that fits each mail status, disables it for redacted mail, and keeps
+// confirmations on destructive actions.
 func TestMailDeliveryDetailPreservesStatusSpecificSafetyControls(t *testing.T) {
 	t.Parallel()
 	day := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
@@ -139,6 +145,8 @@ func TestMailDeliveryDetailPreservesStatusSpecificSafetyControls(t *testing.T) {
 	}
 }
 
+// TestPersonalAccountControlsRemainAvailableForEveryRole keeps 2FA, passkey,
+// session and password self-service operable for every role.
 func TestPersonalAccountControlsRemainAvailableForEveryRole(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{models.RoleViewer, models.RoleEditor, models.RoleAdmin} {

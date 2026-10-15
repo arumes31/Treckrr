@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+/** Reads a built static asset so the fixture runs the shipped script and styles. */
 const asset = (file: string) => readFileSync(path.resolve(__dirname, "../../internal/web/static", file));
 const fixture = `<!doctype html><html lang="de"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width"><link rel="stylesheet" href="/static/css/app.css">
@@ -17,6 +18,7 @@ const fixture = `<!doctype html><html lang="de"><head><meta charset="utf-8">
   <details><summary>Weitere Tabelle</summary><div id="disclosed" class="tablewrap"><table class="wide"><tbody><tr><td>Weiterer Betrag</td><td>27,20 €</td></tr></tbody></table></div></details>
   </main><script src="/static/js/app.js"></script></body></html>`;
 
+/** Opens the offline table fixture on a phone viewport with reduced motion. */
 async function openFixture(page: Page) {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ reducedMotion: "reduce" });

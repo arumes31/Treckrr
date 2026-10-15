@@ -137,6 +137,8 @@ func TestReadOnlyPagesPreserveReadsWithoutMutationControls(t *testing.T) {
 	}
 }
 
+// TestReadOnlyBookingListNoticeIncludesEmptyResults shows the read-only notice
+// once on empty and populated booking lists, keeping filters and CSV export.
 func TestReadOnlyBookingListNoticeIncludesEmptyResults(t *testing.T) {
 	t.Parallel()
 	for _, populated := range []bool{false, true} {
@@ -164,6 +166,8 @@ func TestReadOnlyBookingListNoticeIncludesEmptyResults(t *testing.T) {
 	}
 }
 
+// TestReadOnlyMachineCostAssumptionsRemainVisible shows viewers every stored
+// machine cost assumption and the computed proposal as read-only values.
 func TestReadOnlyMachineCostAssumptionsRemainVisible(t *testing.T) {
 	t.Parallel()
 	d := decimal.NewFromInt
@@ -201,6 +205,8 @@ func TestReadOnlyMachineCostAssumptionsRemainVisible(t *testing.T) {
 	assertReadOnlyForms(t, page)
 }
 
+// TestBatchInvoiceCompanySetupActionMatchesRole links incomplete company data to
+// its setup for administrators only; other roles get an explanation.
 func TestBatchInvoiceCompanySetupActionMatchesRole(t *testing.T) {
 	t.Parallel()
 	for _, role := range []string{models.RoleViewer, models.RoleEditor, models.RoleAdmin} {
@@ -223,6 +229,9 @@ func TestBatchInvoiceCompanySetupActionMatchesRole(t *testing.T) {
 	}
 }
 
+// TestTemplateFixtureDefaultDoesNotOverrideExplicitViewer checks that execPage
+// adds its default writer without mutating caller data and never replaces an
+// explicit viewer.
 func TestTemplateFixtureDefaultDoesNotOverrideExplicitViewer(t *testing.T) {
 	t.Parallel()
 	implicit := map[string]any{"Persons": []models.Person{}}
@@ -240,6 +249,8 @@ func TestTemplateFixtureDefaultDoesNotOverrideExplicitViewer(t *testing.T) {
 	}
 }
 
+// TestSharedInvoiceTypedNilUserRemainsPublic treats a typed-nil user on a shared
+// invoice as anonymous: public output only, no account controls or notice.
 func TestSharedInvoiceTypedNilUserRemainsPublic(t *testing.T) {
 	t.Parallel()
 	data := invoicePolishData()
@@ -258,6 +269,8 @@ func TestSharedInvoiceTypedNilUserRemainsPublic(t *testing.T) {
 	}
 }
 
+// TestReadOnlyNoticeHandlesAnonymousUser renders the read-only notice for a
+// typed-nil user without failing.
 func TestReadOnlyNoticeHandlesAnonymousUser(t *testing.T) {
 	t.Parallel()
 	pages, err := Templates()

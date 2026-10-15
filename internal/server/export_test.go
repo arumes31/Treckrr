@@ -13,6 +13,9 @@ import (
 	"github.com/d0linger/treckrr/internal/models"
 )
 
+// TestWriteCSVTextCellBoundaries checks that every text column of the booking
+// CSV escapes formula prefixes, even after leading whitespace, without shifting
+// cell boundaries or changing numeric cells.
 func TestWriteCSVTextCellBoundaries(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -71,6 +74,8 @@ func TestWriteCSVTextCellBoundaries(t *testing.T) {
 	}
 }
 
+// TestCSVSafeLiteralPrefixes keeps text that starts with % or | unchanged, also
+// after leading whitespace.
 func TestCSVSafeLiteralPrefixes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

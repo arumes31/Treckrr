@@ -220,6 +220,8 @@ func RenderWithPaymentStatus(iv models.Invoice, status PaymentStatus) ([]byte, e
 	return render(iv, &status)
 }
 
+// render builds the ebInterface XML from the frozen invoice content. A nil
+// status omits the payment block; callers validate a non-nil status first.
 func render(iv models.Invoice, status *PaymentStatus) ([]byte, error) {
 	if missing := MissingFields(iv); len(missing) > 0 {
 		return nil, fmt.Errorf("e-invoice incomplete: %s", strings.Join(missing, ", "))

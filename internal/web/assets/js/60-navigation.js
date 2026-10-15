@@ -151,6 +151,7 @@
 			hint.textContent = "Weitere Spalten seitlich ansehen";
 			tools.appendChild(hint);
 			var describedBy = region.getAttribute("aria-describedby") || "";
+			/** Adds a button that scrolls the region by most of its width; direction is -1 (left) or 1 (right). */
 			function arrow(direction, label) {
 				var button = document.createElement("button");
 				button.type = "button";
@@ -181,6 +182,7 @@
 			var previous = arrow(-1, "Tabelle nach links scrollen");
 			var next = arrow(1, "Tabelle nach rechts scrollen");
 			region.before(tools);
+			/** Shows the tools only while the table overflows and disables the arrow at each end. */
 			function refresh() {
 				var max = region.scrollWidth - region.clientWidth;
 				var overflow = region.clientWidth > 0 && max > 1;
@@ -200,6 +202,7 @@
 			refreshers.push(refresh);
 			refresh();
 		});
+		/** Re-evaluates every scroll region after layout changes such as resize, disclosure toggles or font loading. */
 		function refreshAll() { refreshers.forEach(function (refresh) { refresh(); }); }
 		if (refreshers.length) {
 			window.addEventListener("resize", refreshAll);

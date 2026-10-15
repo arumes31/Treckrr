@@ -175,6 +175,7 @@
 			var sc = src.children, dc = dst.children;
 			for (var j = 0; j < sc.length; j++) inlineStyles(sc[j], dc[j]);
 		}
+		/** Renders the full-width document, without screen-only scroll tools, and resolves to a 2x PNG blob. */
 		function belegPng() {
 			var rect = beleg.getBoundingClientRect();
 			// Use the full CONTENT size, not the viewport-constrained box: on a narrow

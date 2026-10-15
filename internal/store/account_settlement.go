@@ -94,6 +94,8 @@ func (s *Store) ReadAccountSettlement(ctx context.Context, yearID, neighborID in
 	return result, nil
 }
 
+// settlementSources loads issued invoices and credit notes plus non-voided
+// ledger postings of one account, oldest first.
 func settlementSources(ctx context.Context, tx *sql.Tx, yearID, neighborID int64) ([]settlementSource, error) {
 	// Private descriptions/notes are excluded. Only structured task labels may
 	// describe an unambiguously applied counterservice in a public supplement.
@@ -135,6 +137,8 @@ func settlementSources(ctx context.Context, tx *sql.Tx, yearID, neighborID int64
 	return sources, rows.Err()
 }
 
+// settlementPayments loads the account's non-deleted payments and reversals,
+// oldest first.
 func settlementPayments(ctx context.Context, tx *sql.Tx, yearID, neighborID int64) ([]settlementPayment, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id,paid_on,amount,method,COALESCE(reversal_of_payment_id,0)
 		FROM payments WHERE billing_year_id=$1 AND neighbor_id=$2 AND deleted_at IS NULL
@@ -154,6 +158,10 @@ func settlementPayments(ctx context.Context, tx *sql.Tx, yearID, neighborID int6
 	return payments, rows.Err()
 }
 
+// explainAccountSettlement itemizes each invoice's applied reduction from the
+// allocation summary: attached credits, account offsets and payment parts. It
+// also records how each payment was used. It never reallocates money; an
+// explanation that does not match the allocation is an error.
 func explainAccountSettlement(summary InvoiceAllocationSummary, sources []settlementSource, payments []settlementPayment) (AccountSettlement, error) {
 	result := AccountSettlement{
 		InvoiceAccountReconciliation: InvoiceAccountReconciliation{Allocations: summary},

@@ -76,6 +76,7 @@ type mockEmailRows struct {
 	hasRead bool
 }
 
+// Columns returns the column set of the mocked query these rows answer.
 func (r *mockEmailRows) Columns() []string {
 	q := strings.ToLower(r.query)
 	switch {
@@ -121,6 +122,7 @@ func (r *mockEmailRows) Columns() []string {
 
 func (r *mockEmailRows) Close() error { return nil }
 
+// Next yields one synthetic row for the mocked query, then io.EOF.
 func (r *mockEmailRows) Next(dest []driver.Value) error {
 	if r.hasRead {
 		return io.EOF

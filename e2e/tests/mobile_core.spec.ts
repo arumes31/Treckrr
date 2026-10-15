@@ -22,6 +22,7 @@ async function expectOpaque(locator: Locator) {
   expect(alpha, "operational surfaces must hide the decorative page background").toBeGreaterThanOrEqual(0.99);
 }
 
+/** Fails on horizontal page overflow and lists the offending elements. */
 async function expectFits(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   const diagnostics = overflow > 1 ? await page.evaluate(() =>
@@ -35,6 +36,7 @@ async function expectFits(page: Page) {
   expect(overflow, `horizontal overflow at ${page.url()}: ${JSON.stringify(diagnostics)}`).toBeLessThanOrEqual(1);
 }
 
+/** Requires a visible control of at least 44 x 44 CSS pixels. */
 async function expectTouchTarget(locator: Locator) {
   await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
@@ -205,6 +207,7 @@ test("narrow mobile booking keeps all utilities, tabs and account details reacha
   const details = summary.locator(".summary-card__details");
   await expect(details).not.toHaveAttribute("open");
   await expect(details.getByRole("link", { name: "CSV Export", exact: true })).toBeHidden();
+  /** Collects the euro amounts shown in the summary, normalized for comparison. */
   const monetaryText = () => summary.evaluate(node =>
     [...(node.textContent || "").matchAll(/[−-]?\d[\d.]*,\d{2}\s*€/g)].map(match => match[0].replace(/\s+/g, " ")));
   const originalMoney = await monetaryText();

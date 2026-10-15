@@ -122,6 +122,8 @@ func (s *Store) NeighborYearHistory(ctx context.Context, neighborID int64) ([]Ne
 	return neighborYearHistory(ctx, s.db, neighborID)
 }
 
+// neighborYearHistory implements NeighborYearHistory on any queryer, so the
+// statement can read it inside its own snapshot transaction.
 func neighborYearHistory(ctx context.Context, q statementQueryer, neighborID int64) ([]NeighborYearHistoryRow, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT y.id, y.year, y.status,
