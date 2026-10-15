@@ -227,7 +227,8 @@
 				var src = new URL(picture.getAttribute("src"), window.location.href);
 				if (src.origin !== window.location.origin) return Promise.reject(new Error("non-local image"));
 				return fetch(src.href, { credentials: "same-origin" }).then(function (response) {
-					if (!response.ok || response.headers.get("Content-Type") !== "image/png") throw new Error("image export failed");
+					var mediaType = (response.headers.get("Content-Type") || "").split(";", 1)[0].trim().toLowerCase();
+					if (!response.ok || mediaType !== "image/png") throw new Error("image export failed");
 					return response.arrayBuffer();
 				}).then(function (buffer) { picture.setAttribute("src", "data:image/png;base64," + b64(buffer)); });
 			});

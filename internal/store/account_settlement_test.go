@@ -37,8 +37,17 @@ func TestExplainAccountSettlement(t *testing.T) {
 			sources: []settlementSource{{id: 1, kind: "invoice", number: "R1", amount: d("100")}, {id: 2, kind: "invoice", number: "R2", date: date, amount: d("-15")}}, rows: 1},
 		{name: "positive ledger does not invent an applied counterservice", input: invoiceAllocationInput{Invoices: []allocationInvoice{allocationTestInvoice(1, "100")}, Ledger: d("1")},
 			sources: []settlementSource{{id: 1, kind: "invoice", number: "R1", amount: d("100")}, {id: 8, kind: "ledger", amount: d("-44")}, {id: 9, kind: "ledger", amount: d("45")}}, rows: 0},
-		{name: "reversed payment is not applied", input: invoiceAllocationInput{Invoices: []allocationInvoice{allocationTestInvoice(1, "100")}, Payments: []allocationPayment{allocationTestPayment(1, "100", 0), {ID: 2, PaidOn: date, Amount: d("-100"), ReversalOfID: 1}}},
-			sources: []settlementSource{{id: 1, kind: "invoice", number: "R1", amount: d("100")}}, payments: []settlementPayment{{id: 1, date: date, amount: d("100")}, {id: 2, date: date, amount: d("-100"), reversalID: 1}}, rows: 0},
+		{name: "later reversal preserves unrelated payment", input: invoiceAllocationInput{
+			Invoices: []allocationInvoice{allocationTestInvoice(1, "100")}, Payments: []allocationPayment{
+				{ID: 1, PaidOn: date.AddDate(0, 0, -20), Amount: d("100")},
+				{ID: 2, PaidOn: date, Amount: d("-100"), ReversalOfID: 1},
+				{ID: 3, PaidOn: date.AddDate(0, 0, -10), Amount: d("25")},
+			},
+		}, sources: []settlementSource{{id: 1, kind: "invoice", number: "R1", amount: d("100")}}, payments: []settlementPayment{
+			{id: 1, date: date.AddDate(0, 0, -20), amount: d("100")},
+			{id: 2, date: date, amount: d("-100"), reversalID: 1},
+			{id: 3, date: date.AddDate(0, 0, -10), amount: d("25")},
+		}, rows: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plan, err := planInvoiceAllocation(tc.input)
@@ -72,8 +81,21 @@ func TestExplainAccountSettlement(t *testing.T) {
 					t.Fatal("display changed allocation")
 				}
 			}
-			if tc.name == "reversed payment is not applied" && (!got.Payments[1].Reversed || !got.Payments[2].Reversed) {
-				t.Fatal("reversal not explained")
+			if tc.name == "later reversal preserves unrelated payment" {
+				for _, paymentID := range []int64{1, 2} {
+					usage := got.Payments[paymentID]
+					if !usage.Reversed || len(usage.Parts) != 0 || !usage.Unallocated.IsZero() {
+						t.Fatalf("reversed payment %d still has usage: %+v", paymentID, usage)
+					}
+				}
+				usage := got.Payments[3]
+				if usage.Reversed || !usage.Unallocated.IsZero() || len(usage.Parts) != 1 ||
+					usage.Parts[0].InvoiceID != 1 || usage.Parts[0].InvoiceNumber != "R1" || !usage.Parts[0].Amount.Equal(d("25")) {
+					t.Fatalf("unrelated payment allocation changed: %+v", usage)
+				}
+				if lines[0].Kind != "payment" || !lines[0].Amount.Equal(d("25")) || !got.OpenInvoices.Equal(d("75")) {
+					t.Fatalf("reversal changed settlement: lines=%+v open=%s", lines, got.OpenInvoices)
+				}
 			}
 		})
 	}
