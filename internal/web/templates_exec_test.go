@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"html"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,6 +22,15 @@ import (
 // parses fine but errors at render time — producing a 500 in production.
 func execPage(t *testing.T, page string, data map[string]any) string {
 	t.Helper()
+	// Authenticated-page fixtures historically omitted the user. Render those
+	// as an editor; explicit users (including nil) and public pages stay intact.
+	if _, explicitUser := data["User"]; !explicitUser && page != "login" && page != "offline" && data["Shared"] != true {
+		data = maps.Clone(data)
+		if data == nil {
+			data = make(map[string]any)
+		}
+		data["User"] = &models.User{Role: models.RoleEditor}
+	}
 	pages, err := Templates()
 	if err != nil {
 		t.Fatalf("Templates(): %v", err)

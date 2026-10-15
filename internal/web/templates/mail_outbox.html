@@ -18,13 +18,13 @@
 	</div>
 
 	<nav class="mailfilters" aria-label="E-Mail-Status filtern">
-		<a class="chip2 {{if eq .Status ""}}chip2--paid{{else}}chip2--open{{end}}" href="/admin/mail">Alle</a>
-		<a class="chip2 {{if eq .Status "pending"}}chip2--prog{{else}}chip2--open{{end}}" href="/admin/mail?status=pending">Wartend</a>
-		<a class="chip2 {{if eq .Status "sending"}}chip2--prog{{else}}chip2--open{{end}}" href="/admin/mail?status=sending">Im Versand</a>
-		<a class="chip2 {{if eq .Status "sent"}}chip2--paid{{else}}chip2--open{{end}}" href="/admin/mail?status=sent">Gesendet</a>
-		<a class="chip2 {{if eq .Status "failed"}}chip2--owe{{else}}chip2--open{{end}}" href="/admin/mail?status=failed">Fehlgeschlagen</a>
-		<a class="chip2 {{if eq .Status "ambiguous"}}chip2--owe{{else}}chip2--open{{end}}" href="/admin/mail?status=ambiguous">Unklar</a>
-		<a class="chip2 {{if eq .Status "held"}}chip2--stale{{else}}chip2--open{{end}}" href="/admin/mail?status=held">Angehalten</a>
+		<a class="chip2 {{if eq .Status ""}}chip2--paid{{else}}chip2--open{{end}}" href="/admin/mail" {{if eq .Status ""}}aria-current="page"{{end}}>Alle</a>
+		<a class="chip2 {{if eq .Status "pending"}}chip2--prog{{else}}chip2--open{{end}}" href="/admin/mail?status=pending" {{if eq .Status "pending"}}aria-current="page"{{end}}>Wartend</a>
+		<a class="chip2 {{if eq .Status "sending"}}chip2--prog{{else}}chip2--open{{end}}" href="/admin/mail?status=sending" {{if eq .Status "sending"}}aria-current="page"{{end}}>Im Versand</a>
+		<a class="chip2 {{if eq .Status "sent"}}chip2--paid{{else}}chip2--open{{end}}" href="/admin/mail?status=sent" {{if eq .Status "sent"}}aria-current="page"{{end}}>Gesendet</a>
+		<a class="chip2 {{if eq .Status "failed"}}chip2--owe{{else}}chip2--open{{end}}" href="/admin/mail?status=failed" {{if eq .Status "failed"}}aria-current="page"{{end}}>Fehlgeschlagen</a>
+		<a class="chip2 {{if eq .Status "ambiguous"}}chip2--owe{{else}}chip2--open{{end}}" href="/admin/mail?status=ambiguous" {{if eq .Status "ambiguous"}}aria-current="page"{{end}}>Unklar</a>
+		<a class="chip2 {{if eq .Status "held"}}chip2--stale{{else}}chip2--open{{end}}" href="/admin/mail?status=held" {{if eq .Status "held"}}aria-current="page"{{end}}>Angehalten</a>
 	</nav>
 
 	<ol class="mailcards" aria-label="E-Mails im Ausgang">
@@ -35,7 +35,7 @@
 				<span class="mailcard__meta">{{.Recipient}} · {{.CreatedAt.Format "02.01.2006 15:04"}} · {{.Attempts}} Versuch(e){{with .NeighborName}} · {{.}}{{end}}{{if .BillingYear}} · {{.BillingYear}}{{end}}</span>
 				{{with .LastError}}<span class="mailcard__error">{{.}}</span>{{end}}
 			</a>
-			{{if eq .Status "held"}}
+			{{if and $.User.IsAdmin (eq .Status "held")}}
 			<div class="mailcard__actions">
 				<form method="post" action="/admin/mail/{{.ID}}/release"><button class="btn btn--primary btn--sm" type="submit">Freigeben</button></form>
 				<form method="post" action="/admin/mail/{{.ID}}/discard" data-confirm-danger data-confirm="Diese E-Mail endgültig verwerfen und nicht senden?"><button class="btn btn--ghost btn--sm" type="submit">Verwerfen</button></form>

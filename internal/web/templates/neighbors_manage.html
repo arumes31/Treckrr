@@ -1,8 +1,9 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<header class="catalog-head">
 		<div><p class="eyebrow">Stammdaten</p><h2>Nachbarn</h2><p class="muted small">Nachbarn verwalten und das aktuelle Konto öffnen.</p></div>
-		<a class="btn btn--primary btn--sm" href="#neuer-nachbar" data-open-details="#neuer-nachbar">Nachbar anlegen</a>
+		{{if .User.CanWrite}}<a class="btn btn--primary btn--sm" href="#neuer-nachbar" data-open-details="#neuer-nachbar">Nachbar anlegen</a>{{end}}
 	</header>
 
 	<section class="neighbor-directory" aria-label="Nachbarverzeichnis">
@@ -19,7 +20,7 @@
 	{{else}}
 	<div class="empty">
 		<span class="empty__title">Keine Nachbarn in dieser Ansicht</span>
-		<span class="muted small">Andere Ansicht wählen oder unten einen Nachbarn anlegen.</span>
+		<span class="muted small">Andere Ansicht wählen{{if .User.CanWrite}} oder unten einen Nachbarn anlegen{{end}}.</span>
 	</div>
 	{{end}}
 	<div class="neighbor-list">
@@ -41,14 +42,15 @@
 				<a class="link small" href="/neighbors/{{.Neighbor.ID}}/overview">Verlauf aller Jahre öffnen ›</a>
 				{{if .Neighbor.Anonymized}}
 				<p class="muted small">Personenbezogene Daten wurden anonymisiert (DSGVO Art. 17). Buchungen und festgeschriebene Rechnungen bleiben aufbewahrungspflichtig erhalten.</p>
-				<form method="post" action="/neighbors/{{.Neighbor.ID}}/anonymize" class="form">
+				{{if $.User.CanWrite}}<form method="post" action="/neighbors/{{.Neighbor.ID}}/anonymize" class="form">
 					<p class="muted">Erneut anonymisieren entfernt noch vorhandene personenbezogene Texte und Fotos aus den laufenden Arbeitsdaten unwiderruflich. Beträge, festgeschriebene Rechnungen und aufbewahrte Audit-Einträge bleiben unverändert.</p>
 					<label class="field"><span>Zum erneuten Ausführen <code>ANONYMISIEREN</code> eintippen</span>
 						<input class="input" name="confirm" autocomplete="off" placeholder="ANONYMISIEREN"></label>
 					<button class="btn btn--danger btn--sm" type="submit">Erneut anonymisieren</button>
-				</form>
+				</form>{{end}}
 				{{else}}
 				<form method="post" action="/neighbors/{{.Neighbor.ID}}/update" class="form">
+					{{if not $.User.CanWrite}}<fieldset class="readonly-fields" disabled><legend class="sr-only">Stammdaten – Nur-Lese-Zugriff</legend>{{end}}
 					<input type="hidden" name="origin" value="manage">
 					<div class="form__grid form__grid--two">
 					<label class="field"><span>Name</span>
@@ -83,9 +85,10 @@
 						<label class="field"><span>Auftragsreferenz / Order-ID</span><input class="input" name="einvoice_order_id" value="{{.Neighbor.EInvoiceOrderID}}" placeholder="für e-Rechnung.gv.at erforderlich"></label>
 						</div>
 					</details>
-					<div class="btnrow"><button class="btn btn--primary btn--sm" type="submit">Speichern</button></div>
+					{{if $.User.CanWrite}}<div class="btnrow"><button class="btn btn--primary btn--sm" type="submit">Speichern</button></div>{{else}}</fieldset>{{end}}
 				</form>
 				<div class="btnrow">
+					{{if $.User.CanWrite}}
 					{{if .Neighbor.Archived}}
 					<form method="post" action="/neighbors/{{.Neighbor.ID}}/archive">
 						<input type="hidden" name="archived" value="false">
@@ -97,9 +100,10 @@
 						<button class="btn btn--ghost btn--sm" type="submit">Deaktivieren</button>
 					</form>
 					{{end}}
+					{{end}}
 					<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/dsgvo-export.json"
 						title="DSGVO Art. 15 Datenauskunft als JSON">Datenauskunft</a>
-					{{if eq .Entries 0}}
+					{{if $.User.CanWrite}}{{if eq .Entries 0}}
 					<form method="post" action="/neighbors/{{.Neighbor.ID}}/delete"
 						data-confirm-danger data-confirm="{{.Neighbor.Name}} löschen?">
 						<input type="hidden" name="origin" value="manage">
@@ -113,8 +117,9 @@
 						<button class="btn btn--danger btn--sm" type="submit">Anonymisieren</button>
 					</form>
 					{{end}}
+					{{end}}
 				</div>
-				{{if gt .Entries 0}}
+				{{if and $.User.CanWrite (gt .Entries 0)}}
 				<p class="muted small">Nachbar hat Buchungen und kann nicht gelöscht werden – zum Ausblenden bitte deaktivieren, oder für DSGVO-Löschung (Art. 17) anonymisieren.</p>
 				{{end}}
 				{{end}}
@@ -123,7 +128,7 @@
 		{{end}}
 	</div>
 
-	<details class="neighbor-create disclosure" id="neuer-nachbar" {{if not .Stats}}open{{end}}>
+	{{if .User.CanWrite}}<details class="neighbor-create disclosure" id="neuer-nachbar" {{if not .Stats}}open{{end}}>
 		<summary>+ Neuen Nachbarn anlegen</summary>
 		<form method="post" action="/neighbors/create" class="form">
 			<label class="field"><span>Name</span>
@@ -132,7 +137,7 @@
 				<input class="input" name="note"></label>
 			<button class="btn btn--primary" type="submit">Anlegen</button>
 		</form>
-	</details>
+	</details>{{end}}
 	</section>
 </section>
 {{end}}

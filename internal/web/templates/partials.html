@@ -1,3 +1,7 @@
+{{define "readonly-notice"}}
+{{if not (and .User .User.CanWrite)}}<p class="flash flash--info" data-readonly-notice>Nur-Lese-Zugriff: Du kannst Daten ansehen und exportieren, aber nicht ändern.</p>{{end}}
+{{end}}
+
 {{define "settlement-lines"}}
 {{if .Rows}}
 <div class="tablewrap settlement-lines" role="region" aria-label="Einzelnachweis Zahlung und Verrechnung" tabindex="0">

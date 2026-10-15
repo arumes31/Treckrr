@@ -127,6 +127,87 @@
 		});
 	});
 
+	// Make horizontal overflow discoverable without adding controls to tables that fit.
+	(function () {
+		var refreshers = [];
+		document.querySelectorAll(".tablewrap").forEach(function (region, index) {
+			var table = region.querySelector("table");
+			if (!table) return;
+			if (!region.id) {
+				var id = "scroll-table-" + index;
+				while (document.getElementById(id)) id += "-next";
+				region.id = id;
+			}
+			if (!region.hasAttribute("tabindex")) region.tabIndex = 0;
+			if (!region.hasAttribute("role")) region.setAttribute("role", "region");
+			if (!region.hasAttribute("aria-label") && !region.hasAttribute("aria-labelledby")) {
+				region.setAttribute("aria-label", table.caption ? table.caption.textContent.trim() : "Datentabelle");
+			}
+			var tools = document.createElement("div");
+			tools.className = "table-scroll-tools no-print";
+			tools.hidden = true;
+			var hint = document.createElement("span");
+			hint.id = region.id + "-hint";
+			hint.textContent = "Weitere Spalten seitlich ansehen";
+			tools.appendChild(hint);
+			var describedBy = region.getAttribute("aria-describedby") || "";
+			function arrow(direction, label) {
+				var button = document.createElement("button");
+				button.type = "button";
+				button.className = "btn btn--ghost table-scroll-tools__button";
+				button.setAttribute("aria-label", label);
+				button.setAttribute("aria-controls", region.id);
+				var glyph = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+				glyph.setAttribute("viewBox", "0 0 24 24");
+				glyph.setAttribute("width", "20");
+				glyph.setAttribute("height", "20");
+				glyph.setAttribute("fill", "none");
+				glyph.setAttribute("stroke", "currentColor");
+				glyph.setAttribute("stroke-width", "2");
+				glyph.setAttribute("stroke-linecap", "round");
+				glyph.setAttribute("stroke-linejoin", "round");
+				glyph.setAttribute("aria-hidden", "true");
+				var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+				path.setAttribute("d", direction < 0 ? "M19 12H5m6 6-6-6 6-6" : "M5 12h14m-6-6 6 6-6 6");
+				glyph.appendChild(path);
+				button.appendChild(glyph);
+				button.addEventListener("click", function () {
+					region.scrollBy({ left: direction * Math.max(80, region.clientWidth * .8),
+						behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+				});
+				tools.appendChild(button);
+				return button;
+			}
+			var previous = arrow(-1, "Tabelle nach links scrollen");
+			var next = arrow(1, "Tabelle nach rechts scrollen");
+			region.before(tools);
+			function refresh() {
+				var max = region.scrollWidth - region.clientWidth;
+				var overflow = region.clientWidth > 0 && max > 1;
+				tools.hidden = !overflow;
+				previous.disabled = region.scrollLeft <= 1;
+				next.disabled = region.scrollLeft >= max - 1;
+				if (overflow) region.setAttribute("aria-describedby", (describedBy + " " + hint.id).trim());
+				else if (describedBy) region.setAttribute("aria-describedby", describedBy);
+				else region.removeAttribute("aria-describedby");
+			}
+			region.addEventListener("scroll", refresh, { passive: true });
+			if (typeof ResizeObserver !== "undefined") {
+				var observer = new ResizeObserver(refresh);
+				observer.observe(region);
+				observer.observe(table);
+			}
+			refreshers.push(refresh);
+			refresh();
+		});
+		function refreshAll() { refreshers.forEach(function (refresh) { refresh(); }); }
+		if (refreshers.length) {
+			window.addEventListener("resize", refreshAll);
+			document.addEventListener("toggle", refreshAll, true);
+			if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshAll);
+		}
+	})();
+
 	/** Adds navigation/search shortcuts and a help dialog while leaving ordinary text entry unaffected. */
 	(function () {
 		var nav = { d: "/", n: "/neighbors", s: "/stats", m: "/mahnwesen", y: "/years", p: "/prices" };

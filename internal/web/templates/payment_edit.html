@@ -1,12 +1,14 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="{{.Back}}" aria-label="Zurück">{{template "ic-back"}}</a>
-		<h2 class="pagehead__t">{{if .Copy}}Zahlung duplizieren{{else}}Zahlung bearbeiten{{end}}</h2>
+		<h2 class="pagehead__t">{{if not .User.CanWrite}}Zahlung ansehen{{else if .Copy}}Zahlung duplizieren{{else}}Zahlung bearbeiten{{end}}</h2>
 	</div>
 	<p class="muted small">{{.NeighborName}}{{if not .Copy}} · erfasst am {{date .Payment.Created}}{{if .Payment.InvoiceNumber}} · ursprüngliche Referenz {{.Payment.InvoiceNumber}}{{end}}{{else}} · Kopie einer bestehenden Zahlung — wird erst beim Speichern angelegt{{end}}</p>
 	{{if not .Copy}}{{with .PaymentUsage}}<section class="card"><h3>Aktuelle Zahlungszuordnung</h3>{{template "payment-usage" .}}<p class="muted small">Änderungen an Betrag oder Datum können die Zuordnung verändern; Rechnungsinhalte bleiben unverändert.</p></section>{{end}}{{end}}
 	<form method="post" action="{{if .Copy}}/neighbors/{{.Payment.NeighborID}}/payments{{else}}/payments/{{.Payment.ID}}/update{{end}}" class="card form">
+		{{if not .User.CanWrite}}<fieldset class="readonly-fields" disabled><legend class="sr-only">Zahlung – Nur-Lese-Zugriff</legend>{{end}}
 		{{if .Copy}}<input type="hidden" name="year_id" value="{{.Payment.BillingYearID}}">
 		<input type="hidden" name="idempotency_key" value="{{formKey}}">{{end}}
 		<div class="form__grid">
@@ -24,8 +26,9 @@
 			<label class="field"><span>Notiz</span>
 				<input class="input" name="note" value="{{.Payment.Note}}"></label>
 		</div>
+		{{if not .User.CanWrite}}</fieldset>{{end}}
 		<div class="btnrow">
-			<button class="btn btn--primary btn--sm" type="submit">{{if .Copy}}Als neue Zahlung speichern{{else}}Speichern{{end}}</button>
+			{{if .User.CanWrite}}<button class="btn btn--primary btn--sm" type="submit">{{if .Copy}}Als neue Zahlung speichern{{else}}Speichern{{end}}</button>{{end}}
 			<a class="btn btn--ghost btn--sm" href="{{.Back}}">Abbrechen</a>
 		</div>
 	</form>

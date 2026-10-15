@@ -7,12 +7,12 @@
 		{{range .Photos}}
 		<figure class="photogrid__item">
 			<a href="{{$.PhotoAction}}/{{.ID}}" target="_blank" rel="noopener"><img src="{{$.PhotoAction}}/{{.ID}}" alt="Belegfoto vom {{date .Created}}" loading="lazy"></a>
-			{{if not $.BookingLocked}}<form method="post" action="{{$.PhotoAction}}/{{.ID}}/delete" data-confirm-danger data-confirm="Dieses Belegfoto endgültig entfernen?"><button class="photogrid__del" type="submit" aria-label="Foto entfernen">×</button></form>{{end}}
+			{{if and $.User.CanWrite (not $.BookingLocked)}}<form method="post" action="{{$.PhotoAction}}/{{.ID}}/delete" data-confirm-danger data-confirm="Dieses Belegfoto endgültig entfernen?"><button class="photogrid__del" type="submit" aria-label="Foto entfernen">×</button></form>{{end}}
 		</figure>
 		{{end}}
 	</div>
 	{{end}}
-	{{if not .BookingLocked}}
+	{{if and .User.CanWrite (not .BookingLocked)}}
 	<form method="post" action="{{.PhotoAction}}" enctype="multipart/form-data" class="form">
 		<label class="field"><span>Belege auswählen</span><input class="input" type="file" name="photo" accept="image/jpeg,image/png,image/gif" multiple required aria-describedby="booking-photo-help"></label>
 		<p class="muted small" id="booking-photo-help">Bis zu 10 Fotos pro Upload, insgesamt höchstens 12 MB. JPEG, PNG oder GIF.</p>

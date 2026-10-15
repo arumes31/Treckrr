@@ -141,8 +141,6 @@
 [data-quick-form] [name="q_date"] { min-width: 9rem; }
 [data-quick-form] [name="q_hours"] { min-width: 6rem; max-width: 8rem; }
 [data-quick-form] select { min-width: 12rem; }
-.quick-scroll-hint { display: none; }
-@media (max-width: 48rem) { .quick-scroll-hint { display: block; } }
 /* Money never shrinks and never breaks before its € — the amount is the one
    thing a row must always show intact. */
 .list__value { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; flex: 0 0 auto; }
@@ -673,7 +671,7 @@ input[type="file"].input::file-selector-button:hover { background: var(--surface
 .work-surface { display: grid; gap: .9rem; padding: clamp(.75rem, 2vw, 1rem); background: var(--surface); border: 1px solid var(--card-hairline); border-radius: var(--radius); box-shadow: var(--card-shadow); }
 .work-surface__section { padding: .75rem .9rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .work-surface__section > summary { min-height: var(--tap); }
-.account-workspace { gap: 1rem; }
+.account-workspace { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .neighbor-create { scroll-margin-top: 7rem; padding: .75rem .9rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .catalog-groups { display: grid; gap: 1.6rem; }
 .catalog-groups h3 { display: flex; align-items: center; gap: .45rem; margin: 0 0 .55rem; font-size: var(--fs-md); }

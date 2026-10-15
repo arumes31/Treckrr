@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/?year={{.Year.ID}}" aria-label="Zurück zur Übersicht">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Buchungen · {{.Year.Year}}</h2>
@@ -16,6 +17,10 @@
 				</select></label>
 			<label class="field"><span>Tätigkeit / Notiz</span>
 				<input class="input" type="search" name="task" value="{{index .Filter "task"}}" placeholder="Buchungen durchsuchen …"></label>
+		</div>
+		<details class="disclosure form-details" data-booking-filters {{if or (index .Filter "direction") (index .Filter "kind") (index .Filter "from") (index .Filter "to") (index .Filter "unit") (index .Filter "voided")}}open{{end}}>
+			<summary>Weitere Filter <span class="muted small">Richtung, Art, Zeitraum &amp; Storno</span></summary>
+		<div class="form__grid form__grid--two">
 			<label class="field"><span>Verrechnungsrichtung</span>
 				{{$direction := index .Filter "direction"}}
 				<select class="select" name="direction">
@@ -27,17 +32,13 @@
 				{{$kind := index .Filter "kind"}}
 				<select class="select" name="kind">
 					<option value="">alle Arten</option>
-					<option value="equipment" {{if eq $kind "equipment"}}selected{{end}}>Traktor / Geräte</option>
+					<option value="equipment" {{if eq $kind "equipment"}}selected{{end}}>Traktor / Gespann / Gefährt</option>
 					<option value="labor" {{if eq $kind "labor"}}selected{{end}}>Mannstunden</option>
 					<option value="quantity" {{if eq $kind "quantity"}}selected{{end}}>Mengenleistung</option>
-					<option value="fixed" {{if eq $kind "fixed"}}selected{{end}}>Freie Kosten</option>
+					<option value="fixed" {{if eq $kind "fixed"}}selected{{end}}>Material / Pauschale</option>
 					<option value="manual" {{if eq $kind "manual"}}selected{{end}}>Manuelle Positionen</option>
 					<option value="transfer" {{if eq $kind "transfer"}}selected{{end}}>Jahresüberträge</option>
 				</select></label>
-		</div>
-		<details class="disclosure form-details" {{if or (index .Filter "from") (index .Filter "to") (index .Filter "unit") (index .Filter "voided")}}open{{end}}>
-			<summary>Weitere Filter <span class="muted small">Zeitraum, Einheit & Storno</span></summary>
-		<div class="form__grid">
 			<label class="field"><span>Von</span>
 				<input class="input" type="date" name="from" value="{{index .Filter "from"}}"></label>
 			<label class="field"><span>Bis</span>
@@ -64,17 +65,19 @@
 			<a class="btn btn--ghost btn--sm" href="/buchungen?year={{.Year.ID}}">Zurücksetzen</a>
 		</div>
 	</form>
-	<div class="savedviews card">
-		<div><strong>Gespeicherte Ansichten</strong><span class="muted small">Persönlich für {{.User.Username}} · serverseitig gespeichert</span></div>
+	{{$activeView := ""}}{{range .SavedViews}}{{if eq .Query $.SavedQuery}}{{$activeView = .Name}}{{end}}{{end}}
+	<details class="savedviews card disclosure" data-saved-views {{if $activeView}}open{{end}}>
+		<summary>Gespeicherte Ansichten{{if $activeView}} <span class="muted small">Aktiv: {{$activeView}}</span>{{end}}</summary>
+		<p class="muted small">Persönlich für {{.User.Username}} · auf deinen Geräten verfügbar, wenn du angemeldet bist.</p>
 		<div class="savedviews__list">
-			{{range .SavedViews}}<span class="savedview"><a class="chip2 chip2--open" href="/buchungen?{{.Query}}">{{.Name}}</a>{{if $.User.CanWrite}}<form method="post" action="/views/{{.ID}}/delete" data-confirm="Ansicht „{{.Name}}“ löschen?"><button class="iconact" type="submit" aria-label="Ansicht {{.Name}} löschen">×</button></form>{{end}}</span>{{else}}<span class="muted small">Noch keine Ansicht gespeichert.</span>{{end}}
+			{{range .SavedViews}}<span class="savedview"><a class="chip2 {{if eq .Query $.SavedQuery}}chip2--paid{{else}}chip2--open{{end}}" href="{{printf "/buchungen?%s" .Query}}" {{if eq .Query $.SavedQuery}}aria-current="true"{{end}}>{{.Name}}</a>{{if $.User.CanWrite}}<form method="post" action="/views/{{.ID}}/delete" data-confirm="Ansicht „{{.Name}}“ löschen?"><button class="iconact" type="submit" aria-label="Ansicht {{.Name}} löschen">×</button></form>{{end}}</span>{{else}}<span class="muted small">Noch keine Ansicht gespeichert.</span>{{end}}
 		</div>
 		{{if .User.CanWrite}}<form method="post" action="/views/bookings" class="savedviews__save">
 			<input type="hidden" name="year_id" value="{{.Year.ID}}"><input type="hidden" name="query" value="{{.SavedQuery}}">
 			<input class="input" name="name" maxlength="60" placeholder="z. B. offene Maschinenbuchungen" aria-label="Name der Ansicht" required>
 			<button class="btn btn--ghost btn--sm" type="submit">Aktuelle Filter speichern</button>
 		</form>{{end}}
-	</div>
+	</details>
 
 	<p class="muted small">{{.Total}} Buchung(en) · Summe beider Richtungen (ohne Storno) {{money .SumCost}}{{if gt .Pages 1}} · Seite {{.Page}} von {{.Pages}}{{end}}</p>
 	<p class="muted small">Positive Beträge schuldet der Nachbar, negative Beträge schulde ich. Zahlungen sind hier nicht enthalten.</p>
@@ -87,16 +90,18 @@
 	</div>
 
 	{{if .Rows}}
+	{{if .User.CanWrite}}
 	<form method="post" action="/buchungen/bulk">
 		<input type="hidden" name="year_id" value="{{.Year.ID}}">
 		<input type="hidden" name="return_to" value="{{.ReturnTo}}">
+	{{else}}<div>{{end}}
 		<div class="tablewrap" role="region" aria-label="Buchungsliste" tabindex="0">
 			<table class="dtable">
 				<thead><tr><th><span class="sr-only">Auswahl</span></th><th>Datum</th><th>Nachbar</th><th>Richtung / Art</th><th>Tätigkeit</th><th>Menge</th><th class="num">Betrag</th></tr></thead>
 				<tbody>
 					{{range .Rows}}{{$rowKind := .Kind}}{{$rowID := .ID}}
 					<tr class="{{if .Voided}}dtable__row--bad{{end}}" data-booking-source="{{.Source}}">
-						<td>{{if and (not $.Completed) (ne .Kind "transfer")}}<input type="checkbox" name="booking_id" value="{{.Source}}:{{.ID}}" aria-label="{{.DirectionLabel}}: Buchung vom {{date .Date}} auswählen">{{end}}</td>
+						<td>{{if and $.User.CanWrite (not $.Completed) (ne .Kind "transfer")}}<label class="table-check"><input type="checkbox" name="booking_id" value="{{.Source}}:{{.ID}}"><span class="sr-only">{{.DirectionLabel}}: Buchung vom {{date .Date}} auswählen</span></label>{{end}}</td>
 						<td>{{date .Date}}</td>
 						<td><a href="/neighbors/{{.NeighborID}}?year={{$.Year.ID}}">{{.NeighborName}}</a></td>
 						<td>{{.DirectionLabel}}<br> <span class="muted small">{{.KindLabel}}</span></td>
@@ -109,7 +114,7 @@
 			</table>
 		</div>
 
-		{{if not .Completed}}
+		{{if and .User.CanWrite (not .Completed)}}
 		<div class="card stack stack--tight">
 			<span class="muted small">Storno und Wiederherstellung gelten für beide Richtungen. Jahresüberträge und gesperrte Buchungen werden übersprungen und gemeldet. Endgültiges Sammellöschen bleibt auf eigene Leistungsbuchungen beschränkt.</span>
 			<label class="field"><span>Grund (für Storno, optional)</span>
@@ -124,7 +129,7 @@
 			</div>
 		</div>
 		{{end}}
-	</form>
+	{{if .User.CanWrite}}</form>{{else}}</div>{{end}}
 
 	{{if gt .Pages 1}}
 	<div class="btnrow">

@@ -1,4 +1,5 @@
 {{define "booking-form"}}
+{{if .User.CanWrite}}
 {{$v := or .BookingValues (dict)}}{{$kind := or (index $v "booking_kind") "equipment"}}{{$direction := or (index $v "booking_direction") "out"}}{{$mode := or (index $v "mode") "gespann"}}{{$unit := index $v "unit"}}
 <form method="post" action="{{or .BookingAction "/entries"}}" class="card form" data-entry-form data-unified-booking
 	{{if .BookingEdit}}data-entry-edit{{else}}data-entry-create{{if and (not .BookingCopy) (not .BookingPrefilled)}} data-entry-defaults{{end}}{{end}}
@@ -89,6 +90,29 @@
 	{{if and (not .BookingEdit) (not .BookingCopy)}}<button class="btn btn--ghost btn--block" type="submit" name="continue_next" value="1" data-booking-next {{if .BookingLocked}}disabled{{end}}>Speichern &amp; nächste Buchung</button>{{end}}
 	<template data-person-template>{{template "booking-person-row" (dict "Form" . "Existing" false "Primary" false)}}</template>
 </form>
+{{else}}
+{{template "readonly-notice" .}}
+{{if or .BookingEdit .BookingCopy}}
+<section class="card stack stack--tight" aria-label="Buchungsdetails">
+	{{$v := or .BookingValues (dict)}}
+	<p><strong>{{if eq (index $v "booking_direction") "in"}}Nachbar verrechnet{{else}}Ich verrechne{{end}}</strong> · {{if eq (index $v "booking_kind") "equipment"}}Traktor / Gespann / Gefährt{{else if eq (index $v "booking_kind") "labor"}}Arbeitszeit / Mannstunden{{else if eq (index $v "booking_kind") "quantity"}}Mengenleistung{{else}}Material / Pauschale{{end}}</p>
+	{{with .Entry}}
+	<p>{{date .Date}} · {{if .TaskLabel}}{{.TaskLabel}}{{else}}Sonstige{{end}}{{if .Voided}} · Storniert{{end}}</p>
+	{{if ne (index $v "booking_kind") "labor"}}<div class="bcard__line"><span>{{if or (eq .Unit "h") (eq .Unit "")}}{{num .Hours}} h × {{money .HourlyRate}}/h{{else}}{{num .Quantity}} {{.Unit}} × {{money .UnitPrice}}/{{.Unit}}{{end}}</span><strong>{{money .Cost}}</strong></div>{{end}}
+	{{if or .TractorLabel .MachineLabels}}<p class="muted small">{{.TractorLabel}}{{if and .TractorLabel .MachineLabels}} · {{end}}{{.MachineLabels}}{{if .LoadLabel}} · {{.LoadLabel}}{{end}}</p>{{end}}
+	{{with .Note}}<p>{{.}}</p>{{end}}
+	{{with .VoidReason}}<p class="muted small">Storno: {{.}}</p>{{end}}
+	{{end}}
+	{{with .Ledger}}
+	<p>{{date .Date}}{{with .Booking}} · {{.TaskLabel}}{{end}}{{if .Voided}} · Storniert{{end}}</p>
+	{{with .Booking}}{{if ne .Kind "labor"}}<div class="bcard__line"><span>{{if .PartnerLabel}}{{.PartnerLabel}} · {{end}}{{num .Quantity}} {{.Unit}} × {{money .UnitPrice}}/{{.Unit}}</span><strong>{{money .ServiceCost}}</strong></div>{{end}}{{with .Note}}<p>{{.}}</p>{{end}}{{end}}
+	<div class="bcard__line"><span>Kontobetrag</span><strong>{{money .Amount}}</strong></div>
+	{{with .VoidReason}}<p class="muted small">Storno: {{.}}</p>{{end}}
+	{{end}}
+	{{if .BookingPeople}}<h3>Personen</h3>{{range .BookingPeople}}<div class="bcard__line{{if .Voided}} bcard__line--void{{end}}"><span>{{.Name}} · {{num .Hours}} Mannstunden × {{money .Rate}}/h{{if .Voided}} · storniert{{end}}</span><strong>{{money .Cost}}</strong></div>{{end}}{{end}}
+</section>
+{{end}}
+{{end}}
 {{end}}
 
 {{define "booking-person-row"}}
@@ -109,7 +133,7 @@
 
 {{define "booking-extras"}}
 {{if .PhotoAction}}{{template "booking_attachments" .}}{{end}}
-{{if .RecurringAction}}
+{{if and .User.CanWrite .RecurringAction}}
 <details class="card disclosure"><summary>Als Serie wiederholen</summary><p class="muted small">Wiederholt diese Leistung im offenen Jahr. Gespann, vereinbarte Preise und alle ausgewählten Personen werden aus der Buchung übernommen.</p>
 	<form method="post" action="{{.RecurringAction}}" class="form"><div class="form__grid"><label class="field"><span>Rhythmus</span><select class="select" name="interval_kind"><option value="weekly">wöchentlich</option><option value="monthly">monatlich</option></select></label><label class="field"><span>Erster Lauf</span><input class="input" type="date" name="next_run" value="{{.NextWeek}}" required></label><label class="field"><span>Endet am <em>(optional)</em></span><input class="input" type="date" name="ends_on"></label></div>
 	{{if .BookingHasOptionalPeople}}<label class="check"><input type="checkbox" name="with_person" value="1" checked><span>Alle zusätzlichen Personen bei jedem Lauf mitbuchen</span></label>{{end}}

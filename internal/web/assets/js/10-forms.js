@@ -67,6 +67,47 @@
 		});
 	})();
 
+	// Batch invoice totals reflect only the selected, eligible preview rows.
+	// Integer cents avoid binary floating-point rounding; the server remains the
+	// authority for issuing and revalidates every content hash on submission.
+	document.querySelectorAll("[data-batch-invoice]").forEach(function (form) {
+		var summary = form.querySelector("[data-batch-summary]");
+		var fallback = form.querySelector("[data-batch-fallback]");
+		var submit = form.querySelector("[data-batch-submit]");
+		if (!summary || !fallback || !submit || typeof BigInt !== "function") return;
+		function money(cents) {
+			var negative = cents < BigInt(0);
+			var digits = (negative ? -cents : cents).toString().padStart(3, "0");
+			return (negative ? "−" : "") + digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + digits.slice(-2) + " €";
+		}
+		function update() {
+			var count = 0, total = BigInt(0), valid = true;
+			form.querySelectorAll('input[name="neighbor_id"]:checked:not(:disabled)').forEach(function (box) {
+				var gross = box.getAttribute("data-invoice-gross") || "";
+				if (!/^-?\d+\.\d{2}$/.test(gross)) { valid = false; return; }
+				total += BigInt(gross.replace(".", ""));
+				count++;
+			});
+			var label = count + (count === 1 ? " Rechnung" : " Rechnungen") + " ausgewählt · Summe brutto " + money(total);
+			summary.textContent = valid ? label : "Auswahlbetrag nicht verfügbar. Bitte die Seite neu laden.";
+			summary.hidden = false;
+			fallback.hidden = true;
+			if (form.dataset.submitting !== "1") submit.disabled = !valid || count === 0;
+			var confirmation = label + ". Jetzt endgültig festschreiben? Festgeschriebene Rechnungen können nur per Storno korrigiert werden.";
+			submit.setAttribute("data-confirm", confirmation);
+			form.setAttribute("data-confirm", confirmation);
+			return valid && count > 0;
+		}
+		form.addEventListener("change", update);
+		form.addEventListener("reset", function () { setTimeout(update, 0); });
+		window.addEventListener("pageshow", function () { setTimeout(update, 0); });
+		// This listener precedes the generic busy/confirmation handlers below.
+		form.addEventListener("submit", function (e) {
+			if (!update()) { e.preventDefault(); e.stopImmediatePropagation(); }
+		});
+		update();
+	});
+
 	// Carry-over: toggle all neighbour checkboxes at once.
 	document.querySelectorAll("[data-carry-toggle-all]").forEach(function (btn) {
 		btn.addEventListener("click", function () {

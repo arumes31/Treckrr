@@ -37,13 +37,13 @@ func (r BookingRow) IsLedger() bool { return r.Source == "ledger" }
 func (r BookingRow) KindLabel() string {
 	switch r.Kind {
 	case "equipment":
-		return "Traktor / Geräte"
+		return "Traktor / Gespann / Gefährt"
 	case "labor":
 		return "Mannstunden"
 	case "quantity":
 		return "Mengenleistung"
 	case "fixed":
-		return "Freie Kosten"
+		return "Material / Pauschale"
 	case "transfer":
 		return "Jahresübertrag"
 	default:

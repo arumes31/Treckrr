@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<p class="muted">Eine <strong>Bemessungsgrundlage</strong> erscheint nur alle paar Jahre neu
 		und wird von mehreren Abrechnungsjahren genutzt. Eine neue Grundlage kann die Werte
 		einer bestehenden übernehmen — die Ausgangsgrundlage bleibt unverändert.
@@ -24,7 +25,7 @@
 				<a class="btn btn--ghost btn--sm" href="/prices?base={{$b.ID}}">Kosten</a>
 				<a class="btn btn--ghost btn--sm" href="/gespanne?base={{$b.ID}}">Gespanne</a>
 			</div>
-			<details class="disclosure disclosure--plain">
+			{{if $.User.CanWrite}}<details class="disclosure disclosure--plain">
 				<summary>Umbenennen / Sperren / Löschen</summary>
 				<form method="post" action="/bases/{{$b.ID}}/update" class="form">
 					<div class="form__grid">
@@ -55,18 +56,18 @@
 				{{if .InUse}}
 				<p class="muted small">Wird von einem Abrechnungsjahr verwendet und kann nicht gelöscht werden.</p>
 				{{end}}
-			</details>
+			</details>{{end}}
 		</div>
 		{{else}}
 		<div class="card empty empty--slim">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.8"/><circle cx="18" cy="18" r="2.4"/><path d="M11.3 16.5h4.3"/><path d="M4.3 12.7V6.5h5.9l2 6.2"/></svg>
 			<span class="empty__title">Noch keine Bemessungsgrundlage.</span>
-			<span class="empty__sub">Lege unten die erste Grundlage an.</span>
+			{{if .User.CanWrite}}<span class="empty__sub">Lege unten die erste Grundlage an.</span>{{end}}
 		</div>
 		{{end}}
 	</div>
 
-	<details class="card disclosure" {{if not .Bases}}open{{end}}>
+	{{if .User.CanWrite}}<details class="card disclosure" {{if not .Bases}}open{{end}}>
 		<summary>+ Neue Bemessungsgrundlage</summary>
 		<form method="post" action="/bases" class="form">
 			<div class="form__grid">
@@ -85,6 +86,6 @@
 			</details>
 			<button class="btn btn--primary" type="submit">Anlegen</button>
 		</form>
-	</details>
+	</details>{{end}}
 </section>
 {{end}}

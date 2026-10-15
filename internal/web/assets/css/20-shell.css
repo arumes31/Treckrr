@@ -31,6 +31,7 @@
 	color: var(--chassis-text);
 }
 .appbar__brand { display: flex; align-items: center; gap: .45rem; color: var(--chassis-text); font-weight: 700; }
+.appbar__tools { display: flex; align-items: center; gap: .25rem; flex: 0 0 auto; }
 .appbar__brand img { display: block; }
 .appbar__brand-mark { display: block; }
 /* min-width:0 + ellipsis so a long page title (e.g. "Bemessungsgrundlagen")
@@ -56,7 +57,7 @@
 .appbar__notify { position: relative; }
 .appbar__notify-count { position: absolute; top: 2px; right: 1px; min-width: 1.05rem; height: 1.05rem;
 	display: grid; place-items: center; padding: 0 .2rem; border-radius: 999px; background: var(--danger);
-	color: #fff; font: 700 .62rem/1 var(--font-mono); box-shadow: 0 0 0 2px var(--chassis); }
+	color: #fff; font: 700 var(--fs-xs)/1 var(--font-mono); box-shadow: 0 0 0 2px var(--chassis); }
 
 /* Notification center: one compact, actionable stream with state carried by a
    narrow signal rail instead of large colored surfaces. */

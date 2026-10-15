@@ -58,6 +58,12 @@ test("itemized invoice, payment dialog, text and PNG exports agree", async ({ pa
   await expect(page.locator("#beleg")).not.toContainText("PRIVATE CASH NOTE");
   await expect(page.locator("#beleg")).not.toContainText("PRIVATE COUNTERSERVICE NOTE");
 
+  const exports = page.locator("details.document-actions__group");
+  await expect(exports).not.toHaveAttribute("open");
+  await expect(exports.getByRole("button", { name: "Text kopieren", exact: true })).toBeHidden();
+  await exports.getByText("Weitere Formate und Export", { exact: true }).click();
+  await expect(exports).toHaveAttribute("open", "");
+
   for (const width of [390, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ["light", "dark"]) {

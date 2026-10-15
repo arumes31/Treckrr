@@ -208,6 +208,47 @@
 		});
 	})();
 
+	// Batch invoice totals reflect only the selected, eligible preview rows.
+	// Integer cents avoid binary floating-point rounding; the server remains the
+	// authority for issuing and revalidates every content hash on submission.
+	document.querySelectorAll("[data-batch-invoice]").forEach(function (form) {
+		var summary = form.querySelector("[data-batch-summary]");
+		var fallback = form.querySelector("[data-batch-fallback]");
+		var submit = form.querySelector("[data-batch-submit]");
+		if (!summary || !fallback || !submit || typeof BigInt !== "function") return;
+		function money(cents) {
+			var negative = cents < BigInt(0);
+			var digits = (negative ? -cents : cents).toString().padStart(3, "0");
+			return (negative ? "−" : "") + digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + digits.slice(-2) + " €";
+		}
+		function update() {
+			var count = 0, total = BigInt(0), valid = true;
+			form.querySelectorAll('input[name="neighbor_id"]:checked:not(:disabled)').forEach(function (box) {
+				var gross = box.getAttribute("data-invoice-gross") || "";
+				if (!/^-?\d+\.\d{2}$/.test(gross)) { valid = false; return; }
+				total += BigInt(gross.replace(".", ""));
+				count++;
+			});
+			var label = count + (count === 1 ? " Rechnung" : " Rechnungen") + " ausgewählt · Summe brutto " + money(total);
+			summary.textContent = valid ? label : "Auswahlbetrag nicht verfügbar. Bitte die Seite neu laden.";
+			summary.hidden = false;
+			fallback.hidden = true;
+			if (form.dataset.submitting !== "1") submit.disabled = !valid || count === 0;
+			var confirmation = label + ". Jetzt endgültig festschreiben? Festgeschriebene Rechnungen können nur per Storno korrigiert werden.";
+			submit.setAttribute("data-confirm", confirmation);
+			form.setAttribute("data-confirm", confirmation);
+			return valid && count > 0;
+		}
+		form.addEventListener("change", update);
+		form.addEventListener("reset", function () { setTimeout(update, 0); });
+		window.addEventListener("pageshow", function () { setTimeout(update, 0); });
+		// This listener precedes the generic busy/confirmation handlers below.
+		form.addEventListener("submit", function (e) {
+			if (!update()) { e.preventDefault(); e.stopImmediatePropagation(); }
+		});
+		update();
+	});
+
 	// Carry-over: toggle all neighbour checkboxes at once.
 	document.querySelectorAll("[data-carry-toggle-all]").forEach(function (btn) {
 		btn.addEventListener("click", function () {
@@ -951,15 +992,21 @@
 			// inside that window; try/finally guarantees the live element is restored even
 			// if cloning throws.
 			var prevW = beleg.style.width, prevMax = beleg.style.maxWidth, prevOv = beleg.style.overflow;
+			var scrollTools = Array.from(beleg.querySelectorAll(".table-scroll-tools"));
+			var toolVisibility = scrollTools.map(function (tool) { return tool.hidden; });
 			var h, clone;
 			try {
+				// Navigation affordances belong to the screen, not the exported document.
+				scrollTools.forEach(function (tool) { tool.hidden = true; });
 				beleg.style.maxWidth = "none"; beleg.style.overflow = "visible"; beleg.style.width = w + "px";
 				h = Math.ceil(beleg.scrollHeight);
 				clone = beleg.cloneNode(true);
 				inlineStyles(beleg, clone);
 			} finally {
 				beleg.style.width = prevW; beleg.style.maxWidth = prevMax; beleg.style.overflow = prevOv;
+				scrollTools.forEach(function (tool, i) { tool.hidden = toolVisibility[i]; });
 			}
+			clone.querySelectorAll(".table-scroll-tools").forEach(function (tool) { tool.remove(); });
 			// The live .beleg clips with overflow:hidden and is capped by max-width; in the
 			// foreignObject those would shave the right edge off. Let the clone size to the
 			// full captured width and show everything so no column is cut.
@@ -1437,6 +1484,87 @@
 			if (select.form) select.form.requestSubmit();
 		});
 	});
+
+	// Make horizontal overflow discoverable without adding controls to tables that fit.
+	(function () {
+		var refreshers = [];
+		document.querySelectorAll(".tablewrap").forEach(function (region, index) {
+			var table = region.querySelector("table");
+			if (!table) return;
+			if (!region.id) {
+				var id = "scroll-table-" + index;
+				while (document.getElementById(id)) id += "-next";
+				region.id = id;
+			}
+			if (!region.hasAttribute("tabindex")) region.tabIndex = 0;
+			if (!region.hasAttribute("role")) region.setAttribute("role", "region");
+			if (!region.hasAttribute("aria-label") && !region.hasAttribute("aria-labelledby")) {
+				region.setAttribute("aria-label", table.caption ? table.caption.textContent.trim() : "Datentabelle");
+			}
+			var tools = document.createElement("div");
+			tools.className = "table-scroll-tools no-print";
+			tools.hidden = true;
+			var hint = document.createElement("span");
+			hint.id = region.id + "-hint";
+			hint.textContent = "Weitere Spalten seitlich ansehen";
+			tools.appendChild(hint);
+			var describedBy = region.getAttribute("aria-describedby") || "";
+			function arrow(direction, label) {
+				var button = document.createElement("button");
+				button.type = "button";
+				button.className = "btn btn--ghost table-scroll-tools__button";
+				button.setAttribute("aria-label", label);
+				button.setAttribute("aria-controls", region.id);
+				var glyph = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+				glyph.setAttribute("viewBox", "0 0 24 24");
+				glyph.setAttribute("width", "20");
+				glyph.setAttribute("height", "20");
+				glyph.setAttribute("fill", "none");
+				glyph.setAttribute("stroke", "currentColor");
+				glyph.setAttribute("stroke-width", "2");
+				glyph.setAttribute("stroke-linecap", "round");
+				glyph.setAttribute("stroke-linejoin", "round");
+				glyph.setAttribute("aria-hidden", "true");
+				var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+				path.setAttribute("d", direction < 0 ? "M19 12H5m6 6-6-6 6-6" : "M5 12h14m-6-6 6 6-6 6");
+				glyph.appendChild(path);
+				button.appendChild(glyph);
+				button.addEventListener("click", function () {
+					region.scrollBy({ left: direction * Math.max(80, region.clientWidth * .8),
+						behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+				});
+				tools.appendChild(button);
+				return button;
+			}
+			var previous = arrow(-1, "Tabelle nach links scrollen");
+			var next = arrow(1, "Tabelle nach rechts scrollen");
+			region.before(tools);
+			function refresh() {
+				var max = region.scrollWidth - region.clientWidth;
+				var overflow = region.clientWidth > 0 && max > 1;
+				tools.hidden = !overflow;
+				previous.disabled = region.scrollLeft <= 1;
+				next.disabled = region.scrollLeft >= max - 1;
+				if (overflow) region.setAttribute("aria-describedby", (describedBy + " " + hint.id).trim());
+				else if (describedBy) region.setAttribute("aria-describedby", describedBy);
+				else region.removeAttribute("aria-describedby");
+			}
+			region.addEventListener("scroll", refresh, { passive: true });
+			if (typeof ResizeObserver !== "undefined") {
+				var observer = new ResizeObserver(refresh);
+				observer.observe(region);
+				observer.observe(table);
+			}
+			refreshers.push(refresh);
+			refresh();
+		});
+		function refreshAll() { refreshers.forEach(function (refresh) { refresh(); }); }
+		if (refreshers.length) {
+			window.addEventListener("resize", refreshAll);
+			document.addEventListener("toggle", refreshAll, true);
+			if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshAll);
+		}
+	})();
 
 	/** Adds navigation/search shortcuts and a help dialog while leaving ordinary text entry unaffected. */
 	(function () {

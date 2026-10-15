@@ -1,11 +1,14 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/?year={{.Year.ID}}" aria-label="Zurück">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Buchungen importieren · {{.Year.Year}}</h2>
 	</div>
 
-	{{if not .Rows}}
+	{{if not .User.CanWrite}}
+	<a class="btn btn--ghost btn--sm" href="/entries/import/sample.csv" download>Beispiel-CSV herunterladen</a>
+	{{else if not .Rows}}
 	<p class="muted small">CSV-Datei auswählen und vor dem Import prüfen. Noch werden keine Buchungen angelegt.</p>
 	<form method="post" action="/entries/import/preview" enctype="multipart/form-data" class="card form">
 		<input type="hidden" name="year_id" value="{{.Year.ID}}">

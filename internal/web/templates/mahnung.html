@@ -48,7 +48,7 @@
 			<a class="btn btn--ghost btn--sm" href="/neighbors/{{.Neighbor.ID}}/mahnung.pdf?year={{.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe={{.Stage}}" target="_blank" rel="noopener">Als PDF</a>
 			{{if not .Open.IsPositive}}
 			<span class="muted small">Kein offener Betrag — ein Versand ist nicht möglich.</span>
-			{{else if and .MailEnabled .NeighborEmail}}
+			{{else if and .User.CanWrite .MailEnabled .NeighborEmail}}
 			<form method="post" action="/neighbors/{{.Neighbor.ID}}/mahnung/email?year={{.Year.ID}}&amp;invoice_id={{.InvoiceID}}&amp;stufe={{.Stage}}" class="beleg__markform"
 				data-confirm="{{.Title}} als PDF an {{.NeighborEmail}} senden?">
 				<button type="submit" class="btn btn--ghost btn--sm">✉ Per E-Mail senden</button>

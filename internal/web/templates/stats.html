@@ -18,7 +18,7 @@
 			{{if or .From .To}}<a class="btn btn--ghost btn--sm" href="/stats?year={{.Year.ID}}">Ganzes Jahr</a>{{end}}
 			<a class="btn btn--ghost btn--sm" href="/stats/export.csv?year={{.Year.ID}}{{.Period}}">Export CSV</a>
 		</div>
-		<p class="muted small">Alle Zahlen und Diagramme unten gelten für den gewählten Zeitraum. Ein Klick auf einen Balken zeigt die Buchungen dahinter.{{if .PeriodActive}} Jahresvergleich und Trendlinien sind ausgeblendet — die zeigen ganze Jahre.{{end}}</p>
+		<p class="muted small">Alle Zahlen und Diagramme unten gelten für den gewählten Zeitraum. In „Umsatz je Nachbar“ und „Umsatz je Tätigkeit“ öffnen verlinkte Balken die zugehörigen Buchungen.{{if .PeriodActive}} Jahresvergleich und Trendlinien sind ausgeblendet — die zeigen ganze Jahre.{{end}}</p>
 	</form>
 
 	<div class="kpigrid">

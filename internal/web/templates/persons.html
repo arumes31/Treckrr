@@ -1,12 +1,13 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	<div class="pagehead">
 		<a class="backbtn" href="/" aria-label="Zurück zur Übersicht">{{template "ic-back"}}</a>
 		<h2 class="pagehead__t">Personen</h2>
 	</div>
 	<p class="muted small">Helfer mit eigenem Stundensatz. Die ÖKL-Richtwerte weisen den Fahrerlohn getrennt von der Maschine aus. Erfasst wird beim Nachbarn unter „Neue Buchung erfassen“ → „Arbeitszeit / Mannstunden“ oder als zusätzliche Person zur Maschinenleistung.</p>
 
-	<details class="card disclosure">
+	{{if .User.CanWrite}}<details class="card disclosure">
 		<summary>+ Person anlegen</summary>
 		<form method="post" action="/personen" class="form">
 			<div class="form__grid">
@@ -19,7 +20,7 @@
 				<input class="input" name="note" placeholder="optional"></label>
 			<button class="btn btn--primary btn--sm" type="submit">Anlegen</button>
 		</form>
-	</details>
+	</details>{{end}}
 
 	{{if .PersonHours}}
 	<h2 class="section-title">Mannstunden {{.Year.Year}}</h2>
@@ -47,7 +48,7 @@
 					<span class="list__sub">{{money .HourlyRate}} je Stunde{{if .Note}} · {{.Note}}{{end}}</span>
 				</div>
 			</div>
-			<details class="disclosure disclosure--plain">
+			{{if $.User.CanWrite}}<details class="disclosure disclosure--plain">
 				<summary>Bearbeiten</summary>
 				<form method="post" action="/personen/{{.ID}}/update" class="form">
 					<div class="form__grid">
@@ -70,7 +71,7 @@
 						<button class="btn btn--danger btn--sm" type="submit">Löschen</button>
 					</form>
 				</div>
-			</details>
+			</details>{{end}}
 		</div>
 		{{end}}
 	</div>

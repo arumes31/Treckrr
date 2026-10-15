@@ -1,5 +1,6 @@
 {{define "content"}}
 <section class="stack">
+	{{template "readonly-notice" .}}
 	{{template "base-workspace" (dict "Base" .Base "Active" "gespanne")}}
 	{{if .Locked}}
 	<div class="flash flash--info">Diese Bemessungsgrundlage ({{.Base.Year}}) ist gesperrt. Gespanne sind schreibgeschützt.</div>
@@ -29,7 +30,7 @@
 				{{range .Machines}} · {{.Name}}{{end}}
 			</p>
 			{{end}}
-			{{if not $.Locked}}
+			{{if and $.User.CanWrite (not $.Locked)}}
 			<form method="post" action="/gespanne" class="form">
 				<input type="hidden" name="base_id" value="{{$.Base.ID}}">
 				<input type="hidden" name="id" value="{{.Gespann.ID}}">
@@ -72,12 +73,12 @@
 		<div class="card empty empty--slim">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.8"/><circle cx="18" cy="18" r="2.4"/><path d="M11.3 16.5h4.3"/><path d="M4.3 12.7V6.5h5.9l2 6.2"/></svg>
 			<span class="empty__title">Noch keine Gespanne angelegt.</span>
-			{{if .Locked}}<span class="empty__sub">Diese Grundlage ist gesperrt – schreibgeschützt.</span>{{else}}<span class="empty__sub">Lege unten das erste Gespann an.</span>{{end}}
+			{{if .Locked}}<span class="empty__sub">Diese Grundlage ist gesperrt – schreibgeschützt.</span>{{else if .User.CanWrite}}<span class="empty__sub">Lege unten das erste Gespann an.</span>{{end}}
 		</div>
 		{{end}}
 	</div>
 
-	{{if not .Locked}}
+	{{if and .User.CanWrite (not .Locked)}}
 	<details class="card disclosure">
 		<summary>+ Gespann hinzufügen</summary>
 		<form method="post" action="/gespanne" class="form">
