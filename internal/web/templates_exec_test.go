@@ -732,7 +732,7 @@ func TestMahnungPagePreservesDocumentAndPaymentActions(t *testing.T) {
 			}
 			page := execPage(t, "mahnung", data)
 			for _, want := range []string{
-				`class="beleg beleg--rechnung"`,
+				`class="beleg beleg--rechnung beleg--reminder"`,
 				"Hof &lt;Bergmann&gt;", "Dorfweg 1", "Testnachbar", "Feldweg 2",
 				models.DunningStageTitle(tc.stage), "Rechnung Nr. 2026-012",
 				"Offener Betrag", "100,00 €", "<strong>" + tc.wantTotal + "</strong>",

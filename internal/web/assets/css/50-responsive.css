@@ -196,7 +196,27 @@
 	.statusrow__label, .tag, .chip2, .badge, .fieldset legend, .dtable thead th,
 	.sharemenu__h, .sharemenu__once, .maildetail__facts dt,
 	.bkp__badge, .bkp__sec, .bkp__lbl, .bkp__next, .bkp__tl,
+	.bkp__meta dt, .bkp__tlbl, .bkp__fm, .bkp__files--compact .bkp__fm,
+	.bkp__files--compact .bkp__fn, .bkp__seg button,
+	.status, .neighbor-account-card__label, .paychip, .btn--xs,
+	.field > span:first-child, input[type="file"].input::file-selector-button,
+	.kpi__label, .delta, .barpair__v, .barpair__yr, .sparktip, .dchart__legend,
+	.drawer__account-hint, .drawer__group-toggle small, .basebar__label,
+	.bcard__date, .yearcard__meta, .cmdk__ic,
 	.opsbar__item strong, .opsbar__item small { font-size: var(--fs-xs); }
+	.bkp__meta dt { overflow-wrap: anywhere; }
+	/* The bottom navigation also remains in use at tablet widths. Desktop rail
+	   typography is already larger and must keep its existing hierarchy. */
+	@media (min-width: 601px) and (max-width: 1023px) {
+		.tabbar__item { font-size: var(--fs-xs); }
+	}
+	/* Reminders contain the same wide settlement table as invoices. Constrain
+	   the sheet, not its columns, without changing the printed document. */
+	.beleg--reminder { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+	.beleg--reminder .beleg__inv-top, .beleg--reminder .beleg__hero-top,
+	.beleg--reminder .beleg__payinfo { flex-wrap: wrap; }
+	.beleg--reminder .beleg__inv-pp { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.beleg--reminder .beleg__payinfo-txt { flex-basis: 14rem; }
 }
 
 /* Later source parts used to overwrite the shared touch target floor. */
