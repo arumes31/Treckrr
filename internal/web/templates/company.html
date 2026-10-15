@@ -34,7 +34,7 @@
 		<label class="field"><span>USt-Satz % (bei Pauschaliert/Regelbesteuert)</span>
 			<input class="input" type="number" step="0.01" min="0" name="vat_rate" value="{{.VATRate}}"></label>
 		<label class="field"><span>Kleinunternehmergrenze (€/Kalenderjahr, 0 = keine Überwachung)</span>
-			<input class="input" name="small_business_limit" inputmode="decimal" value="{{num .SmallBusinessLimit}}"></label>
+			<input class="input" name="small_business_limit" inputmode="decimal" value="{{numInput .SmallBusinessLimit}}"></label>
 		<label class="field"><span>Steuerhinweis auf der Rechnung</span>
 			<textarea class="input" name="tax_note" rows="3">{{.TaxNote}}</textarea></label>
 		</div>
@@ -45,9 +45,9 @@
 		<label class="field"><span>Nachfrist auf Mahnungen (Tage, „zahlbar bis")</span>
 			<input class="input" type="number" min="0" max="365" step="1" name="dunning_grace_days" value="{{.DunningGraceDays}}" placeholder="14"></label>
 		<label class="field"><span>Mahnspesen 1. Mahnung (€) – 0 = keine</span>
-			<input class="input" name="dunning_fee_1" inputmode="decimal" value="{{num .DunningFee1}}" readonly></label>
+			<input class="input" name="dunning_fee_1" inputmode="decimal" value="{{numInput .DunningFee1}}" readonly></label>
 		<label class="field"><span>Mahnspesen 2. Mahnung (€) – 0 = keine</span>
-			<input class="input" name="dunning_fee_2" inputmode="decimal" value="{{num .DunningFee2}}" readonly></label>
+			<input class="input" name="dunning_fee_2" inputmode="decimal" value="{{numInput .DunningFee2}}" readonly></label>
 		<p class="muted small">Gespeicherte Mahnspesen werden derzeit nicht automatisch gebucht und deshalb nicht angefordert. Mahnungen verwenden ausschließlich den offenen Rechnungsbetrag.</p>
 		</div>
 		</details>
@@ -55,7 +55,7 @@
 			<summary>Skonto <span class="muted small">{{num .SkontoPct}} % · {{.SkontoDays}} Tage</span></summary>
 		<div class="form__grid form__grid--two">
 		<label class="field"><span>Skonto-Angebot (%) – 0 = keine Klausel auf der Rechnung</span>
-			<input class="input" name="skonto_pct" inputmode="decimal" value="{{num .SkontoPct}}"></label>
+			<input class="input" name="skonto_pct" inputmode="decimal" value="{{numInput .SkontoPct}}"></label>
 		<label class="field"><span>Skonto-Frist (Tage ab Rechnungsdatum)</span>
 			<input class="input" type="number" min="0" max="90" step="1" name="skonto_days" value="{{.SkontoDays}}"></label>
 		</div>
@@ -73,9 +73,9 @@
 			<summary>Anfahrt <span class="muted small">{{money .TravelFlat}} pauschal · {{money .TravelPerKm}}/km</span></summary>
 		<div class="form__grid form__grid--two">
 		<label class="field"><span>Anfahrtspauschale (€ je Einsatz, 0 = kein Zuschlag)</span>
-			<input class="input" name="travel_flat" inputmode="decimal" value="{{num .TravelFlat}}"></label>
+			<input class="input" name="travel_flat" inputmode="decimal" value="{{numInput .TravelFlat}}"></label>
 		<label class="field"><span>Kilometergeld (€ je km, 0 = kein Zuschlag)</span>
-			<input class="input" name="travel_per_km" inputmode="decimal" value="{{num .TravelPerKm}}"></label>
+			<input class="input" name="travel_per_km" inputmode="decimal" value="{{numInput .TravelPerKm}}"></label>
 		</div>
 		</details>
 		<details class="disclosure form-details" {{if or .MailSignature .MailCC}}open{{end}}>

@@ -518,6 +518,50 @@ func TestCompanyPageRenders(t *testing.T) {
 	})
 }
 
+func TestCompanyDecimalInputsPreserveValues(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		company models.Company
+		want    map[string]string
+	}{
+		{
+			name: "large and fractional amounts",
+			company: models.Company{
+				SmallBusinessLimit: decimal.NewFromInt(55000),
+				DunningFee1:        decimal.RequireFromString("1234.56"),
+				DunningFee2:        decimal.NewFromInt(1000),
+				SkontoPct:          decimal.RequireFromString("2.5"),
+				TravelFlat:         decimal.RequireFromString("1000000.01"),
+				TravelPerKm:        decimal.RequireFromString("1234.56"),
+			},
+			want: map[string]string{
+				"small_business_limit": "55000", "dunning_fee_1": "1234.56",
+				"dunning_fee_2": "1000", "skonto_pct": "2.5",
+				"travel_flat": "1000000.01", "travel_per_km": "1234.56",
+			},
+		},
+		{
+			name: "zero amounts",
+			want: map[string]string{
+				"small_business_limit": "0", "dunning_fee_1": "0",
+				"dunning_fee_2": "0", "skonto_pct": "0",
+				"travel_flat": "0", "travel_per_km": "0",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := execPage(t, "company", map[string]any{"Company": tc.company})
+			for name, want := range tc.want {
+				input := regexp.MustCompile(`<input\b[^>]*\bname="` + regexp.QuoteMeta(name) + `"[^>]*>`).FindString(page)
+				value := regexp.MustCompile(`\bvalue="([^"]*)"`).FindStringSubmatch(input)
+				if len(value) != 2 || value[1] != want {
+					t.Errorf("%s input = %s, want value %q", name, input, want)
+				}
+			}
+		})
+	}
+}
+
 func TestYearClosingRenders(t *testing.T) {
 	// A clean year and an open one, so both branches of every check render.
 	execPage(t, "year_closing", map[string]any{

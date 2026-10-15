@@ -164,7 +164,8 @@ func TestReadOnlyWorkflowPagesDoNotOfferMutations(t *testing.T) {
 		"User": models.User{Role: models.RoleViewer}, "Source": models.BillingYear{ID: 1, Year: 2026},
 		"TargetYear": 2027, "OpenAmount": decimal.Zero, "CreditAmount": decimal.Zero,
 	})
-	if regexp.MustCompile(`<form[^>]+action="/years/`).MatchString(rollover) || !strings.Contains(rollover, "Nur Lesezugriff") {
+	hasNotice := strings.Count(rollover, "data-readonly-notice") == 1 && strings.Contains(rollover, "Nur-Lese-Zugriff")
+	if regexp.MustCompile(`<form[^>]+action="/years/`).MatchString(rollover) || !hasNotice {
 		t.Error("read-only rollover offers a write action or lacks explanation")
 	}
 	mail := execPage(t, "mail_outbox", map[string]any{

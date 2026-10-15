@@ -4,7 +4,7 @@
 		<a class="backbtn" href="/years/{{.Source.ID}}/abschluss" aria-label="Zurück zur Abschluss-Prüfung">{{template "ic-back"}}</a>
 		<div><h2 class="pagehead__t">Jahreswechsel {{.Source.Year}} → {{.TargetYear}}</h2><p class="muted small">Geführt und wiederaufnehmbar: erledigte Schritte werden bei Wiederholung übersprungen.</p></div>
 	</div>
-	{{if not .User.CanWrite}}<p class="notice">Nur Lesezugriff: Du kannst den Jahreswechsel prüfen, aber keine Schritte ausführen.</p>{{end}}
+	{{template "readonly-notice" .}}
 
 	<div class="rollgrid">
 		<article class="card stack stack--tight">

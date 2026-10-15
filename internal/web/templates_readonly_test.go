@@ -74,6 +74,9 @@ func TestReadOnlyPagesPreserveReadsWithoutMutationControls(t *testing.T) {
 			"Persons": []models.Person{{ID: 7, Name: "Testhelfer", HourlyRate: d(25)}},
 		}},
 		{"closing", "year_closing", "/years/1/status", "Alle Prüfungen anzeigen", nil},
+		{"rollover", "year_rollover", "/years/1/status", `/years/1/abschluss`, map[string]any{
+			"Source": year, "TargetYear": 2027, "OpenAmount": d(0), "CreditAmount": d(0),
+		}},
 		{"recurring", "recurring", "/recurring/7/update", "Nächste Termine", map[string]any{
 			"Rules": []map[string]any{{"ID": 7, "NeighborName": neighbor.Name, "NextRun": day, "Active": true, "Template": map[string]any{"Summary": "Testserie"}}},
 		}},

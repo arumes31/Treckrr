@@ -79,6 +79,7 @@ func TestReadOnlyRenderingAndMutationGuardIntegration(t *testing.T) {
 		"/prices?base=" + itoa64(e.baseID64) + "&mode=edit&section=machines",
 		"/gespanne?base=" + itoa64(e.baseID64), "/recurring", "/entries/import?year=" + yid,
 		"/payments/import", "/buchungen?year=" + yid, "/years/" + yid + "/abschluss",
+		"/years/" + yid + "/wechsel",
 		"/years/" + yid + "/issue-all", "/neighbors/" + nid + "?year=" + yid + "&view=booking",
 		"/neighbors/" + nid + "?year=" + yid + "&view=payments",
 		fmt.Sprintf("/entries/%d/edit", before.ID),
