@@ -130,12 +130,14 @@ func accountKey(username string) string {
 func shareKey(ip string) string { return "share:" + rateLimitIP(ip) }
 
 // shareBlocked reports whether this client has produced enough share-token misses
-// to look like it is scanning.
+// to look like it is scanning. It fails closed: the public share endpoint is
+// unauthenticated, and resolving the token needs the same database anyway, so
+// refusing while the limiter is unavailable costs nothing a working DB wouldn't.
 func (l *loginLimiter) shareBlocked(ctx context.Context, ip string) bool {
 	b, err := l.store.RateLimitBlocked(ctx, shareKey(ip), shareMaxMisses, shareWindow)
 	if err != nil {
-		slog.Warn("ratelimit degraded (share)", "err", sanitizeLog(err.Error()))
-		return false // fail open, but visibly
+		slog.Warn("ratelimit degraded (share), refusing", "err", sanitizeLog(err.Error()))
+		return true
 	}
 	return b
 }
