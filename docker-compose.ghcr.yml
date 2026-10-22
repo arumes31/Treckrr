@@ -2,14 +2,19 @@
 # (published by .github/workflows/docker-publish.yml for amd64 + arm64).
 # No local build needed:
 #   docker compose -f docker-compose.ghcr.yml up -d
-# Pin a release instead of latest by setting TRECKRR_TAG. Two kinds exist:
+# TRECKRR_TAG is REQUIRED — there is no :latest default any more. Two kinds exist:
 #   TRECKRR_TAG=1.2          a v* release tag
-#   TRECKRR_TAG=sha-abc1234  the immutable per-build tag every main publish gets
-# Running :latest means every pull may silently change the deployment; a pinned
+#   TRECKRR_TAG=sha-abc1234  the per-build tag every main publish gets
+# For a fully immutable deployment pin the digest instead:
+#   TRECKRR_TAG=1.2@sha256:<digest>
+# Running :latest meant every pull could silently change the deployment; a pinned
 # tag makes "which build is prod running" a fact instead of a guess.
+# TRECKRR_IMAGE defaults to this repository's own GHCR namespace.
 services:
   db:
-    image: postgres:16-alpine
+    # Pinned by digest (same as compose.e2e.yml) so every pull is the reviewed
+    # image; Dependabot's docker-compose ecosystem keeps it current.
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     container_name: treckrr-db
     restart: unless-stopped
     # Kept in step with docker-compose.yml — this file is the DOCUMENTED
@@ -34,8 +39,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-treckrr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-treckrr-db-password-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-treckrr}
+      # POSTGRES_USER is a superuser. On the FIRST start of an empty volume,
+      # deploy/postgres-init creates APP_DB_USER as a non-superuser that owns only
+      # this database; point DATABASE_URL at that role. Empty = not created.
+      APP_DB_USER: ${APP_DB_USER:-}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-treckrr} -d ${POSTGRES_DB:-treckrr}"]
       interval: 10s
@@ -43,7 +54,7 @@ services:
       retries: 5
 
   app:
-    image: ghcr.io/d0linger/treckrr:${TRECKRR_TAG:-latest}
+    image: ${TRECKRR_IMAGE:-ghcr.io/arumes31/treckrr}:${TRECKRR_TAG:?Set TRECKRR_TAG to a release (e.g. 1.2) or sha-<commit> tag}
     stop_grace_period: 120s
     pull_policy: always
     container_name: treckrr-app

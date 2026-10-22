@@ -7,6 +7,13 @@ module github.com/d0linger/treckrr
 // tests and ships is pinned separately (Dockerfile, Makefile, CI GO_VERSION).
 go 1.26.6
 
+// The toolchain line only steers GOTOOLCHAIN=auto (the default): a self-builder
+// on an older local Go gets the patched release downloaded instead of shipping a
+// binary with known net/http, html/template and crypto/tls advisories. Analyzers
+// running with GOTOOLCHAIN=local ignore it, so the floor above still applies to
+// them. Keep it in step with GO_VERSION in CI and the Dockerfile.
+toolchain go1.27.3
+
 require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/jackc/pgx/v5 v5.11.0

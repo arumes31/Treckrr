@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:16-alpine
+    # Pinned by digest (same as compose.e2e.yml) so every pull is the reviewed
+    # image; Dependabot's docker-compose ecosystem keeps it current.
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     container_name: treckrr-db
     restart: unless-stopped
     security_opt:
@@ -34,8 +36,14 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-treckrr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-treckrr-db-password-change-me}
       POSTGRES_DB: ${POSTGRES_DB:-treckrr}
+      # POSTGRES_USER is a superuser. On the FIRST start of an empty volume,
+      # deploy/postgres-init creates APP_DB_USER as a non-superuser that owns only
+      # this database; point DATABASE_URL at that role. Empty = not created.
+      APP_DB_USER: ${APP_DB_USER:-}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-treckrr} -d ${POSTGRES_DB:-treckrr}"]
       interval: 10s
@@ -151,13 +159,13 @@ services:
     # protects is not a backup (e.g. the S3 destination below).
     volumes:
       - backups:/backups
-    # HOST_BIND stays 0.0.0.0 so a proxy on ANOTHER host keeps working — changing
-    # the default would break exactly that deployment. Set HOST_BIND=127.0.0.1
-    # when the reverse proxy runs on this same host: the backend port is then
-    # unreachable from the network and forwarded-header spoofing is impossible by
-    # construction, rather than only bounded by TRUSTED_PROXIES.
+    # This profile defaults to plain HTTP (ALLOW_INSECURE_HTTP above), so the
+    # port binds to loopback unless HOST_BIND says otherwise: a bare
+    # `docker compose up` must not serve logins and session cookies in cleartext
+    # to the whole network. Set HOST_BIND=0.0.0.0 only for a trusted dev LAN, or
+    # for a TLS reverse proxy on ANOTHER host (with the secure proxy settings).
     ports:
-      - "${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8080}:${APP_PORT:-8080}"
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-8080}:${APP_PORT:-8080}"
 
   # Backups are now produced by the app itself (encrypted, AES-256-GCM):
   # on-demand from the admin Backup panel and on a schedule (cron, set in the panel).
