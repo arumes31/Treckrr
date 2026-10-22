@@ -10,6 +10,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -1211,6 +1212,19 @@ func (s *Service) verifyRestorable(ctx context.Context, enc []byte) error {
 // restore, where the key is re-entered rather than taken from the environment.
 func DecryptWith(enc []byte, keySecret string) ([]byte, error) {
 	return decrypt(enc, []byte(keySecret))
+}
+
+// MatchesKey reports whether keySecret is this instance's BACKUP_ENCRYPTION_KEY.
+// The GUI restore requires it: a key of the admin's own choosing would let them
+// upload a crafted archive, and pg_restore runs whatever SQL its TOC carries.
+// Archives under a foreign key go through the offline CLI restore instead.
+func (s *Service) MatchesKey(keySecret string) bool {
+	if s.secret == nil || keySecret == "" {
+		return false
+	}
+	k := []byte(keySecret)
+	return subtle.ConstantTimeCompare(k, s.secret) == 1 ||
+		subtle.ConstantTimeCompare(k, bytes.TrimSpace(s.secret)) == 1
 }
 
 // Restore decrypts a backup file (with the service key) and restores it. CLI use.
