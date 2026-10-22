@@ -81,6 +81,21 @@ updates:
     commit-message:
       prefix: "docker"
 
+  # Digest-pinned images in docker-compose.yml / docker-compose.ghcr.yml
+  # (postgres). Without this the pins would silently go stale.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Vienna"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "docker"
+
   # Keep the browser runtime digest refreshed. Its version must match the exact
   # @playwright/test version in e2e/package.json when accepting an update.
   - package-ecosystem: "docker"

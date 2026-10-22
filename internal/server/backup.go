@@ -542,8 +542,17 @@ func (s *Server) handleBackupValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "backup_validate", "backup", 0, fmt.Sprintf("Upload validiert · %d Objekte", objects))
-	reply(true, fmt.Sprintf("Gültig ✓ — entschlüsselt, %d Objekte im Archiv.", objects))
+	msg := fmt.Sprintf("Gültig ✓ — entschlüsselt, %d Objekte im Archiv.", objects)
+	if !s.backup.MatchesKey(key) {
+		msg += " " + foreignKeyRestoreMsg
+	}
+	reply(true, msg)
 }
+
+// foreignKeyRestoreMsg explains why an archive under another key cannot be
+// restored from the panel and points at the offline CLI path.
+const foreignKeyRestoreMsg = "Über die Oberfläche lassen sich nur Backups mit dem BACKUP_ENCRYPTION_KEY dieser Instanz einspielen. " +
+	"Backups mit einem anderen Schlüssel bitte per CLI wiederherstellen (docker compose run --rm --no-deps app restore <datei.dump.enc>, mit diesem Schlüssel als BACKUP_ENCRYPTION_KEY)."
 
 // handleBackupRestore validates an uploaded backup and, only after the operator
 // re-enters the key and types RESTORE, overwrites the live database.
@@ -575,6 +584,15 @@ func (s *Server) backupUpload(w http.ResponseWriter, r *http.Request, doRestore 
 	}
 	if len(key) > maxBackupInputLen {
 		s.setFlash(w, r, "error", "Backup-Schlüssel darf höchstens 100 Zeichen lang sein.")
+		redirect(w, r, "/admin/backup")
+		return
+	}
+	// Only archives under this instance's own key may be restored from the GUI.
+	// A self-chosen key would let any admin feed a crafted archive to pg_restore,
+	// which runs arbitrary SQL as the app's database role.
+	if doRestore && !s.backup.MatchesKey(key) {
+		s.audit(r, "backup_restore_failed", "backup", 0, "Schlüssel entspricht nicht dem BACKUP_ENCRYPTION_KEY dieser Instanz")
+		s.setFlash(w, r, "error", foreignKeyRestoreMsg)
 		redirect(w, r, "/admin/backup")
 		return
 	}
@@ -614,8 +632,11 @@ func (s *Server) backupUpload(w http.ResponseWriter, r *http.Request, doRestore 
 	}
 	if !doRestore {
 		s.audit(r, "backup_validate", "backup", 0, fmt.Sprintf("Upload validiert · %d Objekte", objects))
-		s.setFlash(w, r, "success",
-			fmt.Sprintf("Backup gültig ✓ — entschlüsselt, %d Objekte im Archiv. Zum Einspielen unten RESTORE eintippen.", objects))
+		msg := fmt.Sprintf("Backup gültig ✓ — entschlüsselt, %d Objekte im Archiv. Zum Einspielen unten RESTORE eintippen.", objects)
+		if !s.backup.MatchesKey(key) {
+			msg = fmt.Sprintf("Backup gültig ✓ — entschlüsselt, %d Objekte im Archiv. %s", objects, foreignKeyRestoreMsg)
+		}
+		s.setFlash(w, r, "success", msg)
 		redirect(w, r, "/admin/backup")
 		return
 	}

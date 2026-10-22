@@ -99,12 +99,15 @@ Open **http://localhost:8080** and log in as `admin`. You are forced to change t
 
 ```bash
 TRUSTED_PROXIES='REPLACE_WITH_PROXY_SOURCE_IP_OR_CIDR' \
+TRECKRR_TAG='sha-abc1234' \
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
 The GHCR profile is the production/TLS path: it forces Secure cookies, enables
-proxy trust, and requires `TRUSTED_PROXIES`. Pin a release rather than tracking
-`latest` with `TRECKRR_TAG=1.4`.
+proxy trust, and requires `TRUSTED_PROXIES`. `TRECKRR_TAG` is required too —
+there is no `latest` default: pin a release (`1.4`), a per-build `sha-<commit>`
+tag, or a digest (`sha-abc1234@sha256:…`). `TRECKRR_IMAGE` overrides the
+registry namespace (default `ghcr.io/arumes31/treckrr`).
 
 ---
 
@@ -116,11 +119,12 @@ proxy trust, and requires `TRUSTED_PROXIES`. Pin a release rather than tracking
 | **SESSION_SECRET** | Signing key, min. 32 chars, not the placeholder | — | Yes |
 | **ADMIN_PASSWORD** | Bootstrap admin password, changed at first login | — | Yes |
 | **POSTGRES_PASSWORD** | Database password; must match `DATABASE_URL` | — | Yes |
-| **POSTGRES_USER** / **POSTGRES_DB** | Database role and name | `treckrr` | No |
+| **POSTGRES_USER** / **POSTGRES_DB** | Bootstrap superuser and database name | `treckrr` | No |
+| **APP_DB_USER** / **APP_DB_PASSWORD** | Non-superuser role created on the first start of an empty volume; point `DATABASE_URL` at it (see [Database role](#database-role)) | — (`.env.example`: `treckrr_app`) | No |
 | **ADMIN_USERNAME** | Bootstrap admin login name. Created only while no active admin exists; a restart never promotes an existing account with this name | `admin` | No |
 | **APP_PORT** | Port inside the container | `8080` | No |
 | **HOST_PORT** | Published port on the host | `8080` | No |
-| **HOST_BIND** | Host interface to bind; `127.0.0.1` only reaches a proxy on the host itself | `0.0.0.0` | No |
+| **HOST_BIND** | Host interface to bind; `127.0.0.1` only reaches a proxy on the host itself | `127.0.0.1` (local Compose, plain HTTP) / `0.0.0.0` (GHCR) | No |
 | **COOKIE_SECURE** | Force the `Secure` cookie flag | `true` (local Compose overrides to `false`) | No |
 | **ALLOW_INSECURE_HTTP** | Explicit direct-HTTP opt-in for local development only | `false` (local Compose sets `true`) | No |
 | **TRUST_PROXY** | Honour `X-Forwarded-For` / `-Proto` from a reverse proxy | `false` | No |
@@ -217,7 +221,11 @@ Do not mirror the volume wholesale: `.treckrr-plain-*.tmp` files are private but
 temporarily contain plaintext database archives during backup and restore work.
 
 **Restore** is available to administrators in the Backup panel and as an offline
-CLI command. Both require typed confirmation. For the CLI, stop **all** app
+CLI command. Both require typed confirmation. The panel only restores archives
+encrypted with this instance's own `BACKUP_ENCRYPTION_KEY` (the key typed in the
+form must be that key); an archive under any other key — for example from a
+different installation — goes through the CLI, run with that key as
+`BACKUP_ENCRYPTION_KEY`. For the CLI, stop **all** app
 instances and external schedulers first; leave PostgreSQL running:
 
 ```bash
@@ -423,7 +431,36 @@ multipart uploads spill there, and a tmpfs is RAM: uncapped, a large upload
 writes its way into host memory instead of failing cleanly.
 
 The database port is **not published**. The app port is, on `HOST_BIND`
-(default `0.0.0.0`); set it to `127.0.0.1` if your proxy is local.
+(default `127.0.0.1` for the plain-HTTP source-build profile, `0.0.0.0` for the
+GHCR/TLS profile); keep it on `127.0.0.1` if your proxy is local.
+
+### Database role
+
+The `postgres` image makes `POSTGRES_USER` a **superuser**. Connected as that
+role, any SQL-level bug or crafted restore archive could run `COPY … FROM
+PROGRAM` inside the database container, so the app should use a separate role.
+Set `APP_DB_USER` / `APP_DB_PASSWORD` (as in `.env.example`) and put that role
+in `DATABASE_URL`; on the **first** start of an empty volume,
+`deploy/postgres-init/10-app-role.sh` creates it as `NOSUPERUSER NOCREATEDB
+NOCREATEROLE` and makes it owner of the database and its `public` schema —
+nothing more. The app logs a warning at startup while it still connects as a
+superuser.
+
+Existing installations keep working unchanged. To convert one, take a backup,
+then create the role and hand it the app's objects (as `POSTGRES_USER`):
+
+```sql
+CREATE ROLE treckrr_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '…';
+ALTER DATABASE treckrr OWNER TO treckrr_app;
+ALTER SCHEMA public OWNER TO treckrr_app;
+-- then for every table, sequence, view and function in public:
+-- ALTER TABLE public.<name> OWNER TO treckrr_app;  (etc.)
+```
+
+`REASSIGN OWNED BY treckrr` does not work here because the bootstrap superuser
+also owns system objects. After switching `DATABASE_URL`, restart the app and
+check the warning is gone. `BACKUP_REHEARSE_URL` needs `CREATEDB`, so keep it on
+a separate rehearsal role.
 
 Everything works the same under rootless Docker or Podman.
 
