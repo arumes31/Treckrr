@@ -62,7 +62,9 @@ Noppanschoftshilfe.xlsx
 /graphify-out/
 
 # Machine-local audit, review, and critique artifacts
-/docs/reviews/
+/docs/
+.stfolder/
+.stignore
 /.impeccable/critique/
 /e2e/review/
 /e2e/tests/audit_report.spec.ts

@@ -59,9 +59,9 @@ neighbour that satisfies § 11 UStG.
 - **Rate bases** per year: tractors, load levels, implements and rigs. Compare two bases side by side, and lock one so its prices stop moving.
 - **Recalculation**: after a rate change, preview every affected booking old → new and apply it in one step. Bookings on an already-issued invoice are left alone.
 - **Billing years** per neighbour with ledger positions, reversible payment cancellations, carry-forward between years, carrying members over from last year, plus archiving and GDPR anonymisation.
-- **Invoices** frozen at issue time (§ 11 UStG snapshot) with sequential numbering, storno, credit notes, PDF, EPC QR code and optional e-mail with send tracking. **Sammel-Festschreibung** issues a whole year at once, showing per neighbour what would be issued, blocked or skipped.
+- **Invoices** frozen at issue time (§ 11 UStG snapshot) with sequential numbering, storno, credit notes, PDF, ebInterface XML e-invoice export (`/documents/{id}/ebinterface.xml`), EPC QR code and optional e-mail with send tracking. **Sammel-Festschreibung** issues a whole year at once, showing per neighbour what would be issued, blocked or skipped.
 - **Austrian VAT modes**: Kleinunternehmer (no VAT shown), flat-rate § 22, or standard taxation — company data, IBAN and payment terms flow into every document.
-- **Public receipt links** — expiring, revocable, hash-stored tokens so a neighbour can view their invoice without an account.
+- **Public neighbour portal** — expiring, revocable, hash-stored links (`/s/portal/{token}`) so a neighbour can view their invoice, download PDFs, access EPC QR codes, and provide feedback without an account.
 - **Account statement** per neighbour across all years, as a page and as PDF.
 - **Dunning** (Mahnwesen): overdue list, printable reminder, PDF, EPC QR, CSV export.
 - **Import/export**: CSV bookings with preview, bank statement payment matching, per-neighbour GDPR export, year and neighbour CSV.
@@ -511,6 +511,10 @@ Report vulnerabilities privately — see [SECURITY.md](SECURITY.md).
 | **DeadCode** | unreachable-function detection |
 | **GODep / GitSecret** | dependency review on PRs, gitleaks secret scanning |
 | **Docker** | multi-arch image (amd64 + arm64) to GHCR — **gated on the tests passing**, so a red build publishes nothing |
+| **Billing Fuzz** | Automated fuzz testing validating invoice calculations and pricing invariants |
+| **Billing Parity** | Parity checks ensuring billing calculations match reference models |
+| **Release Impact** | Analyzes database migrations and release compatibility impacts |
+| **SBOM** | CycloneDX software bill of materials generation |
 
 Every action is pinned to a full commit SHA, base images are pinned by digest,
 and workflow tokens are least-privilege (`packages: write` only on the job that
