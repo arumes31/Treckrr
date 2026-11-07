@@ -77,6 +77,8 @@ func scratchUnmigratedStore(t *testing.T) (*store.Store, *sql.DB) {
 }
 
 // scratchBookingFixture creates the standard fixed-year booking fixture.
+var _ = scratchBookingFixture
+
 func scratchBookingFixture(t *testing.T) (*store.Store, *sql.DB, int64, int64) {
 	return scratchBookingFixtureYear(t, 2026)
 }
