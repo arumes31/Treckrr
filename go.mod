@@ -16,14 +16,14 @@ toolchain go1.27.3
 
 require (
 	github.com/go-webauthn/webauthn v0.18.2
-	github.com/jackc/pgx/v5 v5.11.0
-	github.com/minio/minio-go/v7 v7.3.0
+	github.com/jackc/pgx/v5 v5.12.0
+	github.com/minio/minio-go/v7 v7.4.1
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/shopspring/decimal v1.5.0
-	github.com/signintech/gopdf v0.38.1
+	github.com/shopspring/decimal v1.6.0
+	github.com/signintech/gopdf v0.38.4
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.47.0
-	golang.org/x/net v0.60.0
+	golang.org/x/net v0.62.0
 	rsc.io/qr v0.2.0
 )
 
@@ -38,7 +38,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
